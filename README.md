@@ -7,6 +7,19 @@ code completion, searchable snippets, automatic class-diagram layout and
 an integrated JDK selector. Current version: **5.5.3-light**.
 This is not an official BlueJ release.
 
+## What Changes In Light
+
+Compared with BlueJ 5.5.0, light focuses on local Java editing and compilation.
+
+| Area | Improvement |
+| --- | --- |
+| Editor | Incremental text updates, cached longest line and scope decorations limited to visible rows reduce unnecessary work, especially during distant scroll jumps. Search highlights remain visible after scrolling. |
+| Completion | Keeps BlueJ's native Java engine; prioritizes local variables and parameters, avoids stale requests and loads selected-item documentation on demand. Java suggestions and snippets have distinct presentation. |
+| Snippets | 17 configurable templates, searchable previews, context filters and linked fields navigated with `Tab`. A help catalogue lists the available templates. |
+| Class diagram | ELK-based layout repositions classes and routes visible connections to reduce overlaps and crossings, with undo/redo. |
+| Java runtime | Select any compatible installed JDK 21 x64 in Preferences, including a return to the bundled JDK; apply the choice at restart. |
+| Portable use | Preferences, snippets and JDK selection stay in the application's `data` folder. |
+
 ## Installation
 
 Download from [Releases](https://github.com/lellomele/BlueJ-light/releases/latest).
@@ -36,11 +49,23 @@ The JDK selector does not change `JAVA_HOME`, `PATH` or other applications.
 Customize snippets using `snippets.properties` in the preferences folder
 shown in About; the file shipped in `app` provides examples.
 
+## Exclusions And Scope
+
+| Component | Scope and reason |
+| --- | --- |
+| Telemetry and usage statistics | Removed to avoid collecting or sending research events, source snapshots and startup usage data. |
+| Team / integrated Git | Removed to focus on local Java projects and avoid the Git/SSH dependency stack. Existing project Git/SVN metadata is preserved; external Git tools remain usable. |
+| Greenfoot | Excluded from the build: it is a separate teaching environment, not needed by this Java-focused application. |
+| Submitter | The optional email/FTP project-submission extension is outside the editing workflow. It is omitted because this distribution does not provide its matching sources. |
+
+**Stride is not fully removed:** shared internal support remains for compatibility,
+but Stride-specific interface components are created only when a Stride editor opens.
+Java compilation, debugging, the object bench and JUnit support remain available.
+Official update checks and notices also remain: light is not an entirely network-free application.
+
 ## Limits
 
-Telemetry, usage statistics, Team/Git and Submitter are excluded. Official
-update checks and notices remain. Greenfoot is not built; internal Stride
-support remains. Completion uses BlueJ's native engine. Very large files
+Completion does not use an external language server. Very large files
 may still take time to open; complex diagrams can retain crossing connections.
 Manual diagram changes invalidate automatic routes and layout undo.
 
