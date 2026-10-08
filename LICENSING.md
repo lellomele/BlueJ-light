@@ -1,57 +1,50 @@
-# Licenze E Sorgenti
+# Licensing And Sources / Licenze E Sorgenti
 
-BlueJ light 5.5.2 e' una versione modificata indipendente di BlueJ 5.5.0.
-Il codice BlueJ e le modifiche BlueJ light mantengono la GNU GPL versione 2
-con Classpath Exception, riportata integralmente in [LICENSE.txt](LICENSE.txt).
-I copyright originali restano validi. Le modifiche nei sorgenti sono identificate
-con avvisi datati; gli avvisi dell'icona originale sono conservati in
-[bluej/icons/license.txt](bluej/icons/license.txt) e
-[bluej/icons/CREDITS.txt](bluej/icons/CREDITS.txt).
+## English
 
-La Classpath Exception consente il collegamento con moduli indipendenti sotto
-le rispettive licenze; non elimina gli obblighi sui sorgenti BlueJ modificati.
-Le librerie di terze parti restano separate nei loro JAR, senza modifiche.
+BlueJ light is an independent modified version of BlueJ 5.5.0. The application
+retains **GPLv2 with Classpath Exception**, including original copyright notices
+and dated modification notices. The exception permits linking independent
+modules under their own licences; it does not remove source obligations for
+the modified BlueJ code. Icon credits are retained in `bluej/icons`.
 
-## Sorgenti Corrispondenti
+The [5.5.3 release](https://github.com/lellomele/BlueJ-light/releases/tag/v5.5.3-light)
+includes application sources, Temurin/OpenJDK 21.0.6+7 sources, complete OpenJFX
+23.0.2 sources and dependency sources with version/provenance inventories.
+`SHA256SUMS.txt` identifies the distributed files. Library JARs are unmodified.
 
-La [release 5.5.2](https://github.com/lellomele/BlueJ-light/releases/tag/v5.5.2-light)
-distribuisce i pacchetti Windows insieme a:
+## Italiano
 
-- `BlueJ-light-5.5.2-source.zip`: sorgenti dell'applicazione, launcher e installer.
-- `OpenJDK21U-jdk-sources_21.0.6_7.tar.gz`: sorgenti ufficiali Temurin/OpenJDK
-  21.0.6+7, compresi VM, librerie e strumenti; per portable e installer completo.
-- `OpenJFX-23.0.2-sources.zip`: sorgenti OpenJFX 23.0.2-ga, inclusi i componenti nativi.
-- `BlueJ-light-5.5.2-dependency-sources.zip`: sorgenti delle librerie incluse,
-  con inventario delle versioni, provenienza e impronte SHA-256.
+BlueJ light è una versione modificata indipendente di BlueJ 5.5.0. Mantiene la
+**GPLv2 con Classpath Exception**, i copyright originali e gli avvisi datati delle
+modifiche. L'eccezione consente il collegamento con moduli indipendenti sotto le
+rispettive licenze; non elimina gli obblighi sui sorgenti BlueJ modificati.
+I crediti delle icone sono conservati in `bluej/icons`.
 
-I binari Inno Setup conservano i propri avvisi e indirizzi originali; la licenza
-del motore installer e' inclusa in `bluej/doc/thirdpartylicenses/Inno-Setup.txt`.
-Il launcher nativo senza JDK viene compilato con GCC/MinGW e usa la GCC Runtime
-Library Exception per i componenti di runtime collegati staticamente.
+La [release 5.5.3](https://github.com/lellomele/BlueJ-light/releases/tag/v5.5.3-light)
+include i sorgenti dell'applicazione, di Temurin/OpenJDK 21.0.6+7, di OpenJFX
+23.0.2 e delle dipendenze, con inventari di versione e provenienza.
+`SHA256SUMS.txt` identifica i file distribuiti. I JAR delle librerie non sono modificati.
 
-## Componenti Principali
+## Components / Componenti
 
-| Componente | Versione | Licenza |
+| Component / Componente | Version / Versione | License / Licenza |
 | --- | --- | --- |
-| BlueJ e icona originale | Base 5.5.0 | GPLv2 con Classpath Exception |
-| Temurin/OpenJDK | 21.0.6+7 | GPLv2 con Classpath Exception e avvisi in `runtime/legal` |
-| OpenJFX | 23.0.2 | GPLv2 con Classpath Exception; ulteriori avvisi dei componenti nativi |
+| BlueJ and original icon / icona originale | Base 5.5.0 | GPLv2 + Classpath Exception |
+| Temurin/OpenJDK | 21.0.6+7 | GPLv2 + Classpath Exception; `runtime/legal` |
+| OpenJFX | 23.0.2 | GPLv2 + Classpath Exception; native component notices / avvisi nativi |
 | Eclipse Layout Kernel | 0.11.0 | EPL 2.0 |
 | Eclipse Modeling Framework | 2.12.0 | EPL 1.0 |
 | Eclipse Xbase | 2.36.0 | EPL 2.0 |
 | XOM | 1.3.9 | LGPL 2.1 |
-| JNA | 5.7.0 | Apache 2.0, nell'alternativa di licenza prevista dal progetto |
+| JNA | 5.7.0 | Apache 2.0 licensing alternative / alternativa di licenza |
 | Inno Setup | 7.1.0 | Inno Setup License |
+| GCC/MinGW runtime | Build toolchain / toolchain di compilazione | GCC Runtime Library Exception and retained notices / avvisi conservati |
 
-I testi integrali delle licenze e gli avvisi sono in
-`bluej/doc/thirdpartylicenses`, `bluej/doc/THIRDPARTYLICENSE.txt`,
-`bluej/doc/LIGHT-THIRDPARTY.txt` e nei JAR originali. Gli avvisi upstream
-storici possono citare versioni precedenti: l'inventario distribuito con i
-sorgenti delle dipendenze identifica le versioni effettivamente incluse.
-I termini completi dei singoli componenti prevalgono su questo riepilogo.
+Full terms / Testi integrali: [LICENSE.txt](LICENSE.txt),
+`bluej/doc/thirdpartylicenses`, `bluej/doc/THIRDPARTYLICENSE.txt`, `bluej/doc/LIGHT-THIRDPARTY.txt`
+and original JARs / JAR originali. Historical upstream notices may cite older
+versions; the source inventory records the shipped versions. / Gli avvisi
+storici possono citare versioni precedenti; l'inventario riporta quelle distribuite.
 
-Riferimenti originali: [licenza BlueJ](https://www.bluej.org/about/license.html),
-[EPL 1.0](https://www.eclipse.org/legal/epl/epl-v10.html),
-[EPL 2.0](https://www.eclipse.org/legal/epl/epl-v20.html),
-[sorgenti Temurin](https://github.com/adoptium/temurin21-binaries/releases/tag/jdk-21.0.6%2B7),
-[sorgenti OpenJFX](https://github.com/openjdk/jfx23u/tree/23.0.2-ga).
+Original terms prevail over this summary. / I termini originali prevalgono sul riepilogo.

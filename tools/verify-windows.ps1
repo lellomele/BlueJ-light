@@ -33,7 +33,7 @@ try {
     $testConfig = $testConfig.Replace('[JavaOptions]',('app.classpath=' + $harness.Replace('\','/') + "`n`n[JavaOptions]"))
     [System.IO.File]::WriteAllText($config, $testConfig, [System.Text.UTF8Encoding]::new($false))
     $process = Start-Process -FilePath (Join-Path $image 'BlueJ light.exe') -WorkingDirectory $projectDir `
-        -ArgumentList @("`"$fixture`"", "`"$(if($PortablePreferences){'@portable'}else{$homeDir})`"") -WindowStyle Hidden -PassThru
+        -ArgumentList @("`"$fixture`"", "`"$(if($PortablePreferences){'@portable'}else{$homeDir})`"", "`"-bluej.userHome=$homeDir`"") -WindowStyle Hidden -PassThru
     if (!$process.WaitForExit(180000)) {
         Stop-Process -Id $process.Id
         throw 'Packaged workflow verification timed out.'

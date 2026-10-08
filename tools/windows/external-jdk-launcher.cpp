@@ -35,8 +35,8 @@ wstring environment(const wchar_t* name) {
 bool validJdk(const fs::path& home) {
     try {
         DWORD type = 0;
-        if (!GetBinaryTypeW((home / L"bin/javaw.exe").c_str(), &type) || type != SCS_64BIT_BINARY
-            || !fs::exists(home / L"bin/javac.exe")) return false;
+        for (auto executable : {L"java.exe", L"javaw.exe", L"javac.exe"})
+            if (!GetBinaryTypeW((home / L"bin" / executable).c_str(), &type) || type != SCS_64BIT_BINARY) return false;
         std::ifstream release(home / L"release");
         std::string line, version, architecture;
         while (std::getline(release, line)) {
@@ -146,6 +146,42 @@ void replaceAll(wstring& value, const wstring& from, const wstring& to) {
     size_t at = 0;
     while ((at = value.find(from, at)) != wstring::npos) { value.replace(at, from.size(), to); at += to.size(); }
 }
+fs::path selectionFile(const fs::path& root, const std::vector<wstring>& arguments) {
+    fs::path home = fs::exists(root / L"portable.flag") ? root / L"data" : fs::path(environment(L"USERPROFILE"));
+    for (const auto& argument : arguments)
+        if (argument.rfind(L"-bluej.userHome=", 0) == 0) home = argument.substr(16);
+    return home / L"bluej-light/jdk-selection.txt";
+}
+wstring selectedRuntime(const fs::path& root, const std::vector<wstring>& arguments, bool& invalid) {
+    invalid = false;
+    std::ifstream file(selectionFile(root, arguments));
+    std::string mode, path;
+    if (file) {
+        std::getline(file, mode);
+        if (!mode.empty() && mode.back() == '\r') mode.pop_back();
+        if (mode == "external") {
+            std::getline(file, path);
+            if (!path.empty() && path.back() == '\r') path.pop_back();
+            wstring home = utf8(path);
+            if (validJdk(home)) return home;
+            invalid = true; return {};
+        }
+        if (mode != "automatic" && mode != "bundled") { invalid = true; return {}; }
+    }
+    if (validJdk(root / L"runtime")) return (root / L"runtime").wstring();
+    return findJdk();
+}
+void rememberRuntime(const fs::path& root, const std::vector<wstring>& arguments, const wstring& home, bool bundled = false) {
+    fs::path file = selectionFile(root, arguments);
+    fs::create_directories(file.parent_path());
+    int length = WideCharToMultiByte(CP_UTF8, 0, home.data(), (int)home.size(), nullptr, 0, nullptr, nullptr);
+    std::string path(length, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, home.data(), (int)home.size(), path.data(), length, nullptr, nullptr);
+    fs::path temporary = file; temporary += L".launcher-tmp";
+    { std::ofstream out(temporary, std::ios::binary); if (bundled) out << "bundled\n"; else out << "external\n" << path << '\n'; if (!out) throw std::runtime_error("Cannot save JDK selection"); }
+    if (!MoveFileExW(temporary.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        throw std::runtime_error("Cannot save JDK selection");
+}
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     try {
         wchar_t executable[32768];
@@ -155,33 +191,50 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
         if (!argv) return 1;
         bool select = false;
+        bool selectOnly = false;
+        bool checkRuntime = false;
         std::vector<wstring> userArguments;
         for (int i = 1; i < argc; i++) {
             wstring argument(argv[i]);
-            if (argument == L"/selectjdk") select = true;
+            if (argument == L"/selectjdk") { select = true; selectOnly = true; }
+            else if (argument == L"/checkruntime") checkRuntime = true;
             else if (argument.rfind(L"/checkjdk=", 0) == 0) {
                 bool valid = validJdk(argument.substr(10)); LocalFree(argv); return valid ? 0 : 2;
             } else userArguments.push_back(argument);
         }
         LocalFree(argv);
-        wstring home = select ? L"" : findJdk();
+        bool invalid = false;
+        wstring home = select ? L"" : selectedRuntime(root, userArguments, invalid);
+        if (checkRuntime) return home.empty() ? 2 : 0;
         if (home.empty()) {
-            if (!select && MessageBoxW(nullptr,
+            if (invalid && validJdk(root / L"runtime")) {
+                int answer = MessageBoxW(nullptr,
+                    L"Il JDK selezionato non e' piu' disponibile o non e' compatibile.\n"
+                    L"Si: scegli un altro JDK 21.\nNo: usa il JDK incluso.\nAnnulla: non avviare BlueJ light.",
+                    L"BlueJ light", MB_YESNOCANCEL | MB_ICONWARNING);
+                if (answer == IDCANCEL) return 0;
+                if (answer == IDNO) { home = (root / L"runtime").wstring(); rememberRuntime(root, userArguments, home, true); }
+                if (answer == IDYES) select = true;
+            }
+            if (home.empty() && !select && MessageBoxW(nullptr,
                 L"BlueJ light senza JDK richiede un JDK 21 a 64 bit gia' installato.\n"
                 L"Il solo JRE non basta. Vuoi selezionare la cartella del JDK?\n"
                 L"In alternativa puoi installare il pacchetto completo di BlueJ light.",
                 L"BlueJ light", MB_YESNO | MB_ICONINFORMATION) != IDYES) return 0;
-            CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-            for (;;) {
-                home = chooseJdk();
-                if (home.empty()) { CoUninitialize(); return 0; }
-                if (validJdk(home)) break;
-                MessageBoxW(nullptr, L"La cartella non contiene un JDK 21 Windows x64 valido.\nSeleziona la cartella principale del JDK, non la cartella bin.", L"BlueJ light", MB_OK | MB_ICONWARNING);
+            if (home.empty()) {
+                CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+                for (;;) {
+                    home = chooseJdk();
+                    if (home.empty()) { CoUninitialize(); return 0; }
+                    if (validJdk(home)) break;
+                    MessageBoxW(nullptr, L"La cartella non contiene un JDK 21 Windows x64 valido.\nSeleziona la cartella principale del JDK, non la cartella bin.", L"BlueJ light", MB_OK | MB_ICONWARNING);
+                }
+                CoUninitialize();
+                saveJdk(home);
+                rememberRuntime(root, userArguments, home);
             }
-            CoUninitialize();
-            saveJdk(home);
         }
-        if (select) return 0;
+        if (selectOnly) return 0;
         std::ifstream config(app / L"BlueJ light.cfg");
         std::string line, section;
         wstring mainClass = L"bluej.Boot", classpath;

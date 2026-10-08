@@ -994,3 +994,17 @@ printing.progress.title=Printing
 printing.progress.file=File progress (${cur}/${total} lines)
 printing.progress.project=Project progress (${cur}/${total} items)
 printing.progress.canceling=Canceling...
+
+jdk.title=Java / JDK
+jdk.current=Current JDK
+jdk.next=JDK for the next launch
+jdk.automatic=Automatic
+jdk.external=Choose JDK 21 (x64)
+jdk.bundled=Bundled JDK
+jdk.browse=Choose folder...
+jdk.refresh=Refresh
+jdk.scanning=Looking for compatible JDKs...
+jdk.invalid=The folder is not a JDK 21 Windows x64.
+jdk.missing=Select a compatible JDK.
+jdk.restart=Changes take effect after restarting BlueJ light.
+jdk.saveError=Cannot save the JDK selection.

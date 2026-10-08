@@ -40,7 +40,7 @@ public class TestLightEditor extends FXTest
         editor = new FlowEditor(window -> null, "Example", watcher, null, null, null,
             new ReadOnlyBooleanWrapper(true), true);
         stage.setScene(new Scene(editor, 960, 640));
-        stage.setTitle("BlueJ light 5.5.2");
+        stage.setTitle("BlueJ light 5.5.3");
         stage.show();
     }
 
@@ -97,12 +97,12 @@ public class TestLightEditor extends FXTest
     {
         fx_(() -> {
             Image logo = Config.getFixedImageAsFXImage("bluej-icon-256.png");
-            AboutDialogTemplate about = new AboutDialogTemplate(stage, "5.5.2-light", "https://www.bluej.org/",
+            AboutDialogTemplate about = new AboutDialogTemplate(stage, "5.5.3-light", "https://www.bluej.org/",
                 logo, new String[0], new String[0]);
             about.show();
             String labels = about.getDialogPane().lookupAll(".label").stream().filter(Label.class::isInstance)
                 .map(node -> ((Label)node).getText()).collect(java.util.stream.Collectors.joining("\n"));
-            assertTrue(labels.contains("5.5.2-light"));
+            assertTrue(labels.contains("5.5.3-light"));
             assertTrue(labels.contains("\u00a9 2026 - Prof. Ing. Raffaele Mele"));
             try
             {
@@ -154,7 +154,7 @@ public class TestLightEditor extends FXTest
                 stage.getScene().getRoot().layout();
                 checkScopeCache();
                 assertTrue(editor.getSourcePane().getDocument().getFullContent().contains("// inserted line"));
-                snapshot("editor-scrolling-5.5.2.png");
+                snapshot("editor-scrolling-5.5.3.png");
             });
         }
         finally { fx_(() -> PrefMgr.setEditorFontSize(oldSize)); }

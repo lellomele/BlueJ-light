@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2010,2015,2016,2017,2019,2021,2023  Michael Kolling and John Rosenberg 
@@ -72,6 +73,7 @@ public class PrefMgrDialog
     private boolean prepared = false;
     private Project curProject; // can be null
     private MiscPrefPanel miscPrefPanel;
+    private JdkPrefPanel jdkPrefPanel;
 
     /**
      * Show the preferences dialog when ready.  The dialog
@@ -177,6 +179,11 @@ public class PrefMgrDialog
             ExtensionPrefManager mgr = ExtensionsManager.getInstance().getPrefManager();
             add(5, mgr.getExtensionContent(), Config.getString("extmgr.extensions"), mgr);
         }
+        if (Config.isWinOS() && !Config.isGreenfoot())
+        {
+            jdkPrefPanel = new JdkPrefPanel();
+            add(tabs.size(), jdkPrefPanel, Config.getString("jdk.title"), jdkPrefPanel);
+        }
         prefPanesCreated.set(true);
     }
     
@@ -258,6 +265,16 @@ public class PrefMgrDialog
         });
         window.getDialogPane().getButtonTypes().setAll(ButtonType.OK, ButtonType.CANCEL);
         window.getDialogPane().setContent(tabbedPane);
+        if (jdkPrefPanel != null)
+        {
+            window.getDialogPane().lookupButton(ButtonType.OK).addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+                if (!jdkPrefPanel.saveSelection())
+                {
+                    selectTab(tabs.indexOf(jdkPrefPanel));
+                    event.consume();
+                }
+            });
+        }
     }
     
     public static Node headedVBox(String titleID, List<Node> contents)

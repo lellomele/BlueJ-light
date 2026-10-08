@@ -848,3 +848,17 @@ about.theTeam=Il team $APPNAME:
 
 # Work Indicator
 workIndicator.resetMachine=Reset della macchina@^R
+
+jdk.title=Java / JDK
+jdk.current=JDK in uso
+jdk.next=JDK al prossimo avvio
+jdk.automatic=Automatico
+jdk.external=Scegli JDK 21 (x64)
+jdk.bundled=JDK incluso
+jdk.browse=Scegli cartella...
+jdk.refresh=Aggiorna
+jdk.scanning=Ricerca dei JDK compatibili...
+jdk.invalid=La cartella non contiene un JDK 21 Windows x64.
+jdk.missing=Seleziona un JDK compatibile.
+jdk.restart=La modifica richiede il riavvio di BlueJ light.
+jdk.saveError=Impossibile salvare la scelta del JDK.
