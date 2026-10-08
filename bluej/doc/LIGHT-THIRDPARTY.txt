@@ -1,0 +1,17 @@
+Additional libraries used by BlueJ light:
+
+Eclipse Layout Kernel (ELK) 0.11.0
+  https://github.com/eclipse-elk/elk
+  Eclipse Public License 2.0; see the license notices included in the ELK jars.
+  Includes ELK core, graph, common and layered modules.
+
+Eclipse Modeling Framework (EMF)
+  https://eclipse.dev/modeling/emf/
+  Version 2.12.0: Eclipse Public License 1.0; see the license notices in the EMF jars.
+
+Eclipse Xtext Xbase library 2.36.0
+  https://eclipse.dev/Xtext/
+  Eclipse Public License 2.0; see the license notices included in the library jar.
+
+The corresponding jars are included in the application. Original BlueJ library
+notices are retained in THIRDPARTYLICENSE.txt.

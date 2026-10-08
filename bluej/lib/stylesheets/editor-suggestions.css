@@ -1,0 +1,170 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* Styles for suggestions (i.e. code completion) */
+
+.root {
+  suggestion-background: white;
+}
+
+.suggestion-list {
+    -fx-background-color: suggestion-background;
+    -fx-padding: 2 0 0 0;
+    -fx-border-color: hsb(0, 0%, 70%);
+    -fx-border-width: 1;
+    -fx-border-style: solid outside;
+
+    -bj-pref-width: 25em;
+    -bj-type-width: 5em;
+}
+
+.suggestion {
+    -fx-padding: 0 2 0 0;
+    -fx-cursor: hand;
+    -fx-background-color: transparent;
+}
+
+.suggestion-cell {
+    -fx-padding: 0;
+    -fx-background-color: transparent;
+}
+
+.suggestion-prefix, .suggestion-matching, .suggestion-next, .suggestion-suffix {
+    -fx-label-padding: 0 -2 0 0;
+}
+.suggestion-matching, .suggestion-type:bj-match {
+    -fx-underline: true;
+}
+
+.suggestion-next {
+    -fx-font-weight: bold;
+}
+.suggestion-button-hint {
+    -fx-font-size: 75%;
+    -fx-border-color: rgb(150, 150, 150);
+    -fx-border-radius: 2;
+    -fx-label-padding: 1;
+    -fx-background-color: transparent;
+    -fx-background-radius: 2;
+}
+
+.suggestion:bj-suggestion-highlight {
+    -fx-background-color: hsb(180, 30%, 90%); 
+}
+
+.suggestion-similar-heading {
+    -fx-label-padding: 2 0 2 20;
+    -fx-background-color: hsb(0, 0%, 95%);
+    -fx-text-fill: hsb(0, 0%, 40%);
+    /* To get some padding: */
+    -fx-border-color: transparent;
+    -fx-border-width: 5 0 2 0;
+}
+
+/* Make the similar suggestions grey, to de-emphasise */
+.suggestion:bj-suggestion-similar .label {
+    -fx-text-fill: hsb(0, 0%, 50%);
+}
+
+.suggestion-none {
+    -fx-label-padding: 10 20 10 20;
+    -fx-text-fill: hsb(0, 0%, 40%);
+}
+
+.suggestion-javadoc, .suggestion-file-preview {
+    -fx-background-color: hsb(180, 8%, 97%);
+    -fx-background-radius: 0 5 5 0;
+    -fx-border-color: hsb(0, 0%, 70%);
+    -fx-border-width: 1;
+    -fx-border-radius: 0 5 5 0;
+    -fx-border-style: solid outside;
+}
+.suggestion-file-preview {
+    -fx-padding: 20 20 20 20;    
+}
+.suggestion-javadoc .web-view {
+    -fx-font-smoothing-type: gray;
+    -fx-content-menu-enabled: false;
+}
+
+/* Remove focus highlight on scroll bar */
+.suggestion-list-scroll-pane:focused {
+    -fx-background-color: -fx-box-border, -fx-box-border, -fx-background !important;
+}
+
+.suggestion-more-label {
+    -fx-text-fill: hsb(0, 0%, 30%);
+    -fx-background-color: transparent;
+    -fx-font-style: italic;
+    -fx-padding: 3;
+    -fx-wrap-text: true;
+}
+
+.suggestion-more-label-pane {
+    -fx-background-color: white;
+    -fx-border-width: 1 0 1 0;
+    -fx-border-color: hsb(0, 0%, 70%) transparent hsb(0, 0%, 70%) transparent;
+    -fx-border-style: solid inside;
+}
+.suggestion-more-label-pane:bj-at-top {
+    -fx-border-width: 1 0 1 0;
+    -fx-border-color: hsb(0, 0%, 70%) transparent hsb(0, 0%, 70%) transparent;
+}
+
+.suggestion-top-level {
+    -fx-padding: 1; /* Needed to get border of inner item to show */
+}
+
+/* BlueJ light: readable rows, restrained selection and a shared preview surface. */
+.suggestion-top-level {
+    -fx-background-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 1;
+}
+.suggestion-dialog-lhs {
+    -fx-background-color: white;
+    -fx-background-radius: 6;
+    -fx-border-color: #bac7d3;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+    -fx-padding: 3;
+}
+.suggestion-list {
+    -fx-border-width: 0;
+    -fx-padding: 3 0;
+    -bj-pref-width: 30em;
+    -bj-type-width: 7em;
+}
+.suggestion {
+    -fx-padding: 6 10 6 0;
+    -fx-border-width: 0 0 0 3;
+    -fx-border-color: transparent;
+    -fx-min-height: 30px;
+}
+.suggestion:hover { -fx-background-color: #f2f6fa; }
+.suggestion:bj-suggestion-highlight {
+    -fx-background-color: #e8f2ff;
+    -fx-border-color: transparent transparent transparent #2865a6;
+}
+.suggestion:bj-snippet:bj-suggestion-highlight {
+    -fx-background-color: #e8f6ef;
+    -fx-border-color: transparent transparent transparent #287252;
+}
+.suggestion-prefix, .suggestion-matching, .suggestion-next, .suggestion-suffix {
+    -fx-label-padding: 0;
+    -fx-text-fill: #253444;
+}
+.suggestion-matching { -fx-underline: false; -fx-font-weight: bold; -fx-text-fill: #20588c; }
+.suggestion-type { -fx-font-size: 85%; -fx-text-fill: #607286; -fx-label-padding: 0 9 0 8; }
+.suggestion:bj-snippet .suggestion-type { -fx-text-fill: #287252; -fx-font-weight: bold; }
+.suggestion-detail { -fx-font-size: 90%; -fx-text-fill: #627487; -fx-label-padding: 0 0 0 5; }
+.suggestion-similar-heading { -fx-background-color: #f3f5f8; -fx-text-fill: #607286; -fx-label-padding: 6 12; }
+.suggestion-more-label-pane { -fx-background-color: #f7f9fb; -fx-border-color: #e0e5eb; }
+.suggestion-javadoc, .suggestion-snippet-preview {
+    -fx-background-color: #f7f9fb;
+    -fx-border-color: #d6dee7;
+    -fx-border-width: 1;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-padding: 10;
+}
+.suggestion-snippet-preview .snippet-preview-title { -fx-font-weight: bold; -fx-text-fill: #243547; -fx-padding: 0 0 10 0; }
+.suggestion-snippet-preview .snippet-code .content { -fx-background-color: #f5f7fa; -fx-padding: 10; }

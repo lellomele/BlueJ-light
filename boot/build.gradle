@@ -1,0 +1,60 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+apply plugin: 'java'
+apply plugin: 'org.openjfx.javafxplugin'
+
+dependencies {
+    annotationProcessor project(':anns-threadchecker')
+    compileOnly project(':anns-threadchecker')
+    annotationProcessor project(':threadchecker')
+    compileOnly project(':threadchecker')
+}
+
+repositories { mavenCentral() }
+javafx {
+    version = '23.0.2' // javafx_version_setting
+    modules = ['javafx.base', 'javafx.controls', 'javafx.graphics', 'javafx.swing']
+}
+compileJava {
+    options.compilerArgs += ['-Xplugin:threadchecker.TCPlugin']
+}
+group = 'org.bluej'
+description = 'boot'
+sourceSets {
+    splash
+    main { resources.srcDirs 'build/resources/main/bluej' }
+}
+
+['': 1, '2x': 2].each { suffix, scale ->
+    tasks.register('drawBlueJSplashVersion' + suffix, JavaExec) {
+        inputs.file('../version.properties')
+        classpath = sourceSets.splash.runtimeClasspath
+        mainClass = 'DrawVersionOnSplash'
+        systemProperty 'java.awt.headless', 'true'
+        def imageSuffix = suffix ? '@2x' : ''
+        args "../bluej/resources/unversioned-bluej-splash${imageSuffix}.png",
+            bluejVersion, '../bluej/lib/fonts/SourceSansPro-Bold.ttf',
+            (16 * scale).toString(), (215 * scale).toString(), (114 * scale).toString(),
+            "build/resources/main/bluej/gen-bluej-splash${imageSuffix}.png"
+        doFirst { mkdir 'build/resources/main/bluej' }
+    }
+}
+
+tasks.register('updateVersionNumber') {
+    inputs.file('../version.properties')
+    doLast {
+        ant.replaceregexp(match: 'BLUEJ_VERSION = .*', replace: "BLUEJ_VERSION = \"${bluejVersion}\";", byline: true) {
+            fileset(dir: 'src/main/java/bluej', includes: 'Boot.java')
+        }
+        ant.replaceregexp(match: '(FILE|PRODUCT)VERSION .*', replace: "\\1VERSION ${bluejVersionCommas},0", byline: true) {
+            fileset(dir: '../bluej/package/winlaunch', includes: 'bluej-version.rc')
+        }
+        ant.replaceregexp(match: '(\\s*VALUE \"\\w+Version\",).*', replace: "\\1 \"${bluejVersionNoSuffix}\"", byline: true) {
+            fileset(dir: '../bluej/package/winlaunch', includes: 'bluej-version.rc')
+        }
+        ant.replaceregexp(match: '(\\s*<assemblyIdentity\\s+version=)\".*\"', replace: "\\1\"${bluejVersionNoSuffix}.0\"", byline: true) {
+            fileset(dir: '../bluej/package/winlaunch', includes: 'bjmanifest.xml')
+        }
+    }
+}
+compileJava.dependsOn updateVersionNumber
+jar.dependsOn drawBlueJSplashVersion, drawBlueJSplashVersion2x

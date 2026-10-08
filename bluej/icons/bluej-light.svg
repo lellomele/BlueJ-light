@@ -1,0 +1,7 @@
+<!-- BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect x="24" y="24" width="464" height="464" rx="84" fill="#0878c9"/>
+  <path d="M24 366h464v38c0 46-38 84-84 84H108c-46 0-84-38-84-84z" fill="#14a77a"/>
+  <path d="M193 126h-26c-26 0-37 14-37 43v46c0 26-12 38-35 41 23 3 35 15 35 41v46c0 29 11 43 37 43h26M319 126h26c26 0 37 14 37 43v46c0 26 12 38 35 41-23 3-35 15-35 41v46c0 29-11 43-37 43h-26" fill="none" stroke="#fff" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <image href="bluej-bird-official.png" x="136" y="136" width="240" height="240"/>
+</svg>

@@ -1,0 +1,5 @@
+BlueJ light icon composition: (c) 2026 - Prof. Ing. Raffaele Mele.
+The bird is the original BlueJ icon, copyright (c) Michael Kolling.
+Source: BlueJ 5.5.0, bluej/icons/bluej-icon-512-embossed.png.
+The original BlueJ icon is licensed under GPL version 2 with Classpath Exception.
+See LICENSE.txt and bluej/icons/license.txt.

@@ -1,0 +1,7 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+rootProject.name = 'bluej-light'
+include(':anns-threadchecker')
+include(':boot')
+include(':bluej')
+include(':lang-stride')
+include(':threadchecker')

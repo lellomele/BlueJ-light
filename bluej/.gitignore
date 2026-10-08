@@ -1,0 +1,25 @@
+# Eclipse project files:
+/.classpath
+/.project
+
+/classes/
+/boot/classes/
+/threadchecker/classes/
+/threadchecker/pluginclasses/
+/test/classes/
+/lib/bluej.jar
+/lib/bluejcore.jar
+/lib/lang-stride.jar
+/lib/bluejeditor.jar
+/lib/bluejext2.jar
+/lib/userlib/bluej-junit-ext.jar
+
+# Files created by greenfoot build:
+/lib/greenfoot/standalone/**/*.class
+/doc/API/**/*
+/lib/*/greenfoot/**/*
+/lib/greenfoot
+/boot/resources/bluej/gen-bluej-splash.png
+/boot/resources/bluej/gen-bluej-splash@2x.png
+/boot/resources/bluej/gen-greenfoot-splash.png
+/boot/resources/bluej/gen-greenfoot-splash@2x.png

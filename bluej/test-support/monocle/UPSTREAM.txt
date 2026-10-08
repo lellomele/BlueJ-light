@@ -1,0 +1,7 @@
+OpenJFX Monocle sources for headless tests only.
+Upstream: https://github.com/openjdk/jfx23u
+Tag: 23.0.2-ga
+Archive SHA256: 82861F4056F19E153EB259CFD3A7D23863700F877C4AE229B2CD530A25364730
+Source directory: modules/javafx.graphics/src/main/java/com/sun/glass/ui/monocle
+Licence: GPL version 2 with the Classpath exception, as specified in the source headers.
+Sources are unmodified; MonocleWindow includes the JavaFX 23 view-size hook.

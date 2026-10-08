@@ -1,0 +1,12 @@
+BlueJ light 5.5.2 - pacchetto senza JDK
+
+Questo installer include BlueJ light e JavaFX, ma non include il JDK.
+Per avviare l'applicazione e compilare Java serve un JDK 21 Windows x64.
+Il solo JRE non e' sufficiente.
+
+All'avvio vengono controllati JAVA_HOME, JDK_HOME, il registro di Windows
+e le cartelle standard. Se il JDK non viene trovato, puoi selezionare
+la sua cartella principale. Non selezionare la sottocartella bin.
+
+La scelta puo' essere modificata dal collegamento "Seleziona JDK 21"
+nel menu Start. In alternativa e' disponibile il pacchetto completo.
