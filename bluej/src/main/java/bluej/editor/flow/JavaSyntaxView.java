@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2011,2014,2015,2016,2017,2018,2019,2020,2021,2022,2024  Michael Kolling and John Rosenberg
@@ -133,6 +133,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     // Each item in the list maps the list index (as number of spaces) to indent amount
     private final List<Double> cachedSpaceSizes = new ArrayList<>();
     private FlowReparseRunner reparseRunner;
+    private boolean scopeRefreshPending;
     private boolean parserListenerInstalled;
     private final bluej.light.ParserProgressGuard parseProgress = new bluej.light.ParserProgressGuard();
     // The latest lines rendered, used to keep track of what needs re-rendering when we scroll:
@@ -450,7 +451,10 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     public void whenParsed(FXPlatformRunnable callback)
     {
         if (reparseRecordTree == null || reparseRecordTree.findNodeAtOrAfter(0) == null)
+        {
+            refreshPendingScopes();
             callback.run();
+        }
         else
         {
             parsedCallbacks.add(callback);
@@ -623,6 +627,8 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
      */
     private void recalculateScopes(int firstLineIncl, int lastLineIncl)
     {
+        if (scopeRefreshPending && !isPrinting())
+            return;
         // display is null during testing or when used from Stride -- just skip updating the scopes in that case:
         if (display == null)
             return;
@@ -976,24 +982,32 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
             return OptionalInt.empty();
         }
         
+        int column = document.getColumnFromPosition(startOffset);
+        if (column == 0)
+            return OptionalInt.of(0);
         while (cachedSpaceSizes.size() < 8)
         {
             // Must be at least eight:
             String spaces = "        ";
             double indent = display.getWidthOfText(spaces.substring(0, cachedSpaceSizes.size()));
             // Should be at least two pixels per space; if we see less than that, probably not laid out yet:
-            if (indent >= cachedSpaceSizes.size() * 2)
-                cachedSpaceSizes.add(indent);
+            if (!Double.isFinite(indent) || indent < cachedSpaceSizes.size() * 2)
+                return OptionalInt.empty();
+            cachedSpaceSizes.add(indent);
         }
         
         
-        int column = document.getColumnFromPosition(startOffset);
-        // If it's the left edge no need to calculate further, must be zero:
-        if (column == 0)
-            return OptionalInt.of(0);
         int line = document.getLineFromPosition(startOffset);
         CharSequence lineText = new Element(line).getText();
-        boolean allSpaces = lineText.subSequence(0, column).codePoints().allMatch(n -> n == ' ');
+        boolean allSpaces = true;
+        for (int i = 0; i < column; i++)
+        {
+            if (lineText.charAt(i) != ' ')
+            {
+                allSpaces = false;
+                break;
+            }
+        }
 
         if (!display.isLineVisible(line) && (!allSpaces || cachedSpaceSizes.size() <= 4))
         {
@@ -1835,6 +1849,17 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
      */
     protected void updateDamage(SyntaxEvent changes)
     {
+        if (changes != null && display != null && !isPrinting() && (duringUpdate || scopeRefreshPending))
+        {
+            // Keep syntax updates immediate, but draw once after the edit/reparse batch.
+            if (!scopeRefreshPending)
+            {
+                nodeIndents.clear();
+                pendingScopeBackgrounds.clear();
+                scopeRefreshPending = true;
+            }
+            return;
+        }
         if (changes == null) {
             // Width has changed, so do it all:
             nodeIndents.clear();
@@ -2136,6 +2161,22 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     {
         while (pollReparseQueue(document.getLength())) ;
         // Queue now empty, so flush backgrounds:
+        refreshPendingScopes();
+        applyPendingScopeBackgrounds();
+    }
+
+    private void refreshPendingScopes()
+    {
+        if (!scopeRefreshPending)
+            return;
+        scopeRefreshPending = false;
+        if (display == null || rootNode == null)
+            return;
+        scopeBackgrounds.clear();
+        pendingScopeBackgrounds.clear();
+        int[] visible = display.getLineRangeVisible();
+        recalculateScopes(visible == null ? 0 : Math.max(0, visible[0]),
+            visible == null ? document.getLineCount() - 1 : Math.min(document.getLineCount() - 1, visible[1]));
         applyPendingScopeBackgrounds();
     }
 
@@ -2272,6 +2313,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     {
         if (failure == null) Debug.message(reason); else Debug.reportError(reason, failure);
         rootNode = null; reparseRecordTree = null; reparseRunner = null;
+        scopeRefreshPending = false;
         parseProgress.reset(); parsedCallbacks.clear(); styledLines.clear();
         scopeBackgrounds.clear(); nodeIndents.clear(); pendingScopeBackgrounds.clear();
         linesToRecalculateAfterLayout.clear();
@@ -2434,6 +2476,12 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     {
         if (!isPrinting())
             scopeBackgrounds.retainLines(fromLineIndexIncl, toLineIndexIncl);
+        if (scopeRefreshPending && !isPrinting())
+        {
+            latestRenderStartIncl = fromLineIndexIncl;
+            latestRenderEndIncl = toLineIndexIncl;
+            return;
+        }
         int newBeforeStartIncl = fromLineIndexIncl;
         int newBeforeEndIncl = Math.min(latestRenderStartIncl - 1, toLineIndexIncl);
         
@@ -2685,6 +2733,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
             }
             else {
                 // Mark that we are no longer scheduled.  Reapply backgrounds and syntax highlighting:
+                refreshPendingScopes();
                 applyPendingScopeBackgrounds();
                 display.repaint();
                 reparseRunner = null;

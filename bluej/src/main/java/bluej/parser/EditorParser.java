@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2010,2011,2012,2013,2014,2016,2017,2019,2021,2022,2023,2024  Michael Kolling and John Rosenberg 
@@ -991,7 +992,9 @@ public class EditorParser extends JavaParser
     @Override
     public void gotComment(LocatableToken token)
     {
-        commentQueue.add(token);
+        // InfoParser has no document positions; its Javadoc comes from hidden tokens.
+        if (document != null)
+            commentQueue.add(token);
     }
     
     @Override

@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2019,2020,2022,2023  Michael Kolling and John Rosenberg
@@ -474,7 +475,15 @@ public class TestBasicEditorInteraction extends FXTest
                 flowEditor.getSourceDocument().flushReparseQueue();
                 flowEditor.getActions().getActionByName("autoindent").actionPerformed(false);
             });
-            sleep(1000);
+            // The bundled formatter runs on a worker; wait for completion, not a fixed delay.
+            for (int attempt = 0; attempt < 200 && fx(() -> {
+                try {
+                    var field = FlowEditor.class.getDeclaredField("formatting");
+                    field.setAccessible(true);
+                    return field.getBoolean(flowEditor);
+                }
+                catch (ReflectiveOperationException ex) { throw new AssertionError(ex); }
+            }); attempt++) sleep(50);
             assertEquals(BLOCK_TEST, fx(() -> flowEditorPane.getDocument().getFullContent()));
         }
         // Check that undo/redo works (and that the second run above left no undo trace):

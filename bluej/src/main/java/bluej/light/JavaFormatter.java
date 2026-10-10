@@ -1,4 +1,4 @@
-/* Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-09. GPLv2 with Classpath Exception. */
+/* Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GPLv2 with Classpath Exception. */
 package bluej.light;
 
 import bluej.parser.lexer.JavaLexer;
@@ -43,7 +43,7 @@ public final class JavaFormatter
             Files.writeString(original, input, StandardCharsets.UTF_8);
             process = new ProcessBuilder(executable.toAbsolutePath().toString(), "--options=none", "--project=none",
                 "--mode=java", "--style=allman", "--indent=spaces=4", "--break-one-line-headers",
-                "--pad-oper", "--pad-header", "--lineend=linux", "--quiet")
+                "--pad-oper", "--pad-header", "--indent-col1-comments", "--lineend=linux", "--quiet")
                 .directory(work.toFile()).redirectInput(original.toFile()).redirectOutput(output.toFile()).redirectError(error.toFile()).start();
             if (!process.waitFor(10, TimeUnit.SECONDS)) throw new IOException("Formatter time limit exceeded");
             if (process.exitValue() != 0 || Files.size(output) > 10 * 1024 * 1024)
