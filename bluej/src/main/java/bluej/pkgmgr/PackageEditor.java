@@ -116,6 +116,7 @@ public final class PackageEditor extends StackPane
     private final java.util.Deque<LayoutState> layoutUndo = new java.util.ArrayDeque<>();
     private final java.util.Deque<LayoutState> layoutRedo = new java.util.ArrayDeque<>();
     private java.util.Set<Target> knownVertices = java.util.Set.of();
+    private boolean selectedConnectionsOnly;
     private record LayoutState(java.util.Map<Target, Point2D> positions,
         java.util.Map<Dependency, List<Point2D>> routes) {}
     // The ContextMenu that is currently being shown on screen (null if not visible)
@@ -808,7 +809,27 @@ public final class PackageEditor extends StackPane
         MenuItem cancel = new MenuItem(Config.getString("light.diagram.cancel"));
         cancel.setDisable(!layoutRunning);
         cancel.setOnAction(e -> cancelArrangement());
-        return List.of(arrange, undo, redo, cancel);
+        MenuItem newOnly = new MenuItem(Config.getString("light.diagram.newOnly"));
+        newOnly.setDisable(layoutRunning); newOnly.setOnAction(e -> arrangeDiagram(true));
+        javafx.scene.control.CheckMenuItem lock = new javafx.scene.control.CheckMenuItem(Config.getString("light.diagram.lock"));
+        lock.setDisable(getSelection().isEmpty());
+        lock.setSelected(!getSelection().isEmpty() && getSelection().stream().allMatch(Target::isLayoutLocked));
+        lock.setOnAction(e -> {
+            for (Target target : getSelection())
+            {
+                target.setLayoutLocked(lock.isSelected());
+                if (target instanceof DependentTarget dependent && dependent.getAssociation() != null)
+                    dependent.getAssociation().setLayoutLocked(lock.isSelected());
+                for (Target owner : pkg.getVertices())
+                    if (owner instanceof DependentTarget dependent && dependent.getAssociation() == target)
+                        owner.setLayoutLocked(lock.isSelected());
+            }
+            geometryChanged(); repaint();
+        });
+        javafx.scene.control.CheckMenuItem focus = new javafx.scene.control.CheckMenuItem(Config.getString("light.diagram.focus"));
+        focus.setSelected(selectedConnectionsOnly);
+        focus.setOnAction(e -> { selectedConnectionsOnly = focus.isSelected(); repaint(); });
+        return List.of(arrange, newOnly, lock, focus, undo, redo, cancel);
     }
 
     public void cancelArrangement() { layoutRequest++; layoutRunning = false; }
@@ -856,6 +877,11 @@ public final class PackageEditor extends StackPane
 
     public void arrangeDiagram()
     {
+        arrangeDiagram(false);
+    }
+
+    private void arrangeDiagram(boolean newOnly)
+    {
         if (layoutRunning) return;
         List<Target> vertices = new ArrayList<>(pkg.getVertices());
         vertices.sort(java.util.Comparator.comparing(Target::getIdentifierName));
@@ -867,13 +893,25 @@ public final class PackageEditor extends StackPane
         java.util.Map<Target, String> nodeIds = new java.util.IdentityHashMap<>();
         java.util.Map<Target, Double> portOffsets = new java.util.IdentityHashMap<>();
         List<DiagramLayout.Node> nodes = new ArrayList<>();
+        List<DiagramLayout.Box> fixed = new ArrayList<>();
         double top = 30;
         for (Target target : vertices)
         {
             if (owners.containsKey(target)) continue;
-            if (!target.isMoveable()) { top = Math.max(top, target.getY() + target.getHeight() + 30); continue; }
             String id = target.getIdentifierName();
             double width = Math.max(40, target.getWidth()), height = Math.max(20, target.getHeight());
+            boolean associatedLocked = target instanceof DependentTarget dependent && dependent.getAssociation() != null
+                && dependent.getAssociation().isLayoutLocked();
+            if (!target.isMoveable() || target.isLayoutLocked() || associatedLocked || (newOnly && target.isLayoutPlaced()))
+            {
+                fixed.add(new DiagramLayout.Box(target.getX(), target.getY(), width, height));
+                if (target instanceof DependentTarget dependent && dependent.getAssociation() != null)
+                {
+                    Target child = dependent.getAssociation();
+                    fixed.add(new DiagramLayout.Box(child.getX(), child.getY(), child.getWidth(), child.getHeight()));
+                }
+                continue;
+            }
             roots.put(id, target);
             nodeIds.put(target, id);
             portOffsets.put(target, width / 2);
@@ -903,20 +941,27 @@ public final class PackageEditor extends StackPane
         double offsetY = top;
         List<DiagramLayout.Node> nodeSnapshot = List.copyOf(nodes);
         List<DiagramLayout.Edge> edgeSnapshot = List.copyOf(edges);
+        List<DiagramLayout.Box> obstacleSnapshot = List.copyOf(fixed);
         Utility.runBackground(() -> {
             try
             {
                 DiagramLayout.Result result = DiagramLayout.arrange(nodeSnapshot, edgeSnapshot);
+                java.util.Map<String, DiagramLayout.Point> desired = new java.util.LinkedHashMap<>();
+                result.positions().forEach((id, point) -> desired.put(id, new DiagramLayout.Point(point.x() + 30, point.y() + offsetY)));
+                java.util.Map<String, DiagramLayout.Point> placed = obstacleSnapshot.isEmpty() ? desired
+                    : DiagramLayout.avoidObstacles(nodeSnapshot, desired, obstacleSnapshot);
                 JavaFXUtil.runNowOrLater(() -> {
                     if (request != layoutRequest) return;
                     applyingLayout = true;
                     try
                     {
-                        result.positions().forEach((id, position) -> roots.get(id).setPos(
-                            (int)Math.round(position.x() + 30), (int)Math.round(position.y() + offsetY)));
+                        placed.forEach((id, position) -> {
+                            roots.get(id).setPos((int)Math.round(position.x()), (int)Math.round(position.y()));
+                            roots.get(id).setLayoutPlaced(true);
+                        });
                         for (Dependency edge : pkg.getUsesArrows()) edge.setLayoutRoute(List.of());
                         for (Dependency edge : pkg.getExtendsArrows()) edge.setLayoutRoute(List.of());
-                        result.routes().forEach((id, route) -> dependencies.get(id).setLayoutRoute(route.stream()
+                        if (obstacleSnapshot.isEmpty()) result.routes().forEach((id, route) -> dependencies.get(id).setLayoutRoute(route.stream()
                             .map(point -> new Point2D(point.x() + 30, point.y() + offsetY))
                             .collect(java.util.stream.Collectors.toList())));
                         if (layoutUndo.size() == 10) layoutUndo.removeLast();
@@ -1000,6 +1045,8 @@ public final class PackageEditor extends StackPane
             deps.addAll(pkg.getUsesArrows());
         if (isShowExtends())
             deps.addAll(pkg.getExtendsArrows());
+
+        if (selectedConnectionsOnly) deps.removeIf(edge -> !edge.from.isSelected() && !edge.to.isSelected());
 
         return deps;
     }
@@ -1152,7 +1199,7 @@ public final class PackageEditor extends StackPane
     {
         for (Target element : selectionController.getSelection())
         {
-            if (element.isMoveable())
+            if (element.isMoveable() && !element.isLayoutLocked())
                 element.savePreMovePosition();
         }
     }
@@ -1165,8 +1212,11 @@ public final class PackageEditor extends StackPane
     {
         for (Target element : selectionController.getSelection())
         {
-            if (element.isMoveable())
+            if (element.isMoveable() && !element.isLayoutLocked())
+            {
                 element.setPos(Math.max(0, element.getPreMoveX() + deltaX), Math.max(0, element.getPreMoveY() + deltaY));
+                element.setLayoutPlaced(true);
+            }
         }
     }
 
@@ -1178,7 +1228,7 @@ public final class PackageEditor extends StackPane
     {
         for (Target element : selectionController.getSelection())
         {
-            if (element.isResizable())
+            if (element.isResizable() && !element.isLayoutLocked())
             {
                 element.savePreResize();
                 JavaFXUtil.setPseudoclass("bj-resizing", true, element.getNode());
@@ -1194,7 +1244,7 @@ public final class PackageEditor extends StackPane
     {
         for (Target element : selectionController.getSelection())
         {
-            if (element.isResizable())
+            if (element.isResizable() && !element.isLayoutLocked())
                 element.setSize(Math.max(40, element.getPreResizeWidth() + deltaWidth), Math.max(20, element.getPreResizeHeight() + deltaHeight));
         }
     }

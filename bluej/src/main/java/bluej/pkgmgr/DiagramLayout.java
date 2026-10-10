@@ -27,6 +27,42 @@ public final class DiagramLayout
     @OnThread(Tag.Any) public record Edge(String id, String from, String to, double sourceX, double targetX) {}
     @OnThread(Tag.Any) public record Point(double x, double y) {}
     @OnThread(Tag.Any) public record Result(Map<String, Point> positions, Map<String, List<Point>> routes) {}
+    @OnThread(Tag.Any) public record Box(double x, double y, double width, double height) {}
+
+    public static Map<String, Point> avoidObstacles(List<Node> nodes, Map<String, Point> preferred, List<Box> fixed)
+    {
+        List<Box> occupied = new ArrayList<>(fixed);
+        Map<String, Point> result = new LinkedHashMap<>();
+        for (Node node : nodes)
+        {
+            Point start = preferred.get(node.id());
+            double x = Math.max(30, start.x()), y = Math.max(30, start.y());
+            Box candidate = new Box(x, y, node.width(), node.height());
+            if (collides(candidate, occupied))
+            {
+                // Search free cells from the top; fixed targets are never relocated.
+                boolean found = false;
+                double maxBottom = occupied.stream().mapToDouble(box -> box.y() + box.height()).max().orElse(30);
+                for (double cy = 30; cy <= Math.min(1200, maxBottom + 40) && !found; cy += 20)
+                    for (double cx = 30; cx <= 1200 && !found; cx += 20)
+                    {
+                        Box cell = new Box(cx, cy, node.width(), node.height());
+                        if (!collides(cell, occupied)) { candidate = cell; found = true; }
+                    }
+                if (!found) candidate = new Box(30, maxBottom + 30, node.width(), node.height());
+            }
+            occupied.add(candidate);
+            result.put(node.id(), new Point(candidate.x(), candidate.y()));
+        }
+        return Map.copyOf(result);
+    }
+
+    private static boolean collides(Box box, List<Box> occupied)
+    {
+        return occupied.stream().anyMatch(other -> box.x() < other.x() + other.width() + 20
+            && box.x() + box.width() + 20 > other.x() && box.y() < other.y() + other.height() + 20
+            && box.y() + box.height() + 20 > other.y());
+    }
 
     public static Result arrange(List<Node> nodes, List<Edge> edges)
     {

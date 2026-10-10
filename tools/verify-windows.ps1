@@ -19,7 +19,7 @@ if (Test-Path -LiteralPath $fixture) { throw 'Use a fresh verification directory
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'SmokeProject') -Destination $fixture -Recurse
 $homeDir = if($PortablePreferences){Join-Path $image 'data'}else{Join-Path $work 'home'}
 [System.IO.Directory]::CreateDirectory($homeDir) | Out-Null
-& (Join-Path $javaBin 'javac.exe') -cp (Join-Path $image 'app/*') -d $classes (Join-Path $PSScriptRoot 'BootSmoke.java')
+& (Join-Path $javaBin 'javac.exe') -cp (Join-Path $image 'app/*') -d $classes (Join-Path $PSScriptRoot 'BootSmoke.java') (Join-Path $PSScriptRoot 'AdvancedSmoke.java')
 if ($LASTEXITCODE -ne 0) { throw 'Cannot compile verification harness.' }
 $harness = Join-Path $work 'smoke-workflow.jar'
 & (Join-Path $javaBin 'jar.exe') --create --file $harness -C $classes .

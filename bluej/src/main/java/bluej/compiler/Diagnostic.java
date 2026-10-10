@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-09. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2011,2016,2025  Michael Kolling and John Rosenberg
@@ -30,6 +31,9 @@ import java.io.Serializable;
  */
 public class Diagnostic implements Serializable
 {
+    private String compilerCode = "";
+    public String getCompilerCode() { return compilerCode == null ? "" : compilerCode; }
+    public void setCompilerCode(String code) { compilerCode = code; }
     public static int ERROR = 0;
     public static int WARNING = 1;
     public static int NOTE = 2;

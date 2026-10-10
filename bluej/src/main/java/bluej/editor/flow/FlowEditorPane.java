@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2019,2020,2021,2022,2024,2025  Michael Kolling and John Rosenberg
@@ -414,10 +415,14 @@ public class FlowEditorPane extends BaseEditorPane implements JavaSyntaxView.Dis
     protected void updateRender(boolean ensureCaretVisible)
     {
         super.updateRender(ensureCaretVisible);
+        lineDisplay.hideAllErrorUnderlines();
 
         if (errorQuery != null)
         {
-            for (IndexRange indexRange : errorQuery.getErrorUnderlines())
+            int[] visible = getLineRangeVisible();
+            int start = document.getLineStart(Math.max(0, visible[0]));
+            int end = visible[1] + 1 < document.getLineCount() ? document.getLineStart(visible[1] + 1) : document.getLength() + 1;
+            for (IndexRange indexRange : errorQuery.getErrorUnderlines(start, end))
             {
                 addErrorUnderline(indexRange.getStart(), indexRange.getEnd());
             }
@@ -446,7 +451,7 @@ public class FlowEditorPane extends BaseEditorPane implements JavaSyntaxView.Dis
      * that is visible on screen, and the second element being the inclusive zero-based index of the last line
      * that is visible on screen.
      */
-    int[] getLineRangeVisible()
+    public int[] getLineRangeVisible()
     {
         return lineDisplay.getLineRangeVisible();
     }
@@ -524,10 +529,14 @@ public class FlowEditorPane extends BaseEditorPane implements JavaSyntaxView.Dis
 
     private void addErrorUnderline(int startPos, int endPos)
     {
+        if (startPos < 0 || startPos >= document.getLength() || endPos < startPos) return;
         int lineIndex = document.getLineFromPosition(startPos);
-        int startColumn = document.getColumnFromPosition(startPos);
+        int lineStart = document.getLineStart(lineIndex);
+        int lineLength = document.getLineEnd(lineIndex) - lineStart;
+        int startColumn = startPos - lineStart;
         // Only show error on one line at most:
-        int endColumn = Math.min(document.getLineEnd(lineIndex), endPos - document.getLineStart(lineIndex));
+        int endColumn = Math.min(lineLength, Math.min(document.getLength(), endPos) - lineStart);
+        if (startColumn >= lineLength || endColumn < startColumn) return;
         
         if (lineDisplay.isLineVisible(lineIndex))
         {
@@ -538,6 +547,13 @@ public class FlowEditorPane extends BaseEditorPane implements JavaSyntaxView.Dis
     // Each item is of size 2, start pos incl and end pos excl, where position is within the whole document
     void showHighlights(HighlightType highlightType, List<int[]> results)
     {
+        int[] visibleLines = lineDisplay.getLineRangeVisible();
+        if (highlightType == HighlightType.FIND_RESULT && !results.isEmpty())
+        {
+            int start = document.getLineStart(Math.max(0, visibleLines[0]));
+            int end = visibleLines[1] + 1 < document.getLineCount() ? document.getLineStart(visibleLines[1] + 1) : document.getLength() + 1;
+            results = bluej.light.VisibleRanges.between(results, start, end);
+        }
         // Maps line number to [start column incl, end column excl]
         Map<Integer, List<int[]>> resultsByLine = new HashMap<>();
 
@@ -549,7 +565,6 @@ public class FlowEditorPane extends BaseEditorPane implements JavaSyntaxView.Dis
             int endColumn = Math.min(document.getLineEnd(lineIndex), result[1] - document.getLineStart(lineIndex));
             resultsByLine.computeIfAbsent(lineIndex, n -> new ArrayList<>()).add(new int[]{startColumn, endColumn});
         }
-        int[] visibleLines = lineDisplay.getLineRangeVisible();
         for (int line = visibleLines[0]; line <= visibleLines[1]; line++)
         {
             lineDisplay.getVisibleLine(line).textLine.showHighlight(highlightType, resultsByLine.getOrDefault(line, List.of()));
@@ -918,6 +933,8 @@ public class FlowEditorPane extends BaseEditorPane implements JavaSyntaxView.Dis
     public static interface ErrorQuery
     {
         public List<IndexRange> getErrorUnderlines();
+        public default List<IndexRange> getErrorUnderlines(int start, int end)
+        { return getErrorUnderlines().stream().filter(range -> range.getStart() >= start && range.getStart() < end).toList(); }
     }
 
     @OnThread(Tag.FXPlatform)

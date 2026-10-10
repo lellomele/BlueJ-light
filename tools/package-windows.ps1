@@ -13,7 +13,7 @@ if (Test-Path -LiteralPath $imagePath) { throw "Destination already exists: $ima
 $libDir = Join-Path $projectDir 'bluej/build/resources/main/lib'
 if (!(Test-Path -LiteralPath (Join-Path $libDir 'boot.jar'))) { throw 'Build :bluej:assemble first.' }
 & (Join-Path $jdk 'bin/jpackage.exe') --type app-image --name 'BlueJ light' `
-    --app-version '5.5.3' --vendor 'Prof. Ing. Raffaele Mele' `
+    --app-version '5.6.0' --vendor 'Prof. Ing. Raffaele Mele' `
     --copyright "$([char]0xA9) 2026 - Prof. Ing. Raffaele Mele" `
     --input $libDir --main-jar boot.jar --main-class bluej.Boot `
     --runtime-image $jdk --dest $destination --icon (Join-Path $projectDir 'bluej/icons/bluej-light.ico') `
@@ -33,6 +33,8 @@ foreach ($module in $moduleNames.Keys) {
 Copy-Item -LiteralPath (Join-Path $projectDir 'LICENSE.txt'),(Join-Path $projectDir 'README.md') -Destination $imagePath
 Copy-Item -LiteralPath (Join-Path $projectDir 'LICENSING.md') -Destination $imagePath
 Copy-Item -LiteralPath (Join-Path $projectDir 'README.it.md') -Destination $imagePath
+[System.IO.Directory]::CreateDirectory((Join-Path $imagePath 'examples')) | Out-Null
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Exercises/Sum') -Destination (Join-Path $imagePath 'examples') -Recurse
 Copy-Item -LiteralPath (Join-Path $projectDir 'bluej/doc') -Destination (Join-Path $imagePath 'doc') -Recurse
 Copy-Item -LiteralPath (Join-Path $projectDir 'bluej/icons/CREDITS.txt') -Destination (Join-Path $imagePath 'doc/LIGHT-ICON-CREDITS.txt')
 & (Join-Path $PSScriptRoot 'build-launcher.ps1') -Destination (Join-Path $imagePath 'BlueJ light.exe') -MingwPath $MingwPath

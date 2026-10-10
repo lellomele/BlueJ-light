@@ -19,6 +19,7 @@ Copy-Item -LiteralPath (Join-Path $full 'app'),(Join-Path $full 'doc') -Destinat
 Copy-Item -LiteralPath (Join-Path $full 'README.md'),(Join-Path $full 'LICENSE.txt') -Destination $external
 Copy-Item -LiteralPath (Join-Path $full 'LICENSING.md') -Destination $external
 Copy-Item -LiteralPath (Join-Path $full 'README.it.md') -Destination $external
+Copy-Item -LiteralPath (Join-Path $full 'examples') -Destination $external -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows/no-jdk-info.txt') -Destination (Join-Path $external 'LEGGIMI-JDK.txt')
 Push-Location (Join-Path $PSScriptRoot 'windows')
 try {
@@ -34,4 +35,4 @@ foreach($variant in @('completo','senza-JDK')) {
     & $compiler '/Q' "/DImagePath=$image" "/DOutputPath=$output" "/DVariant=$variant" (Join-Path $PSScriptRoot 'windows/setup.iss')
     if($LASTEXITCODE -ne 0){throw "Cannot compile $variant installer."}
 }
-Get-ChildItem -LiteralPath $output -Filter 'BlueJ-light-5.5.3-win64-*.exe' | Select-Object Name,Length
+Get-ChildItem -LiteralPath $output -Filter 'BlueJ-light-5.6.0-win64-*.exe' | Select-Object Name,Length

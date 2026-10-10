@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2011,2014,2015,2016,2017,2018,2019,2020,2021,2022,2024  Michael Kolling and John Rosenberg
@@ -133,6 +133,8 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     // Each item in the list maps the list index (as number of spaces) to indent amount
     private final List<Double> cachedSpaceSizes = new ArrayList<>();
     private FlowReparseRunner reparseRunner;
+    private boolean parserListenerInstalled;
+    private final bluej.light.ParserProgressGuard parseProgress = new bluej.light.ParserProgressGuard();
     // The latest lines rendered, used to keep track of what needs re-rendering when we scroll:
     private int latestRenderStartIncl = 0;
     private int latestRenderEndIncl = Integer.MAX_VALUE - 1_000_000;
@@ -393,25 +395,37 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
         {
             rootNode = new ParsedCUNode(parentResolver);
             reparseRecordTree = new NodeTree<ReparseRecord>();
+            parseProgress.reset();
             //if (parentResolver != null || force) {
             //rootNode.setParentResolver(parentResolver);
             rootNode.textInserted(this, 0, 0, document.getLength(),
                     new SyntaxEvent(0, document.getLength(), true, false));
             // We can discard the MoeSyntaxEvent: the reparse will update scopes/syntax
             //}
-            document.addListener(true, (start, oldText, newText, linesRemoved, linesAdded) -> {
-                if (oldText.length() != 0)
-                {
-                    scopeBackgrounds.linesRemoved(document.getLineFromPosition(start), linesRemoved);
-                    fireRemoveUpdate(start, oldText.length());
-                }
-                if (newText.length() != 0)
-                {
-                    scopeBackgrounds.linesAdded(document.getLineFromPosition(start), linesAdded);
-                    fireInsertUpdate(start, newText.length());
-                }                
-                scheduleReparseRunner();
-            });
+            if (!parserListenerInstalled)
+            {
+                parserListenerInstalled = true;
+                document.addListener(true, (start, oldText, newText, linesRemoved, linesAdded) -> {
+                    parseProgress.reset();
+                    linesToRecalculateAfterLayout.clear();
+                    if (rootNode == null) { enableParser(force); return; }
+                    try
+                    {
+                        if (oldText.length() != 0)
+                        {
+                            scopeBackgrounds.linesRemoved(document.getLineFromPosition(start), linesRemoved);
+                            fireRemoveUpdate(start, oldText.length());
+                        }
+                        if (newText.length() != 0)
+                        {
+                            scopeBackgrounds.linesAdded(document.getLineFromPosition(start), linesAdded);
+                            fireInsertUpdate(start, newText.length());
+                        }
+                    }
+                    catch (RuntimeException ex) { suspendParser("Parser edit update failed", ex); }
+                    scheduleReparseRunner();
+                });
+            }
             
             scheduleReparseRunner();
         }
@@ -612,6 +626,16 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
         // display is null during testing or when used from Stride -- just skip updating the scopes in that case:
         if (display == null)
             return;
+        if (!isPrinting())
+        {
+            int[] visible = display.getLineRangeVisible();
+            if (visible != null)
+            {
+                firstLineIncl = Math.max(firstLineIncl, visible[0]);
+                lastLineIncl = Math.min(lastLineIncl, visible[1]);
+                if (firstLineIncl > lastLineIncl) return;
+            }
+        }
         
         recalcScopeMarkers((int) display.getTextDisplayWidth(),
                 //(widthProperty == null || widthProperty.get() == 0) ? 200 :
@@ -693,6 +717,9 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     protected void recalcScopeMarkers(int fullWidth,
             int firstLine, int lastLine, int attemptCount)
     {
+        firstLine = Math.max(0, firstLine);
+        lastLine = Math.min(lastLine, document.getLineCount() - 1);
+        if (firstLine > lastLine) return;
         if (rootNode == null)
         {
             // Not initialised yet
@@ -754,7 +781,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     {
         // Add one to the request count:
         linesToRecalculateAfterLayout.put(line, attemptCount);
-        if (!scheduledRecalculateAfterLayout)
+        if (!scheduledRecalculateAfterLayout && display != null && display.sceneProperty().get() != null)
         {
             scheduledRecalculateAfterLayout = true;
             JavaFXUtil.runAfterNextLayout(display.sceneProperty().get(), () -> {
@@ -765,10 +792,12 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
 
                 for (Entry<Integer, Integer> entry : toProcess.entrySet())
                 {
+                    if (entry.getKey() < 0 || entry.getKey() >= document.getLineCount()
+                        || (!isPrinting() && !display.isLineVisible(entry.getKey()))) continue;
                     // Give up at 5 attempts, to avoid looping forever if something goes wrong:
                     if (entry.getValue() < 5)
                     {
-                        recalcScopeMarkers(fullWidth, entry.getKey(), entry.getKey(), entry.getValue() + 1);
+                        recalcScopeMarkers((int)display.getTextDisplayWidth(), entry.getKey(), entry.getKey(), entry.getValue() + 1);
                     }
                     else
                         Debug.message("Giving up on line #" + entry.getKey());
@@ -2175,7 +2204,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     @OnThread(Tag.FXPlatform)
     private boolean pollReparseQueue(int maxParse)
     {
-        try {
+        try (bluej.light.ParserBudget.Scope budget = bluej.light.ParserBudget.start(java.util.concurrent.TimeUnit.SECONDS.toNanos(1))) {
             if (reparseRecordTree == null) {
                 return false;
             }
@@ -2189,19 +2218,30 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
                 if (pn != null) {
                     // Find the ParsedNode to handle the reparse.
                     NodeAndPosition<ParsedNode> cn = pn.findNodeAt(pos, ppos);
+                    java.util.Set<ParsedNode> visited = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+                    visited.add(pn);
                     while (cn != null && cn.getEnd() == pos) {
+                        bluej.light.ParserBudget.checkpoint();
                         cn = cn.nextSibling();
                     }
                     while (cn != null && cn.getPosition() <= pos) {
+                        bluej.light.ParserBudget.checkpoint();
+                        if (!visited.add(cn.getNode())) throw new IllegalStateException("Cycle in incremental parser nodes");
                         ppos = cn.getPosition();
                         pn = cn.getNode();
                         cn = pn.findNodeAt(nap.getPosition(), ppos);
                         while (cn != null && cn.getEnd() == pos) {
+                            bluej.light.ParserBudget.checkpoint();
                             cn = cn.nextSibling();
                         }
                     }
 
                     //Debug.message("Reparsing: " + ppos + " " + pos);
+                    if (!parseProgress.progress(pos, nap.getSize(), pn, pn.getSize()))
+                    {
+                        suspendParser("Incremental parser made no progress", null);
+                        return false;
+                    }
                     SyntaxEvent mse = new SyntaxEvent(-1, -1, false, false);
                     pn.reparse(this, ppos, pos, maxParse, mse);
                     // Dump tree (for debugging):
@@ -2223,12 +2263,19 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
                 Debug.message(eventStr);
             }
 
-            Debug.message("--- Source code ---");
-            Debug.message(document.getFullContent());
-            Debug.message("--- Source ends ---");
-            Debug.reportError(e);
-            throw e;
+            suspendParser("Incremental parser failed; editing and javac remain available", e);
+            return false;
         }
+    }
+
+    private void suspendParser(String reason, RuntimeException failure)
+    {
+        if (failure == null) Debug.message(reason); else Debug.reportError(reason, failure);
+        rootNode = null; reparseRecordTree = null; reparseRunner = null;
+        parseProgress.reset(); parsedCallbacks.clear(); styledLines.clear();
+        scopeBackgrounds.clear(); nodeIndents.clear(); pendingScopeBackgrounds.clear();
+        linesToRecalculateAfterLayout.clear();
+        if (display != null) { display.applyScopeBackgrounds(Map.of()); display.repaint(); }
     }
 
     public ReparseableDocument.Element getDefaultRootElement()
@@ -2239,19 +2286,12 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
             @Override
             public ReparseableDocument.Element getElement(int index)
             {
-                int[] lineStarts = new int[document.getLineCount()];
-                for (int i = 0; i < lineStarts.length; i++)
-                {
-                    lineStarts[i] = document.getLineStart(i);
-                }
-                
-                if (index >= lineStarts.length)
+                int lineCount = document.getLineCount();
+                if (index < 0 || index >= lineCount)
                     return null;
-
-                boolean lastPara = index == lineStarts.length - 1;
-                int paraLength;
-                paraLength = lastPara ? (document.getLength() - lineStarts[index]) : lineStarts[index + 1] - lineStarts[index];
-                int pos = lineStarts[index];
+                int pos = document.getLineStart(index);
+                int end = index == lineCount - 1 ? document.getLength() : document.getLineStart(index + 1);
+                int paraLength = end - pos;
                 return new ReparseableDocument.Element()
                 {
                     @Override
@@ -2315,7 +2355,15 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     @Override
     public Reader makeReader(int startPos, int endPos)
     {
-        return document.makeReader(startPos, endPos);
+        Reader source = document.makeReader(startPos, endPos);
+        if (!bluej.light.ParserBudget.active()) return source;
+        return new java.io.FilterReader(source) {
+            @Override @OnThread(value=Tag.FXPlatform, ignoreParent=true)
+            public int read() throws java.io.IOException { bluej.light.ParserBudget.checkpoint(); return super.read(); }
+            @Override @OnThread(value=Tag.FXPlatform, ignoreParent=true)
+            public int read(char[] buffer, int offset, int length) throws java.io.IOException
+            { bluej.light.ParserBudget.checkpoint(); return super.read(buffer, offset, length); }
+        };
     }
 
     @Override
@@ -2624,6 +2672,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
         
         public void run()
         {
+            if (reparseRunner != this) return;
             long begin = System.nanoTime();
             if (document != null && pollReparseQueue()) {
                 // Continue processing
@@ -2697,6 +2746,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     
     public static interface Display
     {
+        public default int[] getLineRangeVisible() { return null; }
         public ReadOnlyObjectProperty<Scene> sceneProperty();
         
         public ReadOnlyDoubleProperty widthProperty();

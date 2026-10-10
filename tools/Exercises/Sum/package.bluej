@@ -1,0 +1,14 @@
+package.numTargets=2
+project.charset=UTF-8
+target1.name=Sum
+target1.type=ClassTarget
+target1.x=40
+target1.y=40
+target1.width=120
+target1.height=60
+target2.name=SumTest
+target2.type=ClassTarget
+target2.x=210
+target2.y=40
+target2.width=120
+target2.height=60

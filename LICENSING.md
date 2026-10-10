@@ -8,8 +8,8 @@ and dated modification notices. The exception permits linking independent
 modules under their own licences; it does not remove source obligations for
 the modified BlueJ code. Icon credits are retained in `bluej/icons`.
 
-The [5.5.3 release](https://github.com/lellomele/BlueJ-light/releases/tag/v5.5.3-light)
-includes application sources, Temurin/OpenJDK 21.0.6+7 sources, complete OpenJFX
+Runtime and unchanged dependency sources are available in the [5.5.3 release](https://github.com/lellomele/BlueJ-light/releases/tag/v5.5.3-light)
+with Temurin/OpenJDK 21.0.6+7 sources, complete OpenJFX
 23.0.2 sources and dependency sources with version/provenance inventories.
 `SHA256SUMS.txt` identifies the distributed files. Library JARs are unmodified.
 
@@ -21,8 +21,8 @@ modifiche. L'eccezione consente il collegamento con moduli indipendenti sotto le
 rispettive licenze; non elimina gli obblighi sui sorgenti BlueJ modificati.
 I crediti delle icone sono conservati in `bluej/icons`.
 
-La [release 5.5.3](https://github.com/lellomele/BlueJ-light/releases/tag/v5.5.3-light)
-include i sorgenti dell'applicazione, di Temurin/OpenJDK 21.0.6+7, di OpenJFX
+I sorgenti del runtime e delle dipendenze non modificate sono disponibili nella [release 5.5.3](https://github.com/lellomele/BlueJ-light/releases/tag/v5.5.3-light)
+con i sorgenti di Temurin/OpenJDK 21.0.6+7, di OpenJFX
 23.0.2 e delle dipendenze, con inventari di versione e provenienza.
 `SHA256SUMS.txt` identifica i file distribuiti. I JAR delle librerie non sono modificati.
 
@@ -34,6 +34,7 @@ include i sorgenti dell'applicazione, di Temurin/OpenJDK 21.0.6+7, di OpenJFX
 | Temurin/OpenJDK | 21.0.6+7 | GPLv2 + Classpath Exception; `runtime/legal` |
 | OpenJFX | 23.0.2 | GPLv2 + Classpath Exception; native component notices / avvisi nativi |
 | Eclipse Layout Kernel | 0.11.0 | EPL 2.0 |
+| Artistic Style | 3.6.19 | MIT; `bluej/lib/formatter/LICENSE.md`; sources / sorgenti: `tools/thirdparty/astyle-3.6.19` |
 | Eclipse Modeling Framework | 2.12.0 | EPL 1.0 |
 | Eclipse Xbase | 2.36.0 | EPL 2.0 |
 | XOM | 1.3.9 | LGPL 2.1 |

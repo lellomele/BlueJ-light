@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-09. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2010,2011,2012,2013,2014,2015,2016,2018,2025  Michael Kolling and John Rosenberg
@@ -177,7 +178,10 @@ public class CompilerAPICompiler extends Compiler
                 }
                 
                 if (bjDiagnostic != null)
+                {
+                    bjDiagnostic.setCompilerCode(diag.getCode());
                     observer.compilerMessage(bjDiagnostic, type);
+                }
             }
         };
         

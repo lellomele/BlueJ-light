@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2019,2020,2021,2023,2024  Michael Kolling and John Rosenberg
@@ -78,6 +78,7 @@ public class TextLine extends TextFlow
     private final Path errorUnderlineShape = new Path();
     // Ranges are column locations relative to start of line, 0 is beginning.
     private final ArrayList<IndexRange> errorLocations = new ArrayList<>();
+    private boolean errorUpdateQueued;
     
     private List<BackgroundItem> backgroundNodes = Collections.emptyList();
     private List<StyledSegment> latestContent = Collections.emptyList();
@@ -159,7 +160,7 @@ public class TextLine extends TextFlow
     public void showSelection(int start, int end, boolean extendToRight)
     {
         runOnceLaidOut(() -> {
-            selectionShape.getElements().setAll(extendShape(extendToRight, rangeShape(start, end)));
+            selectionShape.getElements().setAll(extendShape(extendToRight, safeRangeShape(start, end)));
             selectionShape.setVisible(true);
         });
     }
@@ -263,11 +264,17 @@ public class TextLine extends TextFlow
 
     public void showError(int startColumn, int endColumn)
     {
-        errorLocations.add(new IndexRange(startColumn, endColumn));
+        int length = latestContent.stream().mapToInt(segment -> segment.text.length()).sum();
+        if (startColumn < 0 || startColumn > length || endColumn < startColumn) return;
+        IndexRange range = new IndexRange(startColumn, Math.min(endColumn, length));
+        if (!errorLocations.contains(range)) errorLocations.add(range);
+        if (errorUpdateQueued) return;
+        errorUpdateQueued = true;
         runOnceLaidOut(() -> {
+            errorUpdateQueued = false;
             // Note: it is possible between the call and the lay out that the errorLocations
             // change.  That's fine, we just use the latest one (which may be empty):
-            errorUnderlineShape.getElements().setAll(errorLocations.stream().flatMap(r -> makeSquiggle(rangeShape(r.getStart(), r.getEnd())).stream()).collect(Collectors.toList()));
+            errorUnderlineShape.getElements().setAll(errorLocations.stream().flatMap(r -> makeSquiggle(safeRangeShape(r.getStart(), r.getEnd())).stream()).collect(Collectors.toList()));
             errorUnderlineShape.setVisible(!errorUnderlineShape.getElements().isEmpty());
         });
     }
@@ -283,7 +290,7 @@ public class TextLine extends TextFlow
                 case BRACKET_MATCH -> this.bracketMatchShape;
                 case IME_INPUT -> this.imeInputShape;
             };
-            shape.getElements().setAll(positions.stream().flatMap(p -> Arrays.stream(rangeShape(p[0], p[1]))).toArray(PathElement[]::new));
+            shape.getElements().setAll(positions.stream().flatMap(p -> Arrays.stream(safeRangeShape(p[0], p[1]))).toArray(PathElement[]::new));
             shape.setVisible(!shape.getElements().isEmpty());
         });
     }
@@ -317,6 +324,13 @@ public class TextLine extends TextFlow
             squiggle.addAll(Arrays.asList(rectShape));
         }
         return squiggle;
+    }
+
+    private PathElement[] safeRangeShape(int start, int end)
+    {
+        if (start < 0 || end < start) return new PathElement[0];
+        int length = latestContent.stream().mapToInt(segment -> segment.text.length()).sum();
+        return rangeShape(Math.min(start, length), Math.min(end, length));
     }
 
     public void hideErrorUnderline()

@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2021,2022,2023,2025  Michael Kolling and John Rosenberg
@@ -160,6 +160,7 @@ public class Main
         
         // process command line arguments, start BlueJ!
         Platform.runLater(() -> {
+            bluej.light.UiStallMonitor.start(Config.getUserConfigDir().toPath());
             Stage stage = processArgs(args);
             futureMainWindow.complete(stage);
         });
@@ -320,6 +321,7 @@ public class Main
      */
     @OnThread(Tag.FXPlatform)
     public static void doQuit() {
+        bluej.light.UiStallMonitor.stop();
         guiHandler.doExitCleanup();
         ExtensionsManager extMgr = ExtensionsManager.getInstance();
         extMgr.unloadExtensions();

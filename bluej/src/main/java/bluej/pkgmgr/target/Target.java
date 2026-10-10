@@ -102,6 +102,13 @@ public abstract class Target
     @OnThread(Tag.FXPlatform)
     private ContextMenu showingContextMenu;
 
+    private boolean layoutLocked;
+    private boolean layoutPlaced;
+    public boolean isLayoutLocked() { return layoutLocked; }
+    public void setLayoutLocked(boolean value) { layoutLocked = value; }
+    public boolean isLayoutPlaced() { return layoutPlaced; }
+    public void setLayoutPlaced(boolean value) { layoutPlaced = value; }
+
     @OnThread(value = Tag.Any, requireSynchronized = true)
     private String identifierName; // the name handle for this target within
     // this package (must be unique within this
@@ -485,6 +492,8 @@ public abstract class Target
 
         setPos(xpos, ypos);
         setSize(width, height);
+        layoutLocked = Boolean.parseBoolean(props.getProperty(prefix + ".layoutLocked", "false"));
+        layoutPlaced = true;
     }
 
     /**
@@ -499,6 +508,7 @@ public abstract class Target
         props.put(prefix + ".height", String.valueOf(getHeight()));
 
         props.put(prefix + ".name", getIdentifierName());
+        props.put(prefix + ".layoutLocked", Boolean.toString(layoutLocked));
     }
 
     /**

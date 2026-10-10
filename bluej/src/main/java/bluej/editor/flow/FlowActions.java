@@ -1228,6 +1228,7 @@ public final class FlowActions
     {
         return action("autoindent", Category.EDIT, () -> {
             FlowEditor editor = getClearedEditor();
+            if (editor.formatWithBundledTool()) return;
             ReparseableDocument doc = editor.getSourceDocument();
             if (editor.getParsedNode() == null) {
                 // The Readme, or some other file which isn't parsed

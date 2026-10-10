@@ -163,6 +163,7 @@ public class BootSmoke {
                 }
                 fx(() -> { call(frame, "doSave"); return null; });
                 fx(() -> { snapshot((Node)editor, "diagram.png"); return null; });
+                AdvancedSmoke.verify(javaEditor, frame, vertices);
                 System.out.println("SMOKE_OK version=" + Boot.BLUEJ_VERSION + " compile=true layoutMenu=true layoutButton=true undo=true redo=true editorDoubleClick=true editorEdit=true editorSave=true editorCompile=true save=true snippetHelp=true snippetSearch=true snippetInsert=true noTeam=true");
                 fx(() -> { loader.loadClass("bluej.Main").getMethod("doQuit").invoke(null); return null; });
             } catch (Throwable ex) { ex.printStackTrace(); System.exit(2); }

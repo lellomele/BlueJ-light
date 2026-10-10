@@ -1,0 +1,8 @@
+Artistic Style 3.6.19, unmodified upstream sources, MIT licence.
+Upstream: https://astyle.sourceforge.net/
+Repository: https://gitlab.com/saalen/astyle
+Source distribution: https://downloads.sourceforge.net/project/astyle/astyle/astyle%203.6/astyle-3.6.19-x64.zip
+Retrieved from the locally installed Scoop source distribution.
+The bundled binary is rebuilt from these sources with MinGW-w64, static C++ runtime,
+using tools/build-formatter.ps1. No Visual C++ redistributable installation is needed.
+Keep LICENSE.md with the sources and with the bundled executable.

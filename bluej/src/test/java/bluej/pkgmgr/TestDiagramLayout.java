@@ -11,6 +11,24 @@ import threadchecker.Tag;
 @OnThread(Tag.Any)
 public class TestDiagramLayout
 {
+    @Test public void movingNodesAvoidFixedPositionsWithoutMovingThem()
+    {
+        var fixed = List.of(new DiagramLayout.Box(30, 30, 120, 80), new DiagramLayout.Box(200, 30, 120, 80));
+        var nodes = List.of(new DiagramLayout.Node("NewA", 120, 80), new DiagramLayout.Node("NewB", 120, 80));
+        var preferred = java.util.Map.of("NewA", new DiagramLayout.Point(30, 30), "NewB", new DiagramLayout.Point(30, 30));
+        var placed = DiagramLayout.avoidObstacles(nodes, preferred, fixed);
+        var occupied = new ArrayList<>(fixed);
+        for (var node : nodes)
+        {
+            var point = placed.get(node.id());
+            for (var other : occupied) assertFalse(point.x() < other.x() + other.width() + 20
+                && point.x() + node.width() + 20 > other.x() && point.y() < other.y() + other.height() + 20
+                && point.y() + node.height() + 20 > other.y());
+            occupied.add(new DiagramLayout.Box(point.x(), point.y(), node.width(), node.height()));
+        }
+        assertEquals(30, fixed.getFirst().x(), 0);
+        assertEquals(placed, DiagramLayout.avoidObstacles(nodes, preferred, fixed));
+    }
     @Test public void boxesDoNotOverlapAndRoutesAvoidOtherBoxes()
     {
         List<DiagramLayout.Node> nodes = List.of(new DiagramLayout.Node("Base", 100, 60),

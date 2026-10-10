@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program.
  Copyright (C) 2020,2021 Michael Kölling and John Rosenberg
@@ -194,9 +195,10 @@ public class EditorFixesManager
     {
         try
         {
-            return projectImportInformation.get().getJavaLangImports();
+            ProjectImportInformation information = projectImportInformation.getNow(null);
+            return information == null ? Collections.emptyList() : information.getJavaLangImports();
         }
-        catch (InterruptedException | ExecutionException ex)
+        catch (java.util.concurrent.CompletionException ex)
         {
             Debug.reportError(ex);
             return Collections.emptyList();

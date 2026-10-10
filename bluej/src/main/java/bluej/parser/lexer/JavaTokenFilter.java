@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2011,2016,2017  Michael Kolling and John Rosenberg
@@ -57,6 +58,7 @@ public final class JavaTokenFilter implements TokenStream
         
     public LocatableToken nextToken()
     {
+        bluej.light.ParserBudget.checkpoint();
         LocatableToken rval;
         if (! buffer.isEmpty()) {
             // Make sure we have a cached token if buffer is only size 1;
@@ -119,6 +121,7 @@ public final class JavaTokenFilter implements TokenStream
      */
     public LocatableToken LA(int distance)
     {
+        bluej.light.ParserBudget.checkpoint();
         if (cachedToken != null) {
            buffer.add(0, (LocatableToken) cachedToken);
            cachedToken = null;

@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2019,2020,2021,2022,2024,2025  Michael Kolling and John Rosenberg
@@ -71,6 +72,7 @@ import static bluej.utility.JavaUtils.blankCodeCommentsAndStringLiterals;
 public class FlowErrorManager implements ErrorQuery
 {
     private final ObservableList<ErrorDetails> errorInfos = FXCollections.observableArrayList();
+    private final NavigableMap<Integer, List<IndexRange>> indexedUnderlines = new TreeMap<>();
     private final FlowEditor editor;
 
     /**
@@ -91,6 +93,13 @@ public class FlowErrorManager implements ErrorQuery
      */
     public void addErrorHighlight(int startPos, int endPos, DiagnosticMessage message, int identifier)
     {
+        addErrorHighlight(startPos, endPos, message, identifier, "");
+    }
+
+    public void addErrorHighlight(int startPos, int endPos, DiagnosticMessage message, int identifier, String compilerCode)
+    {
+        if (startPos < 0 || startPos > editor.getTextLength() || endPos < startPos) return;
+        endPos = Math.min(endPos, editor.getTextLength());
         if (endPos < startPos)
             throw new IllegalArgumentException("Error ends before it begins: " + startPos + " to " + endPos);
         FlowEditorPane sourcePane = editor.getSourcePane();
@@ -98,12 +107,13 @@ public class FlowErrorManager implements ErrorQuery
 
         EditorFixesManager efm = editor.getEditorFixesManager();
 
-        showErrors(editor, sourcePane, startPos, endPos, message, identifier, () -> efm.getImportSuggestions().values().stream().flatMap(Collection::stream));
+        showErrors(editor, sourcePane, startPos, endPos, message, identifier, compilerCode, () -> efm.getImportSuggestions().values().stream().flatMap(Collection::stream));
     }
 
-    private void showErrors(FlowEditor editor, FlowEditorPane sourcePane, int startPos, int endPos, DiagnosticMessage message, int identifier, BackgroundSupplier<Stream<AssistContentThreadSafe>> imports)
+    private void showErrors(FlowEditor editor, FlowEditorPane sourcePane, int startPos, int endPos, DiagnosticMessage message, int identifier, String compilerCode, BackgroundSupplier<Stream<AssistContentThreadSafe>> imports)
     {
-        errorInfos.add(new FlowErrorManager.ErrorDetails(editor, startPos, endPos, message, identifier, imports));
+        indexedUnderlines.computeIfAbsent(startPos, pos -> new ArrayList<>()).add(new IndexRange(startPos, endPos));
+        errorInfos.add(new FlowErrorManager.ErrorDetails(editor, startPos, endPos, message, identifier, compilerCode, imports));
         editor.updateHeaderHasErrors(true);
         sourcePane.repaint();
     }
@@ -114,12 +124,30 @@ public class FlowErrorManager implements ErrorQuery
      */
     public void removeAllErrorHighlights()
     {
+        invalidateForEdit();
         FlowEditorPane sourcePane = editor.getSourcePane();
         sourcePane.getDocument().removeLineAttributeThroughout(ParagraphAttribute.ERROR);
         sourcePane.hideAllErrorUnderlines();
         errorInfos.clear();
+        indexedUnderlines.clear();
         editor.updateHeaderHasErrors(false);
         sourcePane.repaint();
+    }
+
+    public void invalidateForEdit()
+    {
+        errorInfos.forEach(error -> error.valid = false);
+        indexedUnderlines.clear();
+    }
+
+    public void removeInvalidErrorHighlights()
+    {
+        errorInfos.removeIf(error -> !error.isValid());
+        editor.getSourcePane().getDocument().removeLineAttributeThroughout(ParagraphAttribute.ERROR);
+        for (ErrorDetails error : errorInfos)
+            editor.getSourcePane().getDocument().addLineAttribute(editor.getSourcePane().getDocument().getLineFromPosition(error.startPos), ParagraphAttribute.ERROR, true);
+        editor.updateHeaderHasErrors(!errorInfos.isEmpty());
+        editor.getSourcePane().repaint();
     }
 
     public void listenForErrorChange(FXPlatformConsumer<List<FlowErrorManager.ErrorDetails>> listener)
@@ -135,6 +163,7 @@ public class FlowErrorManager implements ErrorQuery
 
         for (FlowErrorManager.ErrorDetails err : errorInfos)
         {
+            if (!err.isValid()) continue;
             // If error is before the given position, it will be a negative distance
             // If error is ahead, it will be a positive distance
             // If we are within the error, the position will also show up negative,
@@ -164,6 +193,7 @@ public class FlowErrorManager implements ErrorQuery
     public FlowErrorManager.ErrorDetails getErrorAtPosition(int pos)
     {
         return errorInfos.stream()
+                .filter(ErrorDetails::isValid)
                 .filter(e -> e.containsPosition(pos))
                 .reduce((first, second) -> second)
                 .orElse(null);
@@ -178,11 +208,11 @@ public class FlowErrorManager implements ErrorQuery
         final int lineStart = editor.getOffsetFromLineColumn(new SourceLocation(lineIndex + 1, 1));
         if (lineIndex + 1 >= editor.numberOfLines())
         {
-            return errorInfos.stream().filter(e -> e.endPos >= lineStart).findFirst().orElse(null);
+            return errorInfos.stream().filter(ErrorDetails::isValid).filter(e -> e.endPos >= lineStart).findFirst().orElse(null);
         } else
         {
             int lineEnd = editor.getOffsetFromLineColumn(new SourceLocation(lineIndex + 2, 1));
-            return errorInfos.stream().filter(e -> e.startPos <= lineEnd && e.endPos >= lineStart).findFirst().orElse(null);
+            return errorInfos.stream().filter(ErrorDetails::isValid).filter(e -> e.startPos <= lineEnd && e.endPos >= lineStart).findFirst().orElse(null);
         }
     }
 
@@ -190,6 +220,9 @@ public class FlowErrorManager implements ErrorQuery
     {
         return Utility.mapList(errorInfos, e -> new IndexRange(e.startPos, e.endPos));
     }
+
+    @Override public List<IndexRange> getErrorUnderlines(int start, int end)
+    { return indexedUnderlines.subMap(start, true, end, false).values().stream().flatMap(Collection::stream).toList(); }
 
     public boolean hasErrorHighlights()
     {
@@ -203,6 +236,13 @@ public class FlowErrorManager implements ErrorQuery
 
     public static class ErrorDetails
     {
+        private final FlowEditor editor;
+        private final long revision;
+        private boolean valid = true;
+        public final String compilerCode;
+        public boolean isValid() { return valid && revision == editor.getContentRevision() && startPos <= editor.getTextLength(); }
+        public bluej.light.ErrorExplanations.Explanation explanation()
+        { return bluej.light.ErrorExplanations.explain(compilerCode, Config.getLocale()); }
         // Several of these fields can be updated later while suggesting corrections, but all the
         // access (both read and write) happens on the FX thread:
         public final int startPos;
@@ -213,8 +253,11 @@ public class FlowErrorManager implements ErrorQuery
         public final int identifier;
         public final List<FixSuggestion> corrections = new ArrayList<>();
 
-        private ErrorDetails(FlowEditor editor, int startPos, int endPos, DiagnosticMessage message, int identifier, BackgroundSupplier<Stream<AssistContentThreadSafe>> possibleImports)
+        private ErrorDetails(FlowEditor editor, int startPos, int endPos, DiagnosticMessage message, int identifier, String compilerCode, BackgroundSupplier<Stream<AssistContentThreadSafe>> possibleImports)
         {
+            this.editor = editor;
+            this.revision = editor.getContentRevision();
+            this.compilerCode = compilerCode;
             this.message = message;
             this.startPos = startPos;
             this.endPos = endPos;
@@ -222,8 +265,14 @@ public class FlowErrorManager implements ErrorQuery
             this.italicMessageStartIndex = -1;
             this.italicMessageEndIndex = -1;
             Utility.runBackground(() -> {
-                Stream<AssistContentThreadSafe> imports = possibleImports.get();
-                Platform.runLater(() -> calculateCorrections(editor, imports));
+                List<AssistContentThreadSafe> imports = message.englishMessage().contains("cannot find symbol") && message.englishMessage().contains("class")
+                    ? possibleImports.get().toList() : List.of();
+                Platform.runLater(() -> {
+                    if (!isValid()) return;
+                    editor.whenParsed(() -> {
+                        if (isValid() && editor.getSourceDocument().getParser() != null) calculateCorrections(editor, imports.stream());
+                    });
+                });
             });
             ;
         }
@@ -231,13 +280,14 @@ public class FlowErrorManager implements ErrorQuery
         @OnThread(Tag.FXPlatform)
         private void calculateCorrections(FlowEditor editor, Stream<AssistContentThreadSafe> possibleImports)
         {
+            if (!isValid()) return;
             try
             {
                 int errorLine = editor.getLineColumnFromOffset(startPos).getLine();
                 int errorLineLength = editor.getLineLength(errorLine - 1);
                 SourceLocation startErrorLineSourceLocation = new SourceLocation(errorLine, 1);
                 SourceLocation startErrorPosSourceLocation = editor.getLineColumnFromOffset(startPos);
-                SourceLocation endErrorLineSourceLocation = new SourceLocation(errorLine, errorLineLength);
+                SourceLocation endErrorLineSourceLocation = new SourceLocation(errorLine, errorLineLength + 1);
                 String errorLineText = editor.getText(startErrorLineSourceLocation, endErrorLineSourceLocation);
     
                 // set the quick fix imports if detected an unknown type error...
@@ -394,6 +444,7 @@ public class FlowErrorManager implements ErrorQuery
                             {
                                 List<AssistContentThreadSafe> matchTypeACList = futureImports.get();
                                 Platform.runLater(() -> {
+                                    if (!isValid()) return;
                                     // The actual correction type String we will use might not be the qualified name if the import is already there for that type (or type in java.lang)
                                     // initial value is set to qualified name
                                     String exceptionTypeForCorrection = exceptionQualifiedNameType;
@@ -649,6 +700,7 @@ public class FlowErrorManager implements ErrorQuery
                     List<AssistContentThreadSafe> matchCorrectionOuterTypeACList = (futureCorrectionOuterTypeImport != null) ? futureCorrectionOuterTypeImport.get() : new ArrayList<>();
                     Platform.runLater(() ->
                     {
+                        if (!isValid()) return;
                         //There shouldn't be more than one type returned using the fully qualified name.. 
                         // so we use the first one if at least one is returned.
                         if (matchCorrectionTypeACList.size() > 0)
@@ -858,7 +910,7 @@ public class FlowErrorManager implements ErrorQuery
                     // The position for a new field declaration needs to be found by getting parents offset, diff with if required the last field position,
                     // the field line (from position) size, and a new line.
                     int lastFieldLine = editor.getLineColumnFromOffset(offset).getLine();
-                    String lastFieldLineStr = editor.getText(new SourceLocation(lastFieldLine, 1), new SourceLocation(lastFieldLine, editor.getLineLength(lastFieldLine - 1)));
+                String lastFieldLineStr = editor.getText(new SourceLocation(lastFieldLine, 1), new SourceLocation(lastFieldLine, editor.getLineLength(lastFieldLine - 1) + 1));
                     int lastFieldNoIndentLength = lastFieldLineStr.replaceAll("^\\s+", "").length();
                     posOfNextField = offset + lastFieldNoIndentLength + 1;
                     if (!isFirstField)
@@ -877,7 +929,7 @@ public class FlowErrorManager implements ErrorQuery
                 // plus a new line, and the default BlueJ indentation
                 int classOffset = classNode.getAbsoluteEditorPosition();
                 int classLine = editor.getLineColumnFromOffset(classOffset).getLine();
-                String classLineStr = editor.getText(new SourceLocation(classLine, 1), new SourceLocation(classLine, editor.getLineLength(classLine - 1)));
+                String classLineStr = editor.getText(new SourceLocation(classLine, 1), new SourceLocation(classLine, editor.getLineLength(classLine - 1) + 1));
                 int classLineStrNoTailLength = classLineStr.replaceAll("\\s+$", "").length();
                 String tailSpaces = classLineStr.substring(classLineStrNoTailLength);
                 int classLineStrNoIdentLength = classLineStr.replaceAll("^\\s+", "").length();

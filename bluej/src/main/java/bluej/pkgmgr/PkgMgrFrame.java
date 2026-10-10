@@ -1497,6 +1497,8 @@ public class PkgMgrFrame
      * not successful. Displays a warning dialog if the opened project resides in a read-only
      * directory.
      */
+    public boolean openExerciseProject(String projectPath) { return openProject(projectPath); }
+
     private boolean openProject(String projectPath)
     {
         Project openProj = Project.openProject(projectPath);
@@ -2973,6 +2975,7 @@ public class PkgMgrFrame
                 testingMenu.getItems().add(cancelTestRecordAction.makeMenuItem());
             }
             toolsMenu.getItems().add(testingMenu);
+            toolsMenu.getItems().add(bluej.light.ExerciseTools.menu(this));
 
             if (!Config.isMacOS()) // no "Preferences" here for Mac
             {
