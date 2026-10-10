@@ -50,12 +50,14 @@ import bluej.compiler.CompileType;
 import bluej.pkgmgr.target.CSSTarget;
 import bluej.pkgmgr.target.DependentTarget.State;
 import bluej.utility.javafx.JavaFXUtil;
+import bluej.utility.javafx.FXPlatformConsumer;
 import bluej.Config;
 import bluej.compiler.*;
 import bluej.debugger.*;
 import bluej.debugmgr.CallHistory;
 import bluej.debugmgr.Invoker;
 import bluej.editor.Editor;
+import bluej.editor.flow.FlowEditor;
 import bluej.extensions2.BPackage;
 import bluej.extensions2.ExtensionBridge;
 import bluej.extensions2.SourceType;
@@ -215,9 +217,13 @@ public final class Package
     /** Whether we have issued a package compilation, and not yet seen its conclusion */
     private boolean currentlyCompiling = false;
 
-    /** Whether a compilation has been queued (behind the current compile job). Only one compile can be queued. */
-    private boolean queuedCompile = false;
-    private CompileReason queuedReason;
+    private DebuggerListener idleCompileListener;
+    private final Map<ClassTarget, PendingCompilation> idleCompilations = new LinkedHashMap<>();
+    private final Map<ClassTarget, PendingCompilation> pendingCompilations = new LinkedHashMap<>();
+    private final Map<ClassTarget, Long> activeCompilationJobs = new HashMap<>();
+    private final Map<ClassTarget, Long> checkedRevisions = new WeakHashMap<>();
+    private long nextCompilationJob;
+    private long activePackageJob = -1;
 
     private final List<FXCompileObserver> compileObservers = new ArrayList<>();
 
@@ -1463,6 +1469,20 @@ public final class Package
      */
     public void compile(FXCompileObserver compObserver, CompileReason reason, CompileType type)
     {
+        if (project.isClosing()) {
+            notifyCompilerObservers(compObserver == null ? List.of() : List.of(compObserver),
+                observer -> observer.endCompile(new CompileInputFile[0], false, type, -1));
+            return;
+        }
+        if (!isDebuggerIdle()) {
+            rememberCompilation(idleCompilations, null, false, compObserver, reason, type);
+            awaitDebuggerIdle();
+            return;
+        }
+        if (currentlyCompiling || !activeCompilationJobs.isEmpty() || getClassTargets().stream().anyMatch(ClassTarget::isQueued)) {
+            rememberCompilation(pendingCompilations, null, false, compObserver, reason, type);
+            return;
+        }
         Set<ClassTarget> toCompile = new HashSet<ClassTarget>();
 
         try
@@ -1477,9 +1497,9 @@ public final class Package
             {
                 if (!ct.isCompiled() && !ct.isQueued())
                 {
-                    ct.ensureSaved();
                     toCompile.add(ct);
                     ct.setQueued(true);
+                    ct.ensureSaved();
                 }
             }
 
@@ -1495,22 +1515,20 @@ public final class Package
                 {
                     observers.add(compObserver);
                 }
-                doCompile(toCompile, new PackageCompileObserver(observers), reason, type);
+                doCompile(toCompile, new PackageCompileObserver(observers), reason, type, true);
             }
             else {
                 if (compObserver != null) {
-                    compObserver.endCompile(new CompileInputFile[0], true, type, -1);
+                    notifyCompilerObservers(List.of(compObserver), observer -> observer.endCompile(new CompileInputFile[0], true, type, -1));
                 }
             }
         }
-        catch (IOException ioe) {
+        catch (IOException | RuntimeException | LinkageError | AssertionError ioe) {
             // Abort compile
             Debug.log("Error saving class before compile: " + ioe.getLocalizedMessage());
-            for (ClassTarget ct : toCompile) {
-                ct.setQueued(false);
-            }
+            cancelPreparation(toCompile);
             if (compObserver != null) {
-                compObserver.endCompile(new CompileInputFile[0], false, type, -1);
+                notifyCompilerObservers(List.of(compObserver), observer -> observer.endCompile(new CompileInputFile[0], false, type, -1));
             }
         }
     }
@@ -1525,37 +1543,7 @@ public final class Package
      */
     public void compile(CompileReason reason, CompileType type)
     {
-        if (! currentlyCompiling) {
-            currentlyCompiling = true;
-            compile(new FXCompileObserver() {
-                // The return of this method will be ignored,
-                // as PackageCompileObserver which chains to us, ignores it
-                @Override
-                @OnThread(Tag.FXPlatform)
-                public boolean compilerMessage(Diagnostic diagnostic, CompileType type) { return false; }
-
-                @Override
-                @OnThread(Tag.FXPlatform)
-                public void startCompile(CompileInputFile[] sources, CompileReason reason, CompileType type, int compilationSequence) { }
-
-                @Override
-                @OnThread(Tag.FXPlatform)
-                public void endCompile(CompileInputFile[] sources, boolean succesful, CompileType type2, int compilationSequence)
-                {
-                    // This will be called on the Swing thread.
-                    currentlyCompiling = false;
-                    if (queuedCompile) {
-                        queuedCompile = false;
-                        compile(queuedReason, type);
-                        queuedReason = null;
-                    }
-                }
-            }, reason, type);
-        }
-        else {
-            queuedCompile = true;
-            queuedReason = reason;
-        }
+        compile((FXCompileObserver)null, reason, type);
     }
 
     /**
@@ -1571,7 +1559,21 @@ public final class Package
      */
     public void compile(ClassTarget ct, boolean forceQuiet, FXCompileObserver compObserver, CompileReason reason, CompileType type)
     {
-        if (!checkCompile()) {
+        if (project.isClosing()) {
+            ct.cancelCompilation();
+            notifyCompilerObservers(compObserver == null ? List.of() : List.of(compObserver),
+                observer -> observer.endCompile(new CompileInputFile[0], false, type, -1));
+            return;
+        }
+        if (currentlyCompiling || ct.isQueued() || activeCompilationJobs.containsKey(ct)
+            || ct.dependencies().stream().anyMatch(dependency -> dependency instanceof ClassTarget target
+                && (target.isQueued() || activeCompilationJobs.containsKey(target)))) {
+            rememberCompilation(pendingCompilations, ct, forceQuiet, compObserver, reason, type);
+            return;
+        }
+        if (!isDebuggerIdle()) {
+            rememberCompilation(idleCompilations, ct, forceQuiet, compObserver, reason, type);
+            awaitDebuggerIdle();
             return;
         }
 
@@ -1620,10 +1622,10 @@ public final class Package
     public void compileQuiet(ClassTarget ct, CompileReason reason, CompileType type)
     {
         if (!isDebuggerIdle()) {
-            return;
+            rememberCompilation(idleCompilations, ct, true, null, reason, type);
+            awaitDebuggerIdle();
         }
-
-        searchCompile(ct, new QuietPackageCompileObserver(Collections.emptyList()), reason, type);
+        else compile(ct, true, null, reason, type);
     }
 
     /**
@@ -1631,10 +1633,21 @@ public final class Package
      */
     public void rebuild()
     {
-        if (!checkCompile()) {
+        rebuild(null);
+    }
+
+    private void rebuild(FXCompileObserver caller)
+    {
+        if (project.isClosing()) return;
+        if (!isDebuggerIdle()) {
+            rememberCompilation(idleCompilations, null, false, caller, CompileReason.REBUILD, CompileType.EXPLICIT_USER_COMPILE);
+            awaitDebuggerIdle();
             return;
         }
-
+        if (currentlyCompiling || !activeCompilationJobs.isEmpty() || getClassTargets().stream().anyMatch(ClassTarget::isQueued)) {
+            rememberCompilation(pendingCompilations, null, false, caller, CompileReason.REBUILD, CompileType.EXPLICIT_USER_COMPILE);
+            return;
+        }
         // Saving a class target can change its name; we need to copy the set of targets
         // first, and iterate through the copied list, to avoid "concurrent" modification
         // problems.
@@ -1656,9 +1669,9 @@ public final class Package
                 ClassTarget ct = i.next();
                 // we don't want to try and compile if it is a class target without src
                 if (ct.hasSourceCode()) {
+                    ct.setQueued(true);
                     ct.ensureSaved();
                     ct.markModified();
-                    ct.setQueued(true);
                 }
                 else {
                     i.remove();
@@ -1669,10 +1682,17 @@ public final class Package
                 project.removeClassLoader();
                 project.newRemoteClassLoader();
 
-                doCompile(compileTargets, new PackageCompileObserver(compileObservers), CompileReason.REBUILD, CompileType.EXPLICIT_USER_COMPILE);
+                List<FXCompileObserver> observers = new ArrayList<>(compileObservers);
+                if (caller != null) observers.add(caller);
+                doCompile(compileTargets, new PackageCompileObserver(observers), CompileReason.REBUILD, CompileType.EXPLICIT_USER_COMPILE, true);
             }
+            else if (caller != null)
+                notifyCompilerObservers(List.of(caller), observer -> observer.endCompile(new CompileInputFile[0], true, CompileType.EXPLICIT_USER_COMPILE, -1));
         }
-        catch (IOException ioe) {
+        catch (IOException | RuntimeException | LinkageError | AssertionError ioe) {
+            cancelPreparation(compileTargets);
+            if (caller != null)
+                notifyCompilerObservers(List.of(caller), observer -> observer.endCompile(new CompileInputFile[0], false, CompileType.EXPLICIT_USER_COMPILE, -1));
             showMessageWithText("file-save-error-before-compile", ioe.getLocalizedMessage());
         }
     }
@@ -1706,6 +1726,7 @@ public final class Package
     private void searchCompile(ClassTarget t, FXCompileObserver observer, CompileReason reason, CompileType type)
     {
         if (t.isQueued()) {
+            rememberCompilation(pendingCompilations, t, false, observer, reason, type);
             return;
         }
 
@@ -1714,9 +1735,9 @@ public final class Package
         try {
             List<ClassTarget> queue = new LinkedList<ClassTarget>();
             toCompile.add(t);
+            t.setQueued(true);
             t.ensureSaved();
             queue.add(t);
-            t.setQueued(true);
 
             while (! queue.isEmpty()) {
                 ClassTarget head = queue.remove(0);
@@ -1726,8 +1747,8 @@ public final class Package
                     if (dependency instanceof ClassTarget to)
                     {
                         if (!to.isCompiled() && ! to.isQueued() && toCompile.add(to)) {
-                            to.ensureSaved();
                             to.setQueued(true);
+                            to.ensureSaved();
                             queue.add(to);
                         }
                     }
@@ -1736,13 +1757,178 @@ public final class Package
 
             doCompile(toCompile, observer, reason, type);
         }
-        catch (IOException ioe) {
+        catch (IOException | RuntimeException | LinkageError | AssertionError ioe) {
             // Failed to save; abort the compile
             Debug.log("Failed to save source before compile; " + ioe.getLocalizedMessage());
-            for (ClassTarget ct : toCompile) {
-                ct.setQueued(false);
+            cancelPreparation(toCompile);
+            notifyCompilerObservers(List.of(observer), caller -> caller.endCompile(new CompileInputFile[0], false, type, -1));
+        }
+    }
+
+    @OnThread(Tag.FXPlatform)
+    private static void notifyCompilerObservers(List<FXCompileObserver> observers, FXPlatformConsumer<FXCompileObserver> callback)
+    {
+        for (FXCompileObserver observer : observers) {
+            try { callback.accept(observer); }
+            catch (RuntimeException | LinkageError | AssertionError failure) {
+                Debug.reportError("Compilation observer failed", failure);
             }
         }
+    }
+
+    @OnThread(Tag.FXPlatform)
+    private static final class PendingCompilation
+    {
+        private CompileRequest request;
+        private boolean quiet;
+        private boolean rebuild;
+        private long revision = -1;
+        private final List<FXCompileObserver> observers = new ArrayList<>();
+
+        private PendingCompilation(boolean quiet, FXCompileObserver observer, CompileReason reason, CompileType type)
+        {
+            this.request = new CompileRequest(reason, type);
+            this.quiet = quiet;
+            merge(quiet, observer, reason, type);
+        }
+
+        private void merge(boolean quiet, FXCompileObserver observer, CompileReason reason, CompileType type)
+        {
+            request = request.merge(new CompileRequest(reason, type));
+            this.quiet &= quiet;
+            rebuild |= reason == CompileReason.REBUILD;
+            if (observer != null && observers.stream().noneMatch(old -> old == observer)) observers.add(observer);
+        }
+
+        private FXCompileObserver observer()
+        {
+            if (observers.isEmpty()) return null;
+            return new FXCompileObserver() {
+                @Override public void startCompile(CompileInputFile[] sources, CompileReason reason, CompileType type, int sequence) {
+                    notifyCompilerObservers(observers, observer -> observer.startCompile(sources, reason, type, sequence));
+                }
+                @Override public boolean compilerMessage(Diagnostic diagnostic, CompileType type) {
+                    boolean[] shown = {false};
+                    notifyCompilerObservers(observers, observer -> shown[0] |= observer.compilerMessage(diagnostic, type));
+                    return shown[0];
+                }
+                @Override public void endCompile(CompileInputFile[] sources, boolean success, CompileType type, int sequence) {
+                    notifyCompilerObservers(observers, observer -> observer.endCompile(sources, success, type, sequence));
+                }
+            };
+        }
+
+        private void merge(PendingCompilation newer)
+        {
+            merge(newer.quiet, null, newer.request.reason(), newer.request.type());
+            rebuild |= newer.rebuild;
+            for (FXCompileObserver observer : newer.observers)
+                if (observers.stream().noneMatch(old -> old == observer)) observers.add(observer);
+        }
+    }
+
+    private void rememberCompilation(Map<ClassTarget, PendingCompilation> requests, ClassTarget target,
+        boolean quiet, FXCompileObserver observer, CompileReason reason, CompileType type)
+    {
+        PendingCompilation old = requests.get(target);
+        if (old == null) {
+            old = new PendingCompilation(quiet, observer, reason, type);
+            requests.put(target, old);
+        }
+        else old.merge(quiet, observer, reason, type);
+        old.revision = editorRevision(target);
+    }
+
+    private static long editorRevision(ClassTarget target)
+    {
+        return target != null && target.getEditorIfOpen() instanceof FlowEditor flowEditor ? flowEditor.getContentRevision() : -1;
+    }
+
+    private static String sourceKey(String filename)
+    {
+        return new File(filename).getAbsoluteFile().toPath().normalize().toString();
+    }
+
+    private void cancelPreparation(Collection<ClassTarget> preparedTargets)
+    {
+        for (ClassTarget target : preparedTargets) target.cancelCompilation();
+        for (var pending : List.of(idleCompilations, pendingCompilations)) {
+            for (var entry : List.copyOf(pending.entrySet())) {
+                if (entry.getKey() != null && !preparedTargets.contains(entry.getKey())) continue;
+                pending.remove(entry.getKey());
+                notifyCompilerObservers(entry.getValue().observers,
+                    observer -> observer.endCompile(new CompileInputFile[0], false, entry.getValue().request.type(), -1));
+            }
+        }
+        if (idleCompilations.isEmpty() && idleCompileListener != null) {
+            getDebugger().removeDebuggerListener(idleCompileListener);
+            idleCompileListener = null;
+            waitingForIdleToCompile = false;
+        }
+    }
+
+    private void runPendingCompilation(ClassTarget target, PendingCompilation pending)
+    {
+        if (pending.rebuild && target == null) rebuild(pending.observer());
+        else if (target == null) compile(pending.observer(), pending.request.reason(), pending.request.type());
+        else if (getTarget(target.getIdentifierName()) != target || !target.hasSourceCode()) {
+            target.cancelCompilation();
+            notifyCompilerObservers(pending.observers, observer -> observer.endCompile(new CompileInputFile[0], false, pending.request.type(), -1));
+        }
+        else if (pending.request.type() == CompileType.ERROR_CHECK_ONLY && pending.revision >= 0
+            && pending.revision == editorRevision(target) && Objects.equals(checkedRevisions.get(target), pending.revision)
+            && !target.getEditorIfOpen().isModified()) {
+            target.getEditorIfOpen().compileCancelled();
+            notifyCompilerObservers(pending.observers, observer -> observer.endCompile(new CompileInputFile[0], !target.hasKnownError(), pending.request.type(), -1));
+        }
+        else if (target.isCompiled() && target.upToDate()
+            && (target.getEditorIfOpen() == null || !target.getEditorIfOpen().isModified())) {
+            // A preceding kept result already fulfils a coalesced request; release the editor's queue too.
+            if (target.getEditorIfOpen() != null) target.getEditorIfOpen().compileFinished(true, true);
+            notifyCompilerObservers(pending.observers, observer -> observer.endCompile(new CompileInputFile[0], true, pending.request.type(), -1));
+        }
+        else compile(target, pending.quiet, pending.observer(), pending.request.reason(), pending.request.type());
+    }
+
+    private void drainPendingCompilations()
+    {
+        if (project.isClosing()) { cancelPendingCompilations(); return; }
+        for (var entry : List.copyOf(pendingCompilations.entrySet())) {
+            ClassTarget target = entry.getKey();
+            if (currentlyCompiling || (target == null ? !activeCompilationJobs.isEmpty()
+                : target.isQueued() || activeCompilationJobs.containsKey(target))) continue;
+            if (pendingCompilations.remove(target) != entry.getValue()) continue;
+            if (isDebuggerIdle()) runPendingCompilation(target, entry.getValue());
+            else {
+                PendingCompilation request = entry.getValue();
+                PendingCompilation previous = idleCompilations.putIfAbsent(target, request);
+                if (previous != null) {
+                    previous.merge(request);
+                }
+                awaitDebuggerIdle();
+            }
+        }
+    }
+
+    public void cancelPendingCompilations()
+    {
+        if (idleCompileListener != null) getDebugger().removeDebuggerListener(idleCompileListener);
+        idleCompileListener = null;
+        waitingForIdleToCompile = false;
+        for (Map<ClassTarget, PendingCompilation> pending : List.of(idleCompilations, pendingCompilations)) {
+            var requests = new LinkedHashMap<>(pending);
+            pending.clear();
+            for (var entry : requests.entrySet()) {
+                if (entry.getKey() != null) entry.getKey().cancelCompilation();
+                notifyCompilerObservers(entry.getValue().observers,
+                    observer -> observer.endCompile(new CompileInputFile[0], false, entry.getValue().request.type(), -1));
+            }
+        }
+        for (ClassTarget target : List.copyOf(activeCompilationJobs.keySet())) target.cancelCompilation();
+        activeCompilationJobs.clear();
+        checkedRevisions.clear();
+        currentlyCompiling = false;
+        activePackageJob = -1;
     }
 
     /**
@@ -1751,16 +1937,73 @@ public final class Package
      */
     private void doCompile(Collection<ClassTarget> targetList, FXCompileObserver edtObserver, CompileReason reason, CompileType type)
     {
-        CompileObserver observer = new EventqueueCompileObserverAdapter(edtObserver);
+        doCompile(targetList, edtObserver, reason, type, false);
+    }
+
+    private void doCompile(Collection<ClassTarget> targetList, FXCompileObserver edtObserver, CompileReason reason, CompileType type, boolean wholePackage)
+    {
         if (targetList.isEmpty()) {
             return;
         }
 
-        List<CompileInputFile> srcFiles = Utility.mapList(targetList, ClassTarget::getCompileInputFile);
-        if (srcFiles.size() > 0 && srcFiles.stream().allMatch(CompileInputFile::isValid))
-        {
-            JobQueue.getJobQueue().addJob(srcFiles.toArray(new CompileInputFile[0]), observer, project.getClassLoader(), project.getProjectDir(),
-                ! PrefMgr.getFlag(PrefMgr.SHOW_UNCHECKED), project.getProjectCharset(), reason, type);
+        List<ClassTarget> submitted = List.copyOf(targetList);
+        List<CompileInputFile> srcFiles = Utility.mapList(submitted, ClassTarget::getCompileInputFile);
+        if (project.isClosing() || !srcFiles.stream().allMatch(CompileInputFile::isValid)) {
+            for (ClassTarget target : submitted) target.cancelCompilation();
+            notifyCompilerObservers(List.of(edtObserver), observer -> observer.endCompile(new CompileInputFile[0], false, type, -1));
+            return;
+        }
+        long job = ++nextCompilationJob;
+        if (edtObserver instanceof QuietPackageCompileObserver observer) {
+            observer.job = job;
+            observer.submittedTargets = new HashMap<>();
+            for (int i = 0; i < submitted.size(); i++)
+                observer.submittedTargets.put(sourceKey(srcFiles.get(i).getJavaCompileInputFile().getPath()), submitted.get(i));
+        }
+        for (ClassTarget target : submitted) { target.setQueued(true); activeCompilationJobs.put(target, job); }
+        if (wholePackage) { currentlyCompiling = true; activePackageJob = job; }
+        Map<ClassTarget, Long> startedRevisions = new HashMap<>();
+        FXCompileObserver bridge = new FXCompileObserver() {
+            @Override public void startCompile(CompileInputFile[] sources, CompileReason why, CompileType kind, int sequence) {
+                if (project.isClosing()) throw new java.util.concurrent.CancellationException();
+                for (ClassTarget target : submitted) {
+                    Editor editor = target.getEditorIfOpen();
+                    if (editor != null && !editor.isModified()) startedRevisions.put(target, editorRevision(target));
+                }
+                edtObserver.startCompile(sources, why, kind, sequence);
+            }
+            @Override public boolean compilerMessage(Diagnostic diagnostic, CompileType kind) {
+                return !project.isClosing() && edtObserver.compilerMessage(diagnostic, kind);
+            }
+            @Override public void endCompile(CompileInputFile[] sources, boolean success, CompileType kind, int sequence) {
+                try {
+                    if (!project.isClosing()) edtObserver.endCompile(sources, success, kind, sequence);
+                }
+                finally {
+                    for (ClassTarget target : submitted) {
+                        if (!Objects.equals(activeCompilationJobs.get(target), job)) continue;
+                        activeCompilationJobs.remove(target);
+                        Long revision = startedRevisions.get(target);
+                        Editor editor = target.getEditorIfOpen();
+                        if (revision != null && revision >= 0 && revision == editorRevision(target)
+                            && editor != null && !editor.isModified() && (success || target.hasKnownError()))
+                            checkedRevisions.put(target, revision);
+                        if (target.isQueued()) target.cancelCompilation();
+                    }
+                    if (activePackageJob == job) { activePackageJob = -1; currentlyCompiling = false; }
+                    drainPendingCompilations();
+                }
+            }
+        };
+        try {
+            JobQueue.getJobQueue().addJob(srcFiles.toArray(new CompileInputFile[0]), new EventqueueCompileObserverAdapter(bridge),
+                project.getClassLoader(), project.getProjectDir(), !PrefMgr.getFlag(PrefMgr.SHOW_UNCHECKED), project.getProjectCharset(), reason, type);
+        }
+        catch (RuntimeException | LinkageError | AssertionError failure) {
+            for (ClassTarget target : submitted) { activeCompilationJobs.remove(target); target.cancelCompilation(); }
+            if (activePackageJob == job) { activePackageJob = -1; currentlyCompiling = false; }
+            notifyCompilerObservers(List.of(edtObserver), observer -> observer.endCompile(new CompileInputFile[0], false, type, -1));
+            Debug.reportError("Unable to queue compilation", failure);
         }
     }
 
@@ -1800,49 +2043,69 @@ public final class Package
      */
     public void compileOnceIdle(ClassTarget specificTarget, CompileReason reason, CompileType type)
     {
-        if (! waitingForIdleToCompile) {
-            if (isDebuggerIdle())
-            {
-                if (specificTarget == null)
-                    compile(reason, type);
-                else
-                    compile(specificTarget, reason, type);
+        if (project.isClosing()) {
+            if (specificTarget != null) specificTarget.cancelCompilation();
+            return;
+        }
+        if (isDebuggerIdle()) {
+            if (specificTarget == null) {
+                if (reason == CompileReason.REBUILD) rebuild();
+                else compile(reason, type);
             }
+            else compile(specificTarget, reason, type);
+        }
+        else {
+            rememberCompilation(idleCompilations, specificTarget, false, null, reason, type);
+            awaitDebuggerIdle();
+        }
+    }
+
+    private void awaitDebuggerIdle()
+    {
+        if (project.isClosing() || getDebugger().getStatus() == Debugger.LAUNCH_FAILED) {
+            cancelPendingCompilations();
+            return;
+        }
+        if (idleCompileListener != null) return;
+        waitingForIdleToCompile = true;
+        DebuggerListener listener = new DebuggerListener() {
+            @Override @OnThread(Tag.Any)
+            public void processDebuggerEvent(DebuggerEvent event, boolean skipUpdate) {
+                if (event.getNewState() == Debugger.IDLE || event.getNewState() == Debugger.NOTREADY
+                    || event.getNewState() == Debugger.LAUNCH_FAILED)
+                    Platform.runLater(() -> resumeIdleCompilations(this));
+            }
+        };
+        idleCompileListener = listener;
+        getDebugger().addDebuggerListener(listener);
+        // The debugger may become idle between the first check and listener registration.
+        resumeIdleCompilations(listener);
+    }
+
+    private void resumeIdleCompilations(DebuggerListener listener)
+    {
+        if (idleCompileListener != listener) return;
+        if (project.isClosing() || getDebugger().getStatus() == Debugger.LAUNCH_FAILED) {
+            cancelPendingCompilations();
+            return;
+        }
+        if (!isDebuggerIdle()) return;
+        getDebugger().removeDebuggerListener(listener);
+        idleCompileListener = null;
+        waitingForIdleToCompile = false;
+        var requests = new LinkedHashMap<>(idleCompilations);
+        idleCompilations.clear();
+        for (var entry : requests.entrySet()) {
+            if (isDebuggerIdle()) runPendingCompilation(entry.getKey(), entry.getValue());
             else {
-                waitingForIdleToCompile = true;
-                // No lambda as we need to also remove:
-                DebuggerListener dlistener = new DebuggerListener() {
-                    @Override
-                    @OnThread(Tag.Any)
-                    public void processDebuggerEvent(DebuggerEvent e, boolean skipUpdate)
-                    {
-                        if (e.getNewState() == Debugger.IDLE)
-                        {
-                            getDebugger().removeDebuggerListener(this);
-                            // We call compileOnceIdle, not compile, because we might not still be idle
-                            // by the time we run on the GUI thread, so we may have to do the whole
-                            // thing again:
-                            Platform.runLater(() -> {
-                                if (waitingForIdleToCompile) {
-                                    waitingForIdleToCompile = false;
-                                    compileOnceIdle(specificTarget, reason, type);
-                                }
-                            });
-                        }
-                    }
-                };
-
-                getDebugger().addDebuggerListener(dlistener);
-
-                // Potential race: the debugger may have gone idle just before we added the listener.
-                // Check for that now:
-                if (isDebuggerIdle()) {
-                    waitingForIdleToCompile = false;
-                    compile(reason, type);
-                    getDebugger().removeDebuggerListener(dlistener);
+                PendingCompilation request = entry.getValue();
+                PendingCompilation old = idleCompilations.putIfAbsent(entry.getKey(), request);
+                if (old != null) {
+                    old.merge(request);
                 }
             }
         }
+        if (!idleCompilations.isEmpty()) awaitDebuggerIdle();
     }
 
     /**
@@ -2576,6 +2839,9 @@ public final class Package
         implements FXCompileObserver
     {
         protected List<FXCompileObserver> chainedObservers;
+        private Map<String, ClassTarget> submittedTargets = Map.of();
+        private long job;
+        protected Set<ClassTarget> retriedTargets = new HashSet<>();
 
         /**
          * Construct a new QuietPackageCompileObserver. The chained observers (if
@@ -2586,20 +2852,26 @@ public final class Package
             this.chainedObservers = new ArrayList<>(chainedObservers);
         }
 
+        protected ClassTarget targetForSource(String filename)
+        {
+            ClassTarget target = submittedTargets.get(sourceKey(filename));
+            if (target != null) {
+                if (getTarget(target.getIdentifierName()) != target || !Objects.equals(activeCompilationJobs.get(target), job)
+                    || !sourceKey(target.getJavaSourceFile().getPath()).equals(sourceKey(filename))) return null;
+                return target;
+            }
+            String fullName = project.convertPathToPackageName(filename);
+            Target implicit = fullName == null ? null : getTarget(JavaNames.getBase(fullName));
+            if (implicit instanceof ClassTarget ct && !activeCompilationJobs.containsKey(ct)) return ct;
+            return null;
+        }
+
         private void markAsCompiling(CompileInputFile[] sources, int compilationSequence)
         {
             for (int i = 0; i < sources.length; i++) {
                 String fileName = sources[i].getJavaCompileInputFile().getPath();
-                String fullName = getProject().convertPathToPackageName(fileName);
-
-                if (fullName != null) {
-                    Target t = getTarget(JavaNames.getBase(fullName));
-
-                    if (t instanceof ClassTarget) {
-                        ClassTarget ct = (ClassTarget) t;
-                        ct.markCompiling(compilationSequence);
-                    }
-                }
+                ClassTarget target = targetForSource(fileName);
+                if (target != null) target.markCompiling(compilationSequence);
             }
         }
 
@@ -2639,10 +2911,7 @@ public final class Package
             // Change view of source classes.
             markAsCompiling(sources, compilationSequence);
 
-            for (FXCompileObserver chainedObserver : chainedObservers)
-            {
-                chainedObserver.startCompile(sources, reason, type, compilationSequence);
-            }
+            notifyCompilerObservers(chainedObservers, observer -> observer.startCompile(sources, reason, type, compilationSequence));
         }
 
         @Override
@@ -2666,8 +2935,8 @@ public final class Package
                 // Don't inline the next two lines, as we
                 // always want to call compilerMessage even if
                 // a previous observer showed the method:
-                boolean s = chainedObserver.compilerMessage(diagnostic, type);
-                shown = shown || s;
+                try { shown |= chainedObserver.compilerMessage(diagnostic, type); }
+                catch (RuntimeException | LinkageError | AssertionError failure) { Debug.reportError("Compilation observer failed", failure); }
             }
             return shown;
         }
@@ -2696,12 +2965,7 @@ public final class Package
             for (int i = 0; i < sources.length; i++) {
                 String filename = sources[i].getJavaCompileInputFile().getPath();
 
-                String fullName = getProject().convertPathToPackageName(filename);
-                if (fullName == null) {
-                    continue;
-                }
-
-                ClassTarget t = (ClassTarget) targets.get(JavaNames.getBase(fullName));
+                ClassTarget t = targetForSource(filename);
 
                 if (t == null) {
                     continue;
@@ -2727,7 +2991,7 @@ public final class Package
                     // no direct/indirect dependencies with compile errors to be compiled
                     if (t.getState() == State.NEEDS_COMPILE && type == CompileType.EXPLICIT_USER_COMPILE)
                     {
-                        if (!checkDependecyCompilationError(t))
+                        if (!checkDependecyCompilationError(t) && retriedTargets.add(t))
                         {
                             readyToCompileList.add(t);
                         }
@@ -2766,7 +3030,16 @@ public final class Package
                 }
             }
             // Compile the classes that have no direct/indirect dependencies that have compile errors
-            doCompile(readyToCompileList, this, CompileReason.USER, CompileType.EXPLICIT_USER_COMPILE);
+            if (!readyToCompileList.isEmpty()) {
+                QuietPackageCompileObserver retry = this instanceof PackageCompileObserver
+                    ? new PackageCompileObserver(chainedObservers) : new QuietPackageCompileObserver(chainedObservers);
+                retry.retriedTargets = retriedTargets;
+                try {
+                    for (ClassTarget target : readyToCompileList) target.ensureSaved();
+                    doCompile(readyToCompileList, retry, CompileReason.USER, CompileType.EXPLICIT_USER_COMPILE, activePackageJob == job);
+                }
+                catch (IOException | RuntimeException failure) { cancelPreparation(readyToCompileList); Debug.reportError("Unable to prepare compilation retry", failure); }
+            }
 
             for (ClassTarget classTarget : targetsToAnalyse)
             {
@@ -2784,10 +3057,7 @@ public final class Package
             CompileEvent aCompileEvent = new CompileEvent(eventType, type.keepClasses(), Utility.mapList(Arrays.asList(sources), CompileInputFile::getJavaCompileInputFile).toArray(new File[0]));
             ExtensionsManager.getInstance().delegateEvent(aCompileEvent);
 
-            for (FXCompileObserver chainedObserver : chainedObservers)
-            {
-                chainedObserver.endCompile(sources, successful, type, compilationSequence);
-            }
+            notifyCompilerObservers(chainedObservers, observer -> observer.endCompile(sources, successful, type, compilationSequence));
         }
     }
 
@@ -2817,6 +3087,7 @@ public final class Package
         @Override
         public boolean compilerMessage(Diagnostic diagnostic, CompileType type)
         {
+            if (diagnostic.getFileName() != null && targetForSource(diagnostic.getFileName()) == null) return false;
             super.compilerMessage(diagnostic, type);
             if (diagnostic.getType() == Diagnostic.ERROR) {
                 return errorMessage(diagnostic, type);

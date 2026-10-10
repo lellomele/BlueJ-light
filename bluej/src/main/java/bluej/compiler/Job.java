@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2010,2011,2012,2016,2020,2022  Michael Kolling and John Rosenberg
@@ -28,6 +29,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import bluej.Config;
+import bluej.utility.Debug;
 import bluej.classmgr.BPClassLoader;
 
 /**
@@ -56,6 +58,7 @@ record Job(CompileInputFile[] sources, Compiler compiler, CompileObserver observ
     public void compile()
     {
         int compilationSequence = nextCompilationSequence.getAndIncrement();
+        boolean successful = false;
 
         try {
             if(observer != null) {
@@ -76,16 +79,18 @@ record Job(CompileInputFile[] sources, Compiler compiler, CompileObserver observ
                 actualSourceFiles[i] = sources[i].getJavaCompileInputFile();
             }
 
-            boolean successful = compiler.compile(actualSourceFiles, observer, internal, userCompileOptions, fileCharset, type);
-
-            if(observer != null) {
-                observer.endCompile(sources, successful, type, compilationSequence);
-            }
-        } catch(Exception e) {
-            System.err.println(Config.getString("compileException") + ": " + e);
-            e.printStackTrace();
+            successful = compiler.compile(actualSourceFiles, observer, internal, userCompileOptions, fileCharset, type);
+        }
+        catch (java.util.concurrent.CancellationException cancelled) { }
+        catch (Exception | LinkageError | AssertionError failure) {
+            Debug.reportError(Config.getString("compileException"), failure);
+        }
+        finally {
             if (observer != null) {
-                observer.endCompile(sources, false, type, compilationSequence);
+                try { observer.endCompile(sources, successful, type, compilationSequence); }
+                catch (RuntimeException | LinkageError | AssertionError failure) {
+                    Debug.reportError("Compilation completion callback failed", failure);
+                }
             }
         }
     }

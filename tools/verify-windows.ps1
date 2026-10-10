@@ -3,8 +3,9 @@ param(
     [Parameter(Mandatory=$true)][string]$ImagePath,
     [string]$ExternalJdkPath,
     [switch]$PortablePreferences,
-    [ValidateSet('BootSmoke','CompilationRaceSmoke')][string]$HarnessClass='BootSmoke',
+    [ValidateSet('BootSmoke','CompilationRaceSmoke','CompilationQueuePathsSmoke')][string]$HarnessClass='BootSmoke',
     [ValidateSet('all','manual','automatic')][string]$RaceMode='all',
+    [ValidateSet('all','global','idle','failure','mixed')][string]$QueueMode='all',
     [string]$WorkName='windows-verification'
 )
 $ErrorActionPreference = 'Stop'
@@ -23,6 +24,7 @@ $homeDir = if($PortablePreferences){Join-Path $image 'data'}else{Join-Path $work
 [System.IO.Directory]::CreateDirectory($homeDir) | Out-Null
 $sources = @((Join-Path $PSScriptRoot 'BootSmoke.java'),(Join-Path $PSScriptRoot 'AdvancedSmoke.java'))
 if ($HarnessClass -ne 'BootSmoke') { $sources += Join-Path $PSScriptRoot "$HarnessClass.java" }
+if ($HarnessClass -eq 'CompilationQueuePathsSmoke') { $sources += Join-Path $PSScriptRoot 'CompilationRaceSmoke.java' }
 & (Join-Path $javaBin 'javac.exe') -cp (Join-Path $image 'app/*') -d $classes @sources
 if ($LASTEXITCODE -ne 0) { throw 'Cannot compile verification harness.' }
 $harness = Join-Path $work 'smoke-workflow.jar'
@@ -38,6 +40,9 @@ try {
     if ($HarnessClass -eq 'CompilationRaceSmoke') {
         $testConfig = $testConfig.Replace('[JavaOptions]',"[JavaOptions]`njava-options=-Dbluej.light.race.mode=$RaceMode")
     }
+    if ($HarnessClass -eq 'CompilationQueuePathsSmoke') {
+        $testConfig = $testConfig.Replace('[JavaOptions]',"[JavaOptions]`njava-options=-Dbluej.light.queue.mode=$QueueMode")
+    }
     [System.IO.File]::WriteAllText($config, $testConfig, [System.Text.UTF8Encoding]::new($false))
     $process = Start-Process -FilePath (Join-Path $image 'BlueJ light.exe') -WorkingDirectory $projectDir `
         -ArgumentList @("`"$fixture`"", "`"$(if($PortablePreferences){'@portable'}else{$homeDir})`"", "`"-bluej.userHome=$homeDir`"") -WindowStyle Hidden -PassThru
@@ -47,11 +52,11 @@ try {
     }
     $log = Join-Path $homeDir 'bluej-light/bluej-debuglog.txt'
     if ($process.ExitCode -ne 0) {
-        Get-Content -LiteralPath $log -Tail 100
+        if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 100 }
         throw "Packaged application exited with code $($process.ExitCode). Log: $log"
     }
     $result = Get-Content -LiteralPath $log -Raw
-    $successMarker = if ($HarnessClass -eq 'CompilationRaceSmoke') { 'COMPILATION_RACE_OK' } else { 'SMOKE_OK' }
+    $successMarker = switch ($HarnessClass) { 'CompilationRaceSmoke' { 'COMPILATION_RACE_OK' } 'CompilationQueuePathsSmoke' { 'COMPILATION_PATHS_OK' } default { 'SMOKE_OK' } }
     if (!$result.Contains($successMarker) -or $result.Contains('IllegalAccessError')) {
         throw "Packaged workflow failed. Log: $log"
     }

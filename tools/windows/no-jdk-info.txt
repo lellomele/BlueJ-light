@@ -1,4 +1,4 @@
-BlueJ light 5.6.2 - pacchetto senza JDK
+BlueJ light 5.6.3 - pacchetto senza JDK
 
 Questo installer include BlueJ light e JavaFX, ma non include il JDK.
 Per avviare l'applicazione e compilare Java serve un JDK 21 Windows x64.

@@ -129,9 +129,9 @@ public final class CompilationRaceSmoke extends BootSmoke
                     replace(invalid);
                     fx(() -> null);
                     await("second automatic timer scheduled", 10, () -> fx(() ->
-                        ((Collection<?>)field(project, "scheduledTargets")).contains(target)));
+                        pendingKeys(project, "scheduledTargets").contains(target)));
                     await("second timer fired while first target remains queued", 10, () -> fx(() ->
-                        !((Collection<?>)field(project, "scheduledTargets")).contains(target)
+                        !pendingKeys(project, "scheduledTargets").contains(target)
                             && (Boolean)call(target, "isQueued") && !editorFlag("compilationStarted")));
                     fx(() -> null);
                     boolean savedBeforeStart = round == 1;
@@ -224,14 +224,20 @@ public final class CompilationRaceSmoke extends BootSmoke
                     && (Boolean)call(value, "isQueued")) return false;
             return !editorFlag("compilationQueued") && !editorFlag("compilationStarted")
                 && !editorFlag("requeueForCompilation")
-                && ((Collection<?>)field(project, "scheduledTargets")).isEmpty()
-                && ((Collection<?>)field(project, "scheduledPkgs")).isEmpty();
+                && pendingKeys(project, "scheduledTargets").isEmpty()
+                && pendingKeys(project, "scheduledPkgs").isEmpty();
         });
     }
 
     private static boolean editorFlag(String name) throws Exception
     {
         return (Boolean)field(sourceEditor, name);
+    }
+
+    static Collection<?> pendingKeys(Object object, String name) throws Exception
+    {
+        Object value = field(object, name);
+        return value instanceof java.util.Map<?,?> map ? map.keySet() : (Collection<?>)value;
     }
 
     static Object field(Object object, String name) throws Exception
@@ -274,6 +280,14 @@ public final class CompilationRaceSmoke extends BootSmoke
             if (file.toPath().toAbsolutePath().normalize().equals(sourceFile.toAbsolutePath().normalize())) return true;
         }
         return false;
+    }
+
+    static Gate blockCompiler(Object compilerProject, Path work) throws Exception
+    {
+        project = compilerProject;
+        blockerDirectory = Files.createTempDirectory(work, "compilation-blocker-");
+        Files.writeString(blockerDirectory.resolve("CompilationBlocker.java"), "final class CompilationBlocker {}\n");
+        return blockCompiler();
     }
 
     private static Gate blockCompiler() throws Exception
@@ -331,7 +345,7 @@ public final class CompilationRaceSmoke extends BootSmoke
         if (!compileFailures.isEmpty()) throw new AssertionError(compileFailures.peek());
     }
 
-    private static final class Gate
+    static final class Gate
     {
         final CountDownLatch entered = new CountDownLatch(1);
         final CountDownLatch release = new CountDownLatch(1);

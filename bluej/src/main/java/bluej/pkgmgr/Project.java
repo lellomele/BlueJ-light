@@ -28,6 +28,7 @@ import bluej.Config;
 import bluej.classmgr.BPClassLoader;
 import bluej.classmgr.ClassMgrPrefPanel;
 import bluej.compiler.CompileReason;
+import bluej.compiler.CompileRequest;
 import bluej.compiler.CompileType;
 import bluej.debugger.*;
 import bluej.debugmgr.ExecControls;
@@ -168,18 +169,12 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
     /** 1 second timer before starting auto-compile */
     @OnThread(Tag.FXPlatform)
     private Timeline compilerTimer;
-    // We don't used synchronized here because we could deadlock:
-    @OnThread(Tag.FXPlatform)
-    private CompileReason latestCompileReason;
-    // We don't used synchronized here because we could deadlock:
-    @OnThread(Tag.FXPlatform)
-    private CompileType latestCompileType;
     /** Packages scheduled for autocompilation */
     @OnThread(Tag.FXPlatform)
-    private Set<Package> scheduledPkgs = new HashSet<>();
+    private Map<Package, CompileRequest> scheduledPkgs = new LinkedHashMap<>();
     /** Targets scheduled for autocompilation */
     @OnThread(Tag.FXPlatform)
-    private Set<ClassTarget> scheduledTargets = new HashSet<>();
+    private Map<ClassTarget, CompileRequest> scheduledTargets = new LinkedHashMap<>();
 
     /**
      * The threads currently running in the debugger for this project.  We need
@@ -567,6 +562,11 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
      */
     public static void cleanUp(Project project)
     {
+        project.closing = true;
+        if (project.compilerTimer != null) project.compilerTimer.stop();
+        project.scheduledPkgs.clear();
+        project.scheduledTargets.clear();
+        for (Package pkg : List.copyOf(project.getProjectPackages())) pkg.cancelPendingCompilations();
 
         if (project.hasExecControls()) {
             project.getExecControls().hide();
@@ -2088,14 +2088,29 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
     @OnThread(Tag.FXPlatform)
     private void scheduleCompilation(boolean immediate, CompileReason reason, CompileType type, Package pkg, ClassTarget target)
     {
+        if (closing) {
+            if (target != null) target.cancelCompilation();
+            return;
+        }
+        CompileRequest request = new CompileRequest(reason, type);
         if (immediate)
         {
             // Take this package and target out of the list to compile later on:
             if (compilerTimer != null) {
-                if (pkg != null)
-                    scheduledPkgs.remove(pkg);
-                if (target != null)
-                    scheduledTargets.remove(target);
+                if (pkg != null) {
+                    CompileRequest old = scheduledPkgs.remove(pkg);
+                    if (old != null) request = old.merge(request);
+                    for (var entry : List.copyOf(scheduledTargets.entrySet())) {
+                        if (entry.getKey().getPackage() == pkg) {
+                            request = entry.getValue().merge(request);
+                            scheduledTargets.remove(entry.getKey());
+                        }
+                    }
+                }
+                if (target != null) {
+                    CompileRequest old = scheduledTargets.remove(target);
+                    if (old != null) request = old.merge(request);
+                }
                 // If nothing else to compile, cancel scheduled:
                 if (scheduledPkgs.isEmpty() && scheduledTargets.isEmpty()) {
                     compilerTimer.stop();
@@ -2103,19 +2118,16 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
             }
 
             if (pkg != null)
-                pkg.compileOnceIdle(null, reason, type);
+                pkg.compileOnceIdle(null, request.reason(), request.type());
             else if (target != null)
-                target.getPackage().compileOnceIdle(target, reason, type);
+                target.getPackage().compileOnceIdle(target, request.reason(), request.type());
         }
         else
         {
             if (pkg != null)
-                scheduledPkgs.add(pkg);
+                scheduledPkgs.merge(pkg, request, CompileRequest::merge);
             if (target != null)
-                scheduledTargets.add(target);
-
-            latestCompileReason = reason;
-            latestCompileType = type;
+                scheduledTargets.merge(target, request, CompileRequest::merge);
             if (compilerTimer != null)
             {
                 // Re-use existing timer, to avoid lots of reallocation:
@@ -2125,22 +2137,15 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
             else
             {
                 EventHandler<ActionEvent> listener = e -> {
-                    Set<Package> pkgsToCompile;
-                    Set<ClassTarget> targetsToCompile;
-
-                    pkgsToCompile = scheduledPkgs;
-                    scheduledPkgs = new HashSet<>();
-                    targetsToCompile = scheduledTargets;
-                    scheduledTargets = new HashSet<>();
-
-                    for (Package p : pkgsToCompile)
-                    {
-                        p.compileOnceIdle(null, latestCompileReason, latestCompileType);
-                    }
-                    for (ClassTarget t : targetsToCompile)
-                    {
-                        t.getPackage().compileOnceIdle(t, latestCompileReason, latestCompileType);
-                    }
+                    Map<Package, CompileRequest> pkgsToCompile = scheduledPkgs;
+                    scheduledPkgs = new LinkedHashMap<>();
+                    Map<ClassTarget, CompileRequest> targetsToCompile = scheduledTargets;
+                    scheduledTargets = new LinkedHashMap<>();
+                    if (closing) return;
+                    for (var entry : pkgsToCompile.entrySet())
+                        entry.getKey().compileOnceIdle(null, entry.getValue().reason(), entry.getValue().type());
+                    for (var entry : targetsToCompile.entrySet())
+                        entry.getKey().getPackage().compileOnceIdle(entry.getKey(), entry.getValue().reason(), entry.getValue().type());
                 };
                 compilerTimer = new Timeline(new KeyFrame(Duration.millis(1000), listener));
                 compilerTimer.setCycleCount(1);

@@ -2,8 +2,8 @@
 #include <windows.h>
 1 ICON "../../bluej/icons/bluej-light.ico"
 1 VERSIONINFO
-FILEVERSION 5,6,2,0
-PRODUCTVERSION 5,6,2,0
+FILEVERSION 5,6,3,0
+PRODUCTVERSION 5,6,3,0
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
 BEGIN
@@ -13,9 +13,9 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "Prof. Ing. Raffaele Mele"
       VALUE "FileDescription", "BlueJ light - external JDK launcher"
-      VALUE "FileVersion", "5.6.2"
+      VALUE "FileVersion", "5.6.3"
       VALUE "ProductName", "BlueJ light"
-      VALUE "ProductVersion", "5.6.2"
+      VALUE "ProductVersion", "5.6.3"
       VALUE "LegalCopyright", "\251 2026 - Prof. Ing. Raffaele Mele"
       VALUE "OriginalFilename", "BlueJ light.exe"
     END

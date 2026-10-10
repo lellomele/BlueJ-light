@@ -8,7 +8,7 @@ and dated modification notices. The exception permits linking independent
 modules under their own licences; it does not remove source obligations for
 the modified BlueJ code. Icon credits are retained in `bluej/icons`.
 
-Runtime and unchanged dependency sources are available in the [5.5.3 release](https://github.com/lellomele/BlueJ-light/releases/tag/v5.5.3-light)
+Runtime and unchanged dependency sources are available in the [5.6.3 release](https://github.com/lellomele/BlueJ-light/releases/tag/v5.6.3-light)
 with Temurin/OpenJDK 21.0.6+7 sources, complete OpenJFX
 23.0.2 sources and dependency sources with version/provenance inventories.
 `SHA256SUMS.txt` identifies the distributed files. Library JARs are unmodified.
@@ -21,7 +21,7 @@ modifiche. L'eccezione consente il collegamento con moduli indipendenti sotto le
 rispettive licenze; non elimina gli obblighi sui sorgenti BlueJ modificati.
 I crediti delle icone sono conservati in `bluej/icons`.
 
-I sorgenti del runtime e delle dipendenze non modificate sono disponibili nella [release 5.5.3](https://github.com/lellomele/BlueJ-light/releases/tag/v5.5.3-light)
+I sorgenti del runtime e delle dipendenze non modificate sono disponibili nella [release 5.6.3](https://github.com/lellomele/BlueJ-light/releases/tag/v5.6.3-light)
 con i sorgenti di Temurin/OpenJDK 21.0.6+7, di OpenJFX
 23.0.2 e delle dipendenze, con inventari di versione e provenienza.
 `SHA256SUMS.txt` identifica i file distribuiti. I JAR delle librerie non sono modificati.

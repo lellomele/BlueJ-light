@@ -35,4 +35,4 @@ foreach($variant in @('completo','senza-JDK')) {
     & $compiler '/Q' "/DImagePath=$image" "/DOutputPath=$output" "/DVariant=$variant" (Join-Path $PSScriptRoot 'windows/setup.iss')
     if($LASTEXITCODE -ne 0){throw "Cannot compile $variant installer."}
 }
-Get-ChildItem -LiteralPath $output -Filter 'BlueJ-light-5.6.2-win64-*.exe' | Select-Object Name,Length
+Get-ChildItem -LiteralPath $output -Filter 'BlueJ-light-5.6.3-win64-*.exe' | Select-Object Name,Length

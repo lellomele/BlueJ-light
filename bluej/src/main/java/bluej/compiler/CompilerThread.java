@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2014  Michael Kolling and John Rosenberg 
@@ -25,6 +26,7 @@ import threadchecker.OnThread;
 import threadchecker.Tag;
 import bluej.Config;
 import bluej.utility.Queue;
+import bluej.utility.Debug;
 
 /**
  * The compiler thread. BlueJ uses exactly one thread for compilation. Jobs are
@@ -69,7 +71,10 @@ class CompilerThread extends Thread
                 }
             }
 
-            job.compile();
+            try { job.compile(); }
+            catch (RuntimeException | LinkageError | AssertionError failure) {
+                Debug.reportError("Compiler job failed; remaining jobs will continue", failure);
+            }
         }
     }
 

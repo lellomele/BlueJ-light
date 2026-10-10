@@ -343,6 +343,24 @@ public class TestCompilationScheduling extends FXTest
         }
     }
 
+    @Test public void cancellationReleasesPendingRequestsWithoutAnAutomaticRetry()
+    {
+        Snapshot result = fx(() -> {
+            request(CompileReason.MODIFIED, CompileType.ERROR_CHECK_ONLY);
+            scheduler.dispatch();
+            scheduler.fireTimer();
+            request(CompileReason.USER, CompileType.EXPLICIT_USER_COMPILE);
+            scheduler.dispatch();
+            editor.compileCancelled();
+            scheduler.finish(true, false);
+            return scheduler.snapshot();
+        });
+        assertNull(result.current());
+        Snapshot next = fx(() -> { request(CompileReason.USER, CompileType.EXPLICIT_USER_COMPILE); scheduler.dispatch(); return scheduler.snapshot(); });
+        assertNotNull(next.current());
+        assertEquals(CompileType.EXPLICIT_USER_COMPILE, next.current().type());
+    }
+
     private void request(CompileReason reason, CompileType type)
     {
         editor.scheduleCompilation(reason, type);

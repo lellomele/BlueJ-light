@@ -4,7 +4,7 @@
 
 Ambiente Java indipendente basato su BlueJ 5.5.0, con editor ottimizzato,
 completamento automatico, snippet ricercabili, riordino del diagramma delle
-classi, selettore JDK integrato e strumenti didattici. Versione attuale: **5.6.2-light**.
+classi, selettore JDK integrato e strumenti didattici. Versione attuale: **5.6.3-light**.
 Non è una release ufficiale di BlueJ.
 
 ## Cosa Cambia In Light

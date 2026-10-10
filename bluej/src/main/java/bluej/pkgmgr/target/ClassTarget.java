@@ -1268,6 +1268,12 @@ public class ClassTarget extends DependentTarget
         return editor;
     }
 
+    public void cancelCompilation()
+    {
+        setQueued(false);
+        if (editor != null) editor.compileCancelled();
+    }
+
     /**
      * Get an editor for this class, either in source view or interface view.
      * 

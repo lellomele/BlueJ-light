@@ -26,6 +26,7 @@ import bluej.BlueJEvent;
 import bluej.BlueJEventListener;
 import bluej.Config;
 import bluej.compiler.CompileReason;
+import bluej.compiler.CompileRequest;
 import bluej.compiler.CompileType;
 import bluej.compiler.Diagnostic;
 import bluej.debugger.DebuggerThread;
@@ -1447,12 +1448,11 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
 
     private void rememberPendingCompilation(CompileReason reason, CompileType type)
     {
-        if (!requeueForCompilation || type != CompileType.ERROR_CHECK_ONLY)
-        {
-            requeueForCompilation = true;
-            requeueReason = reason;
-            requeueType = type;
-        }
+        CompileRequest newer = new CompileRequest(reason, type);
+        CompileRequest pending = requeueForCompilation ? new CompileRequest(requeueReason, requeueType).merge(newer) : newer;
+        requeueForCompilation = true;
+        requeueReason = pending.reason();
+        requeueType = pending.type();
     }
 
 
@@ -2424,6 +2424,20 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 info.messageImportant(getCompileErrorLabel());
             }
         }
+    }
+
+    @Override
+    public void compileCancelled()
+    {
+        compilationStarted = false;
+        compilationQueued = false;
+        compilationQueuedExplicit = false;
+        automaticCompilationDeferred = false;
+        compilationRequestRevision = -1;
+        diagnosticsRevision = -1;
+        requeueForCompilation = false;
+        requeueReason = null;
+        requeueType = null;
     }
 
     private String getCompileErrorLabel()

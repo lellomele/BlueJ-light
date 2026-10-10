@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2011,2012,2013,2016  Michael Kolling and John Rosenberg
@@ -30,6 +31,7 @@ import bluej.Config;
 import bluej.classmgr.BPClassLoader;
 import bluej.utility.Debug;
 import bluej.utility.Utility;
+import javafx.application.Platform;
 
 /**
  * Reasonably generic interface between the BlueJ IDE and the Java compiler.
@@ -95,12 +97,17 @@ public class JobQueue
      */
     public void waitForEmptyQueue()
     {
+        if (Platform.isFxApplicationThread() || Thread.currentThread() == thread)
+            throw new IllegalStateException("Cannot wait for compilation on the UI or compiler thread.");
         synchronized (thread) {
             while (thread.isBusy()) {
                 try {
                     thread.wait();
                 }
-                catch (InterruptedException ex) {}
+                catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while waiting for compilation.", ex);
+                }
             }
         }
     }

@@ -183,6 +183,9 @@ public interface Editor
      */
     void compileFinished(boolean successful, boolean classesKept);
 
+    /** A request was cancelled before completion; it may be retried explicitly. */
+    default void compileCancelled() { compileFinished(false, false); }
+
     /**
      * All breakpoints have been cleared for this class, update the
      * editor display to reflect this.

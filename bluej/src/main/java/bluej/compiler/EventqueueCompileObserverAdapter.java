@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2011,2012,2014,2016  Michael Kolling and John Rosenberg
@@ -22,6 +23,7 @@
 package bluej.compiler;
 
 import bluej.utility.javafx.FXPlatformRunnable;
+import bluej.utility.javafx.JavaFXUtil;
 import javafx.application.Platform;
 
 import java.util.Optional;
@@ -51,6 +53,10 @@ final public class EventqueueCompileObserverAdapter implements CompileObserver
      */
     private void runOnEventQueue(FXPlatformRunnable action)
     {
+        if (Platform.isFxApplicationThread()) {
+            JavaFXUtil.runNowOrLater(action);
+            return;
+        }
         CompletableFuture<Optional<Throwable>> f = new CompletableFuture<>();
         Platform.runLater(() -> {
             try
@@ -82,19 +88,19 @@ final public class EventqueueCompileObserverAdapter implements CompileObserver
     // ---------------- CompileObserver interface ---------------------
 
     @Override
-    public synchronized void compilerMessage(Diagnostic diagnostic, CompileType type)
+    public void compilerMessage(Diagnostic diagnostic, CompileType type)
     {
         runOnEventQueue(() -> link.compilerMessage(diagnostic, type));
     }
 
     @Override
-    public synchronized void startCompile(CompileInputFile[] csources, CompileReason reason, CompileType type, int compilationSequence)
+    public void startCompile(CompileInputFile[] csources, CompileReason reason, CompileType type, int compilationSequence)
     {
         runOnEventQueue(() -> link.startCompile(csources, reason, type, compilationSequence));
     }
 
     @Override
-    public synchronized void endCompile(CompileInputFile[] sources, boolean successful, CompileType type, int compilationSequence)
+    public void endCompile(CompileInputFile[] sources, boolean successful, CompileType type, int compilationSequence)
     {
         runOnEventQueue(() -> link.endCompile(sources, successful, type, compilationSequence));
     }
