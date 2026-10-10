@@ -11,13 +11,13 @@
 [Setup]
 AppId={{A79AEAFB-E734-44E2-88C3-0D6104555131}
 AppName=BlueJ light
-AppVersion=5.6.0
+AppVersion=5.6.1
 CreateUninstallRegKey=not IsVerificationMode
-AppVerName=BlueJ light 5.6.0
+AppVerName=BlueJ light 5.6.1
 AppPublisher=Prof. Ing. Raffaele Mele
 AppCopyright=© 2026 - Prof. Ing. Raffaele Mele
-VersionInfoVersion=5.6.0.0
-VersionInfoDescription=BlueJ light 5.6.0 Windows x64 ({#Variant})
+VersionInfoVersion=5.6.1.0
+VersionInfoDescription=BlueJ light 5.6.1 Windows x64 ({#Variant})
 VersionInfoCopyright=© 2026 - Prof. Ing. Raffaele Mele
 DefaultDirName={autopf}\BlueJ light
 DefaultGroupName=BlueJ light
@@ -36,7 +36,7 @@ LicenseFile=..\..\LICENSE.txt
 InfoBeforeFile=no-jdk-info.txt
 #endif
 OutputDir={#OutputPath}
-OutputBaseFilename=BlueJ-light-5.6.0-win64-{#Variant}
+OutputBaseFilename=BlueJ-light-5.6.1-win64-{#Variant}
 Compression=lzma2/max
 SolidCompression=yes
 CloseApplications=yes
