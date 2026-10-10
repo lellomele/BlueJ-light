@@ -1,6 +1,6 @@
 /* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
-FILEVERSION 5,6,1,0
-PRODUCTVERSION 5,6,1,0
+FILEVERSION 5,6,2,0
+PRODUCTVERSION 5,6,2,0
 BEGIN
 	BLOCK "StringFileInfo"
 	BEGIN
@@ -8,11 +8,11 @@ BEGIN
 		BEGIN
 			VALUE "CompanyName", "BlueJ group"
 			VALUE "FileDescription", "BlueJ light Launcher"
-			VALUE "FileVersion", "5.6.1"
+			VALUE "FileVersion", "5.6.2"
 			VALUE "InternalName", "bluej"
 			VALUE "OriginalFilename", "bluej.exe"
 			VALUE "ProductName", "BlueJ light"
-			VALUE "ProductVersion", "5.6.1"
+			VALUE "ProductVersion", "5.6.2"
 		END
 	END
 END

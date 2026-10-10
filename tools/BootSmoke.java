@@ -16,6 +16,7 @@ import javafx.scene.input.KeyEvent;
 import javafx.event.Event;
 import javafx.stage.Window;
 import java.io.File;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
@@ -158,7 +159,10 @@ public class BootSmoke {
                 Thread.sleep(1000);
                 fx(() -> { javaEditor.getClass().getMethod("scheduleCompilation", reason, type).invoke(javaEditor, user, explicit); return null; });
                 for (int i = 0; !fx(() -> (Boolean)call(target, "isCompiled")); i++) {
-                    if (i == 199) throw new AssertionError("Compilation after editor save did not finish");
+                    if (i == 199) {
+                        fx(() -> { describeCompilation(javaEditor, target); return null; });
+                        throw new AssertionError("Compilation after editor save did not finish");
+                    }
                     Thread.sleep(100);
                 }
                 fx(() -> { call(frame, "doSave"); return null; });
@@ -270,23 +274,28 @@ public class BootSmoke {
             Method replace = document.getClass().getMethod("replaceText", int.class, int.class, String.class);
             replace.invoke(document, position, position, "for");
             sourcePane.getClass().getMethod("positionCaret", int.class).invoke(sourcePane, position + 3);
+            Node sourceNode = (Node)sourcePane;
+            sourceNode.getScene().getWindow().requestFocus();
+            sourceNode.requestFocus();
             Method assist = javaEditor.getClass().getDeclaredMethod("createContentAssist");
             assist.setAccessible(true);
             assist.invoke(javaEditor);
             return null;
         });
-        Thread.sleep(1200);
-        fx(() -> {
-            Node popup = null;
-            for (Window window : Window.getWindows()) if (window.isShowing() && window.getScene() != null) {
-                Node candidate = window.getScene().getRoot().lookup(".suggestion-top-level");
-                if (candidate != null) { popup = candidate; break; }
-            }
-            if (popup == null) throw new AssertionError("Completion popup missing");
+        long completionDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (!fx(() -> {
+            Node popup = findCompletionPopup();
+            if (popup == null) return false;
             snapshot(popup, "completion-popup.png");
             Event.fireEvent(popup, new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.SPACE, true, true, false, false));
-            return null;
-        });
+            return true;
+        })) {
+            if (System.nanoTime() >= completionDeadline) {
+                fx(() -> { describeCompletion(javaEditor, (Node)sourcePane); return null; });
+                throw new AssertionError("Completion popup did not open within 10 seconds");
+            }
+            Thread.sleep(25);
+        }
         DialogPane fromPopup = waitForBrowser();
         fx(() -> {
             if (((ListView<?>)fromPopup.lookup("#snippet-list")).getItems().size() != 17)
@@ -297,6 +306,58 @@ public class BootSmoke {
             call(javaEditor, "save");
             return null;
         });
+    }
+
+    static Node findCompletionPopup() {
+        for (Window window : Window.getWindows()) if (window.isShowing() && window.getScene() != null) {
+            Node popup = window.getScene().getRoot().lookup(".suggestion-top-level");
+            if (popup != null) return popup;
+        }
+        return null;
+    }
+
+    static Object field(Object target, String name) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(target);
+    }
+
+    static Object optionalField(Object target, String name) throws Exception {
+        try { return field(target, name); }
+        catch (NoSuchFieldException missing) { return "not tracked by this version"; }
+    }
+
+    static void describeCompilation(Object javaEditor, Object target) throws Exception {
+        System.out.println("COMPILE_WAIT target=" + target + " state=" + call(target, "getState")
+            + " queued=" + call(target, "isQueued") + " invalid=" + field(target, "compilationInvalid"));
+        for (String name : List.of("compilationQueued", "compilationStarted", "automaticCompilationDeferred",
+                "requeueForCompilation", "compilationQueuedExplicit", "requeueReason", "requeueType"))
+            System.out.println("EDITOR_STATE " + name + "=" + field(javaEditor, name));
+        System.out.println("EDITOR_REVISION content=" + call(javaEditor, "getContentRevision")
+            + " requested=" + optionalField(javaEditor, "compilationRequestRevision")
+            + " diagnostics=" + field(javaEditor, "diagnosticsRevision"));
+        System.out.println("DIAGNOSTICS " + call(javaEditor, "getLightDiagnostics"));
+        for (String method : List.of("getJavaSourceFile", "getClassFile")) {
+            File file = (File)call(target, method);
+            System.out.println("COMPILE_FILE " + file + " exists=" + file.exists()
+                + " modified=" + file.lastModified() + " bytes=" + file.length());
+        }
+        System.out.println("PACKAGE_STATE idle=" + call(pkg, "isDebuggerIdle")
+            + " compiling=" + field(pkg, "currentlyCompiling")
+            + " waitingForIdle=" + field(pkg, "waitingForIdleToCompile"));
+    }
+
+    static void describeCompletion(Object javaEditor, Node pane) throws Exception {
+        System.out.println("COMPLETION_WAIT caret=" + call(pane, "getCaretPosition")
+            + " revision=" + call(javaEditor, "getContentRevision")
+            + " request=" + field(javaEditor, "completionRequest")
+            + " active=" + field(javaEditor, "activeCompletion")
+            + " visible=" + pane.isVisible() + " focused=" + pane.isFocused());
+        Object syntax = field(javaEditor, "javaSyntaxView");
+        System.out.println("COMPLETION_PARSER parser=" + call(syntax, "getParser")
+            + " pendingCallbacks=" + field(syntax, "parsedCallbacks"));
+        for (Window window : Window.getWindows()) if (window.isShowing())
+            System.out.println("COMPLETION_WINDOW " + window + " focused=" + window.isFocused());
     }
 
     static Object call(Object target, String name) throws Exception { return target.getClass().getMethod(name).invoke(target); }

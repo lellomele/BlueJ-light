@@ -334,6 +334,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private boolean requeueForCompilation;
     private boolean compilationQueued;
     private boolean compilationQueuedExplicit;
+    private long compilationRequestRevision = -1;
     private CompileReason requeueReason;
     private CompileType requeueType;
     private final Info info;
@@ -1417,34 +1418,40 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         {
             // We can collapse multiple compiles, but we cannot collapse an explicit compilation
             // (resulting class files kept) into a non-explicit compilation (result discarded).
-            if (!compilationQueued)
+            if (!compilationQueued && !compilationStarted)
             {
-                watcher.scheduleCompilation(!defer, reason, ctype);
                 compilationQueued = true;
+                compilationQueuedExplicit = ctype != CompileType.ERROR_CHECK_ONLY;
+                compilationRequestRevision = contentRevision;
                 automaticCompilationDeferred = defer;
+                watcher.scheduleCompilation(!defer, reason, ctype);
             }
             else if (!compilationStarted && automaticCompilationDeferred)
             {
-                watcher.scheduleCompilation(!defer, reason, ctype);
+                // The timer may already have queued the target before compileStarted arrives.
+                // Preserve an explicit promotion or a newer source revision if it rejects the request.
+                if (ctype != CompileType.ERROR_CHECK_ONLY || compilationRequestRevision != contentRevision || isModified())
+                    rememberPendingCompilation(reason, ctype);
+                compilationQueuedExplicit = ctype != CompileType.ERROR_CHECK_ONLY;
                 automaticCompilationDeferred = defer;
+                watcher.scheduleCompilation(!defer, reason, ctype);
             }
-            else if (compilationStarted ||
-                    (ctype != CompileType.ERROR_CHECK_ONLY && !compilationQueuedExplicit))
+            else if (ctype != CompileType.ERROR_CHECK_ONLY || compilationRequestRevision != contentRevision || isModified())
             {
-                // Either: a previously queued compilation has already started
-                // Or: we have queued an error-check-only compilation, but are being asked to
-                //     schedule a full (explicit) compile which keeps the resulting classes.
-                //
-                // In either case, we need to queue a second compilation after the current one
-                // finishes. We override any currently queued ERROR_CHECK_ONLY since explicit
-                // compiles should take precedence:
-                if (!requeueForCompilation || ctype != CompileType.ERROR_CHECK_ONLY)
-                {
-                    requeueForCompilation = true;
-                    requeueReason = reason;
-                    requeueType = ctype;
-                }
+                // A queued or running job may read an older source revision. Preserve the
+                // latest request until it finishes; explicit compiles take precedence.
+                rememberPendingCompilation(reason, ctype);
             }
+        }
+    }
+
+    private void rememberPendingCompilation(CompileReason reason, CompileType type)
+    {
+        if (!requeueForCompilation || type != CompileType.ERROR_CHECK_ONLY)
+        {
+            requeueForCompilation = true;
+            requeueReason = reason;
+            requeueType = type;
         }
     }
 
@@ -2359,6 +2366,18 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         diagnosticsRevision = contentRevision;
         lightDiagnostics.clear();
         compilationStarted = true;
+        automaticCompilationDeferred = false;
+        // ensureSaved has supplied the latest text; an identical pending check is redundant.
+        if (!isModified())
+        {
+            compilationRequestRevision = contentRevision;
+            if (requeueForCompilation && requeueType == CompileType.ERROR_CHECK_ONLY)
+            {
+                requeueForCompilation = false;
+                requeueReason = null;
+                requeueType = null;
+            }
+        }
         removeErrorHighlights();
         return false;
     }
@@ -2373,23 +2392,24 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public void compileFinished(boolean successful, boolean classesKept)
     {
         compilationStarted = false;
+        compilationQueued = false;
+        compilationQueuedExplicit = false;
+        compilationRequestRevision = -1;
+        automaticCompilationDeferred = false;
         if (requeueForCompilation) {
             requeueForCompilation = false;
-            if (classesKept)
+            CompileReason nextReason = requeueReason;
+            CompileType nextType = requeueType;
+            requeueReason = null;
+            requeueType = null;
+            // Kept classes already correspond to the current source, so no duplicate is needed.
+            if (!classesKept)
             {
-                // If the classes were kept, that means the compilation is valid and the source
-                // hasn't changed since. There is then no need for another recompile, even if
-                // we thought we needed one before.
-                compilationQueued = false;
+                compilationQueued = true;
+                compilationQueuedExplicit = nextType != CompileType.ERROR_CHECK_ONLY;
+                compilationRequestRevision = contentRevision;
+                watcher.scheduleCompilation(true, nextReason, nextType);
             }
-            else
-            {
-                compilationQueuedExplicit = (requeueType != CompileType.ERROR_CHECK_ONLY);
-                watcher.scheduleCompilation(true, requeueReason, requeueType);
-            }
-        }
-        else {
-            compilationQueued = false;
         }
 
         if (classesKept)
