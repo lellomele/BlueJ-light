@@ -1,4 +1,5 @@
 /* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2010,2013,2014,2015,2017,2018,2019,2020,2021,2022,2024  Michael Kolling and John Rosenberg
@@ -91,10 +92,17 @@ public class ParseUtils
     @OnThread(Tag.FXPlatform)
     public static AssistContent[] getPossibleCompletions(ExpressionTypeInfo suggests, JavadocResolver javadocResolver, AssistContentConsumer consumer, MethodNode surroundingMethod, int ourPos)
     {
+        return getPossibleCompletions(suggests, javadocResolver, consumer, surroundingMethod, ourPos, true);
+    }
+
+    /** Editors with their own priority ordering can avoid the intermediate sort. */
+    @OnThread(Tag.FXPlatform)
+    public static AssistContent[] getPossibleCompletions(ExpressionTypeInfo suggests, JavadocResolver javadocResolver, AssistContentConsumer consumer, MethodNode surroundingMethod, int ourPos, boolean sortMembers)
+    {
         GenTypeClass exprType = initGetPossibleCompletions(suggests);
         if (exprType != null)
         {
-            List<AssistContent> completions = getCompletionsForTarget(exprType, suggests, javadocResolver, consumer, surroundingMethod, ourPos);
+            List<AssistContent> completions = getCompletionsForTarget(exprType, suggests, javadocResolver, consumer, surroundingMethod, ourPos, sortMembers);
             return completions.toArray(new AssistContent[completions.size()]);
         }
         return null;
@@ -221,7 +229,7 @@ public class ParseUtils
      */
     @OnThread(Tag.FXPlatform)
     private static List<AssistContent> getCompletionsForTarget(GenTypeClass exprType, ExpressionTypeInfo suggests,
-                                                               JavadocResolver javadocResolver, AssistContentConsumer consumer, MethodNode surroundingMethod, int ourPos)
+                                                               JavadocResolver javadocResolver, AssistContentConsumer consumer, MethodNode surroundingMethod, int ourPos, boolean sortMembers)
     {
         GenTypeClass accessType = suggests.getAccessType();
         Reflective accessReflective = (accessType != null) ? accessType.getReflective() : null;
@@ -301,8 +309,6 @@ public class ParseUtils
                 }
             }
 
-            // Sort the completions by name
-            Collections.sort(completions, (o1, o2) -> o1.getName().compareTo(o2.getName()));
             Reflective outer = exprType.getReflective().getOuterClass();
             if (outer != null)
             {
@@ -310,6 +316,9 @@ public class ParseUtils
             }
 
         }
+
+        if (sortMembers)
+            completions.sort(java.util.Comparator.comparing(AssistContent::getName));
 
         if (surroundingMethod != null && suggests.isPlain())
         {

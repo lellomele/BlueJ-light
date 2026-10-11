@@ -4,7 +4,7 @@ English | [Italiano](README.it.md)
 
 An independent Java IDE based on BlueJ 5.5.0, with an optimized editor,
 code completion, searchable snippets, automatic class-diagram layout and
-an integrated JDK selector and teaching tools. Current version: **5.6.4-light**.
+an integrated JDK selector and teaching tools. Current version: **5.6.5-light**.
 This is not an official BlueJ release.
 
 ## What Changes In Light
@@ -13,8 +13,8 @@ Compared with BlueJ 5.5.0, light focuses on local Java editing and compilation.
 
 | Area | Improvement |
 | --- | --- |
-| Editor | Incremental text updates, cached longest line and scope decorations limited to visible rows reduce unnecessary work, especially during distant scroll jumps. Search highlights remain visible after scrolling. |
-| Completion | Keeps BlueJ's native Java engine; prioritizes local variables and parameters, avoids stale requests and loads selected-item documentation on demand. Java suggestions and snippets have distinct presentation. |
+| Editor | Incremental text updates, cached line widths and scope decorations grouped during opening/editing reduce unnecessary work. Only visible rows are decorated; search highlights remain visible after scrolling. |
+| Completion | Keeps BlueJ's native Java engine; prioritizes local variables and parameters, reuses the suggestion window and caches signature text without caching resolved members. Stale requests are discarded and documentation loads on demand. |
 | Snippets | 17 configurable templates, searchable previews, context filters and linked fields navigated with `Tab`. A help catalogue lists the available templates. |
 | Class diagram | ELK-based layout repositions classes and routes visible connections to reduce overlaps and crossings, with undo/redo. |
 | Java runtime | Select any compatible installed JDK 21 x64 in Preferences, including a return to the bundled JDK; apply the choice at restart. |

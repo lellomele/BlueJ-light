@@ -1,4 +1,4 @@
-/* Copyright (C) 2026 Prof. Ing. Raffaele Mele. GPLv2 with Classpath Exception. */
+/* Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GPLv2 with Classpath Exception. */
 import java.lang.reflect.*;
 import java.nio.file.*;
 import java.util.*;
@@ -25,6 +25,7 @@ public class AdvancedSmoke extends BootSmoke
         fx(()->{ List<Menu> menus=(List<Menu>)call(javaEditor,"getFXMenu");MenuItem item=byText(menus,label(key));if(item==null)throw new AssertionError("Missing editor command "+key);Platform.runLater(item::fire);return null;});
     }
     static void verify(Object javaEditor,Object frame,List<?> vertices) throws Exception {
+        EditorCompletionSmoke.verify(javaEditor);
         Object pane=fx(()->call(javaEditor,"getSourcePane"));Object document=fx(()->call(pane,"getDocument"));
         String original=fx(()->(String)call(document,"getFullContent"));
         fx(()->{Object actions=call(javaEditor,"getActions");Object format=actions.getClass().getMethod("getActionByName",String.class).invoke(actions,"autoindent");loader.loadClass("bluej.editor.flow.FlowActions$FlowAbstractAction").getMethod("actionPerformed",boolean.class).invoke(format,false);return null;});

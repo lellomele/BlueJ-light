@@ -397,6 +397,9 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
             rootNode = new ParsedCUNode(parentResolver);
             reparseRecordTree = new NodeTree<ReparseRecord>();
             parseProgress.reset();
+            // Initial parsing changes the same ancestors repeatedly; keep their
+            // indent cache until the complete tree can be drawn once.
+            scopeRefreshPending = display != null && !isPrinting();
             //if (parentResolver != null || force) {
             //rootNode.setParentResolver(parentResolver);
             rootNode.textInserted(this, 0, 0, document.getLength(),
@@ -2662,6 +2665,8 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
         cachedSpaceSizes.clear();
         nodeIndents.clear();
         scopeBackgrounds.clear();
+        pendingScopeBackgrounds.clear();
+        linesToRecalculateAfterLayout.clear();
         if (display != null)
         {
             JavaFXUtil.runAfterNextLayout(display.sceneProperty().get(), () -> {

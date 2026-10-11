@@ -104,6 +104,36 @@ public class TestScopeRendering extends FXTest
         });
     }
 
+    @Test public void initialLoadBatchesScopesAndUsesTheLatestViewport()
+    {
+        fx_(() -> {
+            TestDisplay display = new TestDisplay(false);
+            RecordingView view = new RecordingView(javaDocument(), display);
+            view.enableParser(true);
+            assertEquals(Boolean.TRUE, field(view, "scopeRefreshPending"));
+            display.from = 60; display.to = 80;
+            view.renderedLines(60, 80);
+            assertTrue(view.ranges.isEmpty());
+            view.flushReparseQueue();
+            assertEquals(List.of("60:80"), view.ranges);
+            assertEquals(Boolean.FALSE, field(view, "scopeRefreshPending"));
+            assertNotNull(view.getParser());
+        });
+    }
+
+    @Test public void fontChangesInvalidateMetricsAndPendingDecorations()
+    {
+        fx_(() -> {
+            RecordingView view = new RecordingView(new TestDisplay(false));
+            @SuppressWarnings("unchecked") List<Double> spaces = (List<Double>)field(view, "cachedSpaceSizes");
+            spaces.add(8.0);
+            mapField(view, "pendingScopeBackgrounds").put(2, List.of());
+            view.fontSizeChanged();
+            assertTrue(spaces.isEmpty());
+            assertTrue(mapField(view, "pendingScopeBackgrounds").isEmpty());
+        });
+    }
+
     @Test public void scrollingDuringEditRefreshesTheLatestViewport()
     {
         fx_(() -> {

@@ -4,7 +4,7 @@
 
 Ambiente Java indipendente basato su BlueJ 5.5.0, con editor ottimizzato,
 completamento automatico, snippet ricercabili, riordino del diagramma delle
-classi, selettore JDK integrato e strumenti didattici. Versione attuale: **5.6.4-light**.
+classi, selettore JDK integrato e strumenti didattici. Versione attuale: **5.6.5-light**.
 Non è una release ufficiale di BlueJ.
 
 ## Cosa Cambia In Light
@@ -13,8 +13,8 @@ Rispetto a BlueJ 5.5.0, light privilegia editing e compilazione Java su progetti
 
 | Area | Miglioramento |
 | --- | --- |
-| Editor | Aggiornamenti incrementali del testo, cache della riga più lunga e riquadri limitati alle righe visibili riducono il lavoro superfluo, soprattutto nei salti di scorrimento. L'evidenziazione della ricerca rimane visibile dopo lo scroll. |
-| Completamento | Mantiene il motore Java nativo BlueJ; dà priorità a variabili locali e parametri, evita richieste obsolete e carica la documentazione della voce selezionata quando serve. Suggerimenti Java e snippet hanno una presentazione distinta. |
+| Editor | Aggiornamenti incrementali del testo, cache delle larghezze e riquadri aggiornati in gruppo durante apertura ed editing riducono il lavoro superfluo. Sono decorate solo le righe visibili; la ricerca rimane evidenziata dopo lo scroll. |
+| Completamento | Mantiene il motore Java nativo BlueJ; dà priorità a variabili locali e parametri, riutilizza la finestra dei suggerimenti e conserva le firme testuali senza memorizzare i membri risolti. Scarta richieste obsolete e carica la documentazione quando serve. |
 | Snippet | 17 modelli configurabili, ricerca con anteprima, filtri per contesto e campi collegati navigabili con `Tab`. Un catalogo di aiuto elenca i modelli disponibili. |
 | Diagramma delle classi | Il riordino basato su ELK riposiziona le classi e instrada i collegamenti visibili per ridurre sovrapposizioni e incroci, con annullamento e ripristino. |
 | Ambiente Java | Scelta di un JDK 21 x64 compatibile dalle preferenze, anche tornando a quello incluso; la modifica si applica al riavvio. |

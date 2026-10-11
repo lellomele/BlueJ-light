@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2014,2015,2016,2018,2019,2020,2021,2024 Michael Kölling and John Rosenberg
@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -103,9 +104,11 @@ public class SuggestionList
     // The next available SuggestionList ID; must be static to be unique across all instances:
     private static final AtomicInteger nextSuggListId = new AtomicInteger(1);
     // The SuggestionList ID for this item, used for data recording purposes:
-    private final int suggestionListId;
+    private int suggestionListId;
 
-    private final SuggestionListListener listener;
+    private SuggestionListListener listener;
+    private final SuggestionListParent listParent;
+    private long session;
 
     @OnThread(Tag.FXPlatform)
     private static class SuggestionListView extends ListView<SuggestionListItem>
@@ -146,7 +149,7 @@ public class SuggestionList
      * Element containing all the suggestion items:
      */
     private final SuggestionListView listBox;
-    private final double rowHeight;
+    private double rowHeight;
 
     /**
      * The window containing the pane
@@ -157,6 +160,8 @@ public class SuggestionList
      * List of choices available for the user.  Each entry represents a different item.
      */
     private final List<SuggestionDetails> choices;
+    private final List<String> lowerChoices = new ArrayList<>();
+    private final List<List<Integer>> choiceWordStarts = new ArrayList<>();
     /**
      * This array contains two entries per choice.  There is one complete set from
      * 0 to choices.size() - 1 which are the direct suggestions, and a second
@@ -188,7 +193,7 @@ public class SuggestionList
      * A listener that needs to be updated when the highlighted suggestion changes.
      * Integer is index into choices, not doubleSuggestions.
      */
-    private final Consumer<Integer> highlightListener;
+    private Consumer<Integer> highlightListener;
     /**
      * The label that divides the direct and similar suggestions.  Only displays when
      * there are actual similar suggestions to show
@@ -206,7 +211,8 @@ public class SuggestionList
     private final DoubleProperty typeWidth;
     
     /** Keep a strong reference for the type width binding to avoid being GCed **/
-    private final DoubleProperty typeWidthDerivedProperty;
+    private DoubleProperty typeWidthDerivedProperty;
+    private SuggestionListItem similarDivider;
 
     /** Used when "replaying" last calculateEligible call */
     private String lastPrefix;
@@ -284,6 +290,7 @@ public class SuggestionList
     @OnThread(Tag.FXPlatform)
     class SuggestionListItem
     {
+        private final int requestId = suggestionListId;
         // Index into the choices list
         // When this is -1, it means we are the "related items" divider label.
         public final int index;
@@ -317,6 +324,7 @@ public class SuggestionList
 
             SuggestionListItem that = (SuggestionListItem) o;
 
+            if (requestId != that.requestId) return false;
             if (index != that.index) return false;
             return direct == that.direct;
 
@@ -325,7 +333,7 @@ public class SuggestionList
         @Override
         public int hashCode()
         {
-            return 2 * index + (direct ? 1 : 0);
+            return 31 * requestId + 2 * index + (direct ? 1 : 0);
         }
     }
 
@@ -469,7 +477,7 @@ public class SuggestionList
         if (listener == null)
             throw new IllegalArgumentException("SuggestionListListener cannot be null");
 
-        this.suggestionListId = nextSuggListId.getAndIncrement();
+        this.listParent = listParent;
         this.choices = FXCollections.observableArrayList(choices);
         this.shownState.set(startShown);
         this.listener = listener;
@@ -486,11 +494,9 @@ public class SuggestionList
             int highlighted = getHighlighted();
             if (highlighted != -1)
             {
-                listener.suggestionListChoiceClicked(this, highlighted);
+                this.listener.suggestionListChoiceClicked(this, highlighted);
                 expectingToLoseFocus = true;
-                hiding = true;
-                window.hide();
-                listener.hidden();
+                dismiss();
             }
         });
         JavaFXUtil.addStyleClass(listBox, "suggestion-list");
@@ -582,30 +588,23 @@ public class SuggestionList
 
         listParent.setupSuggestionWindow(window);
         
-        for (int j = 0; j <= 1; j++)
-        {
-            for (int i = 0; i < choices.size(); i++)
-            {
-                SuggestionDetails choice = choices.get(i);
-                SuggestionListItem sugg = new SuggestionListItem(i, targetType != null && choice.type != null ? targetType.equals(choice.type) : false, j == 0);
-                doubleSuggestions.add(sugg);
-            }
-        }
         listBox.setPlaceholder(noneLabel);
 
         JavaFXUtil.addFocusListener(window, focused -> {
-            if (!focused)
+            if (!focused && window.isShowing() && !hiding)
             {
-                hideDocDisplay();
+                cancelDocumentation();
                 hiding = true;
+                long lostSession = session;
                 // We must hide the window during a runLater.  If we hide it straight away
                 // during the focus switching, odd effects happen where the focus returns
                 // to the triggering slot, and the click event gets lost:
                 JavaFXUtil.runAfterCurrent(() -> {
+                    if (session != lostSession) return;
                     window.hide();
                     if (!expectingToLoseFocus)
-                        listener.suggestionListFocusStolen(getHighlighted());
-                    listener.hidden();
+                        this.listener.suggestionListFocusStolen(getHighlighted());
+                    this.listener.hidden();
                 });
             }
         });
@@ -621,12 +620,10 @@ public class SuggestionList
                 }
             }
             // On Mac, some keypresses can produce null character, so guard against that:
-            else if (!e.getCharacter().contains("\u0000") && listener.suggestionListKeyTyped(this, e, getHighlighted()) == SuggestionListListener.Response.DISMISS)
+            else if (!e.getCharacter().contains("\u0000") && this.listener.suggestionListKeyTyped(this, e, getHighlighted()) == SuggestionListListener.Response.DISMISS)
             {
                 expectingToLoseFocus = true;
-                hiding = true;
-                window.hide();
-                listener.hidden();
+                dismiss();
             }
             e.consume();
         });
@@ -676,17 +673,82 @@ public class SuggestionList
                     int selected = getHighlighted();
                     if (selected == -1 && eligibleCount() == 1)
                         selected = getFirstEligible() % choices.size();
-                    if (listener.suggestionListKeyPressed(this, e, selected) == SuggestionListListener.Response.DISMISS)
+                    if (this.listener.suggestionListKeyPressed(this, e, selected) == SuggestionListListener.Response.DISMISS)
                     {
                         expectingToLoseFocus = true;
-                        hiding = true;
-                        window.hide();
-                        listener.hidden();
+                        dismiss();
                     }
                     break;
             }
             e.consume();
         });
+        reset(choices, targetType, startShown, highlightListener, listener);
+    }
+
+    /** Starts a fresh request while keeping this window, its cells and CSS. */
+    public void reset(List<? extends SuggestionDetails> choices, String targetType,
+        SuggestionShown startShown, Consumer<Integer> highlightListener, SuggestionListListener listener)
+    {
+        if (window.isShowing()) throw new IllegalStateException("Suggestion window is still showing");
+        if (listener == null) throw new IllegalArgumentException("SuggestionListListener cannot be null");
+        List<SuggestionDetails> copy = new ArrayList<>(choices);
+        cancelDocumentation();
+        // Detach cells while their old indices still refer to the old choices.
+        showingItems.clear();
+        listBox.getSelectionModel().clearSelection();
+        session++;
+        suggestionListId = nextSuggListId.getAndIncrement();
+        this.listener = listener;
+        this.highlightListener = highlightListener;
+        this.choices.clear();
+        this.choices.addAll(copy);
+        lowerChoices.clear();
+        choiceWordStarts.clear();
+        doubleSuggestions.clear();
+        eligible.clear();
+        highlighted = -1;
+        expectingToLoseFocus = false;
+        hiding = false;
+        lastPrefix = "";
+        lastAllowSimilar = false;
+        shownState.set(startShown);
+        rowHeight = Math.max(30.0, 2 * listParent.getFontSize());
+        listBox.setStyle(listParent.getFontCSS().get());
+        typeWidth.unbind();
+        typeWidthDerivedProperty = copy.stream().allMatch(s -> s.type == null)
+            ? new ReadOnlyDoubleWrapper(0.0) : listBox.cssTypeWidthProperty();
+        typeWidth.bind(typeWidthDerivedProperty);
+        for (SuggestionDetails choice : copy)
+        {
+            lowerChoices.add(choice.choice.toLowerCase(Locale.ROOT));
+            choiceWordStarts.add(splitIdentLower(choice.choice));
+        }
+        for (int j = 0; j < 2; j++)
+            for (int i = 0; i < copy.size(); i++)
+                doubleSuggestions.add(new SuggestionListItem(i,
+                    targetType != null && targetType.equals(copy.get(i).type), j == 0));
+        similarDivider = new SuggestionListItem(-1, false, false);
+    }
+
+    public boolean canReuse(Node reference)
+    {
+        return !window.isShowing() && reference.getScene() != null
+            && (window.getOwner() == null || window.getOwner() == reference.getScene().getWindow());
+    }
+
+    private void dismiss()
+    {
+        if (hiding) return;
+        hiding = true;
+        cancelDocumentation();
+        window.hide();
+        listener.hidden();
+    }
+
+    private void cancelDocumentation()
+    {
+        if (cancelShowDocsTask != null) { cancelShowDocsTask.run(); cancelShowDocsTask = null; }
+        hideDocDisplay();
     }
 
     @OnThread(Tag.FXPlatform)
@@ -721,8 +783,12 @@ public class SuggestionList
                 if (choice < choices.size())
                 {
                     // runLater because our caller won't expect us to call back before show has finished:
+                    long choiceSession = session;
                     JavaFXUtil.runAfterCurrent(() ->
                     {
+                        if (session != choiceSession) return;
+                        cancelDocumentation();
+                        hiding = true;
                         listener.hidden();
                         listener.suggestionListChoiceClicked(this, choice);
                     });
@@ -880,18 +946,20 @@ public class SuggestionList
         lastPrefix = prefix;
         lastAllowSimilar = allowSimilar;
         eligible.clear();
+        String lowerPrefix = prefix.toLowerCase(Locale.ROOT);
+        String thisPrefix = "this." + lowerPrefix;
         for (int i = 0; i < choices.size(); i++)
         {
-            String sugg = choices.get(i).choice;
+            String sugg = lowerChoices.get(i);
             if (choices.get(i).shown.compareTo(shown) > 0)
             {
                 // Cannot put in eligible because it is rare and we are only showing common
             }
-            else if (sugg.toLowerCase().startsWith(prefix.toLowerCase()))
+            else if (sugg.startsWith(lowerPrefix))
             {
                 eligible.put(i, new EligibleDetail(0, 0, prefix.length()));
             }
-            else if (sugg.toLowerCase().startsWith("this." + prefix.toLowerCase()))
+            else if (sugg.startsWith(thisPrefix))
             {
                 // If there is a completion like "this.foodList" (which appears because the field is shadowed by a local variable named foodList)
                 // then we show it as directly relevant if the user types "foo".
@@ -900,15 +968,13 @@ public class SuggestionList
             else if (allowSimilar)
             {
                 // Look if this text starts a word in the identifier:
-                List<Integer> wordStarts = splitIdentLower(sugg);
-                Optional<EligibleDetail> me = wordStarts.stream().map(j -> new EligibleDetail(j, distanceTo(prefix, sugg, j), prefix.length()))
-                    .filter(EligibleDetail::close)
-                    .sorted() // Will put smallest distance first
-                    .findFirst();
-                if (me.isPresent())
+                EligibleDetail best = null;
+                for (int offset : choiceWordStarts.get(i))
                 {
-                    eligible.put(i + doubleSuggestions.size() / 2, me.get());
+                    EligibleDetail detail = new EligibleDetail(offset, distanceTo(lowerPrefix, sugg, offset), prefix.length());
+                    if (detail.close() && (best == null || detail.compareTo(best) < 0)) best = detail;
                 }
+                if (best != null) eligible.put(i + choices.size(), best);
             }
         }
 
@@ -925,12 +991,11 @@ public class SuggestionList
         // We check, given a prefix (e.g. "abc"), whether the substring of the same length (e.g. 3)
         // at the given point in the candidate is a closen enough match by edit distance
         // An exact match is edit distance 0
-        prefix = prefix.toLowerCase();
-        String partialLower = candidate.substring(offset, Math.min(candidate.length(), offset + prefix.length())).toLowerCase();
+        String partialLower = candidate.substring(offset, Math.min(candidate.length(), offset + prefix.length()));
         
         // We also check for the strings one longer and one shorter, as they might have better edit distance:
-        String partialLowerShort = candidate.substring(offset, Math.min(candidate.length(), offset + Math.max(1, prefix.length() - 1))).toLowerCase();
-        String partialLowerLong = candidate.substring(offset, Math.min(candidate.length(), offset + 1 + prefix.length())).toLowerCase();
+        String partialLowerShort = candidate.substring(offset, Math.min(candidate.length(), offset + Math.max(1, prefix.length() - 1)));
+        String partialLowerLong = candidate.substring(offset, Math.min(candidate.length(), offset + 1 + prefix.length()));
         
         return Math.min(
                 Utility.editDistance(partialLower, prefix),
@@ -985,7 +1050,7 @@ public class SuggestionList
         {
             if (eligible.containsKey(i))
             {
-                if (i > doubleSuggestions.size() / 2)
+                if (i >= choices.size())
                     showingAnySimilar = true;
             }
         }
@@ -1014,13 +1079,13 @@ public class SuggestionList
         List<SuggestionListItem> newShowingItems = new ArrayList<>();
         for (int i = 0; i < doubleSuggestions.size(); i++)
         {
+            if (i == choices.size() && showingAnySimilar)
+                newShowingItems.add(similarDivider);
             if (eligible.containsKey(i))
                 newShowingItems.add(doubleSuggestions.get(i));
-            if (i == choices.size() && showingAnySimilar)
-                newShowingItems.add(new SuggestionListItem(-1, false, false));
         }
 
-        showingItems.setAll(newShowingItems);
+        if (!showingItems.equals(newShowingItems)) showingItems.setAll(newShowingItems);
         listBox.setPrefHeight(Math.min(250.0, Math.max(44.0, rowHeight * newShowingItems.size() + 10)));
 
 
@@ -1167,17 +1232,13 @@ public class SuggestionList
     @OnThread(Tag.FXPlatform)
     private void showDocsFor(int selected)
     {
-        if (cancelShowDocsTask != null)
-        {
-            cancelShowDocsTask.run();
-            cancelShowDocsTask = null;
-        }
-        hideDocDisplay();
+        cancelDocumentation();
         if (selected != -1 && choices.get(selected).hasDocs())
         {
             // Schedule the docs to show after a delay, assuming they don't move before then:
+            long docSession = session;
             cancelShowDocsTask = JavaFXUtil.runAfter(Duration.millis(500), () -> {
-                if (window.isShowing() && getHighlighted() == selected)
+                if (session == docSession && !hiding && window.isShowing() && getHighlighted() == selected)
                     docPane.getChildren().setAll(choices.get(selected).makeDocPane());
             });
         }

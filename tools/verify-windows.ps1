@@ -1,4 +1,4 @@
-# BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained.
+# BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained.
 param(
     [Parameter(Mandatory=$true)][string]$ImagePath,
     [string]$ExternalJdkPath,
@@ -22,7 +22,7 @@ if (Test-Path -LiteralPath $fixture) { throw 'Use a fresh verification directory
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'SmokeProject') -Destination $fixture -Recurse
 $homeDir = if($PortablePreferences){Join-Path $image 'data'}else{Join-Path $work 'home'}
 [System.IO.Directory]::CreateDirectory($homeDir) | Out-Null
-$sources = @((Join-Path $PSScriptRoot 'BootSmoke.java'),(Join-Path $PSScriptRoot 'AdvancedSmoke.java'))
+$sources = @((Join-Path $PSScriptRoot 'BootSmoke.java'),(Join-Path $PSScriptRoot 'AdvancedSmoke.java'),(Join-Path $PSScriptRoot 'EditorCompletionSmoke.java'))
 if ($HarnessClass -ne 'BootSmoke') { $sources += Join-Path $PSScriptRoot "$HarnessClass.java" }
 if ($HarnessClass -eq 'CompilationQueuePathsSmoke') { $sources += Join-Path $PSScriptRoot 'CompilationRaceSmoke.java' }
 & (Join-Path $javaBin 'javac.exe') -cp (Join-Path $image 'app/*') -d $classes @sources

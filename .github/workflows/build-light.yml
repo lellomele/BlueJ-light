@@ -1,4 +1,4 @@
-# BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained.
+# BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained.
 name: Build BlueJ light
 on: [push, pull_request, workflow_dispatch]
 jobs:
@@ -20,6 +20,9 @@ jobs:
           bash ./gradlew :bluej:assemble :bluej:test
           --tests bluej.editor.flow.TestLongestLine
           --tests bluej.editor.flow.TestScopeRendering
+          --tests bluej.editor.flow.TestCompletionDisplayCache
+          --tests bluej.editor.flow.TestReusableCompletion
+          --tests bluej.editor.flow.TestLazyHtmlEditor
           --tests bluej.editor.flow.TestBasicEditorInteraction
           --tests bluej.editor.flow.TestAutoIndent
           --tests 'bluej.editor.flow.TestSnippet*'

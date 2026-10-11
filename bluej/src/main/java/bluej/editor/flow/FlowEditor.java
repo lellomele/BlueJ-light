@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2019,2020,2021,2022,2023,2024,2025  Michael Kolling and John Rosenberg
@@ -84,7 +84,6 @@ import bluej.prefmgr.PrefMgr.PrintSize;
 import bluej.stride.framedjava.elements.CallElement;
 import bluej.stride.framedjava.elements.CodeElement;
 import bluej.stride.framedjava.elements.NormalMethodElement;
-import bluej.stride.framedjava.slots.ExpressionCompletionCalculator;
 import bluej.editor.fixes.SuggestionList;
 import bluej.editor.fixes.SuggestionList.SuggestionDetails;
 import bluej.editor.fixes.SuggestionList.SuggestionDetailsWithHTMLDoc;
@@ -166,7 +165,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, FlowEditorPaneListener, SelectionListener, BlueJEventListener, DocumentListener
@@ -349,7 +347,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private final BitSet breakpoints = new BitSet();
     private int currentStepLineIndex = -1;
     private ComboBox<String> interfaceToggle;
-    private final WebView htmlPane;
+    private WebView htmlPane;
+    private final StackPane editorViews;
     private String filename;                // name of file or null
     private String docFilename;             // path to javadoc html file
     private Charset characterSet;           // character set of the file
@@ -675,6 +674,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private long contentRevision;
     private long completionRequest;
     private SuggestionList activeCompletion;
+    private SuggestionList reusableCompletion;
+    private final CompletionDisplayCache completionDisplayCache = new CompletionDisplayCache();
     private FXPlatformRunnable cancelAutomaticCompletion;
     private BorderPane completionDocPane;
     private WebView completionDocView;
@@ -699,7 +700,6 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         this.info = new Info();
         this.saveState = new StatusLabel(Status.SAVED, this, errorManager);
         this.actions = new FlowActions(this);
-        this.htmlPane = new WebView();
         this.sourceIsCode = sourceIsCode;
         flowEditorPane.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
             if (snippetSession != null && snippetSession.isActive())
@@ -734,8 +734,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             }
         });
         this.editorFixesMgr = new EditorFixesManager(watcher == null || watcher.getPackage() == null ? new CompletableFuture<>() : watcher.getPackage().getProject().getImports());
-        htmlPane.visibleProperty().bind(viewingHTML);
-        setCenter(new StackPane(flowEditorPane, htmlPane));
+        editorViews = new StackPane(flowEditorPane);
+        setCenter(editorViews);
         this.interfaceToggle = createInterfaceSelector();
         interfaceToggle.setDisable(!sourceIsCode);
         Region toolbar = createToolbar(interfaceToggle.heightProperty());
@@ -1473,7 +1473,6 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         if (filename != null)
         {
             File file = new File(filename);
-            setupJavadocMangler();
             try
             {
                 // check for crash file
@@ -1585,6 +1584,19 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 }
             }
         });
+    }
+
+    private WebView getHtmlPane()
+    {
+        if (htmlPane == null)
+        {
+            htmlPane = new WebView();
+            htmlPane.visibleProperty().bind(viewingHTML);
+            htmlPane.managedProperty().bind(viewingHTML);
+            editorViews.getChildren().add(htmlPane);
+            setupJavadocMangler();
+        }
+        return htmlPane;
     }
 
     /**
@@ -2086,6 +2098,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             return;
         }
         resetMenuToolbar(false);
+        getHtmlPane();
         //NAVIFX
         //dividerPanel.beginTemporaryHide();
         try {
@@ -2193,6 +2206,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             // but have now regenerated them).  We compare URLs, not String versions, because you may
             // get difference between e.g. file:/Users... and file:///Users... which URL comparison
             // properly takes care of:
+            WebView htmlPane = getHtmlPane();
             String location = htmlPane.getEngine().getLocation();
             if (Objects.equals(location == null ? null : new URL(location), myURL))
             {
@@ -3600,19 +3614,14 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             // which is captured in the isPlain variable:
             if (suggests != null && suggests.isPlain() && getProject() != null)
             {
-                // To check if Greenfoot.* is available, we check if Greenfoot is imported with a regex before the caret in the file:
-                SuggestionList.getStaticClassesCompletion(completionCandidates,
-                    Pattern.compile("(;|^)\\s*import\\s+greenfoot\\s*\\.\\s*(\\*\\s*;|Greenfoot\\s*;)").matcher(getText(new SourceLocation(1, 1), getCaretLocation())).find(),
-                    getProject().getPackage(""),
-                    null);
+                SuggestionList.getStaticClassesCompletion(completionCandidates, false, getProject().getPackage(""), null);
             }
         
          
             LocatableToken suggestToken = suggests == null ? null : suggests.getSuggestionToken();
-            AssistContent[] possibleCompletions = suggests == null ? null : ParseUtils.getPossibleCompletions(suggests, null, null, parser.getContainingMethodOrClassNode(flowEditorPane.getCaretPosition()) instanceof MethodNode m ? m : null, flowEditorPane.getCaretPosition());
+            AssistContent[] possibleCompletions = suggests == null ? null : ParseUtils.getPossibleCompletions(suggests, null, null, parser.getContainingMethodOrClassNode(flowEditorPane.getCaretPosition()) instanceof MethodNode m ? m : null, flowEditorPane.getCaretPosition(), false);
             if (possibleCompletions != null)
             {
-                Arrays.sort(possibleCompletions, java.util.Comparator.comparing(AssistContent::getName));
                 completionCandidates.addAll(Arrays.asList(possibleCompletions));
             }
             if (plain)
@@ -3624,12 +3633,13 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 "Object".equals(ac.getDeclaringClass()) ? 3 : 1).thenComparing(AssistContent::getName));
             
             // Create suggestions from all the candidates
+            completionDisplayCache.setContext(contentRevision, getProject() == null ? null : getProject().getClassLoader());
             List<SuggestionDetails> suggestionDetails = completionCandidates.stream()
                     .map(ac -> {
                         AssistContentThreadSafe snapshot = new AssistContentThreadSafe(ac, false);
                         return new SuggestionList.SuggestionDetailsWithDeferredDoc(snapshot.getName(),
                             ac instanceof SnippetCompletion snippet ? "  " + snippet.getDescription() :
-                                ExpressionCompletionCalculator.getParamsCompletionDisplay(snapshot),
+                                completionDisplayCache.parameters(snapshot),
                             ac instanceof SnippetCompletion ? "snippet" : snapshot.getType(),
                             SuggestionShown.COMMON, () -> completionDocumentation(ac, parser));
                     })
@@ -3654,7 +3664,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             Bounds spLoc = flowEditorPane.screenToLocal(screenPos);
 
             StringExpression editorFontCSS = PrefMgr.getEditorFontCSS(PrefMgr.FontCSS.EDITOR_SIZE_AND_FAMILY);
-            SuggestionList suggestionList = new SuggestionList(new SuggestionListParent()
+            SuggestionListParent listParent = new SuggestionListParent()
             {
                 @Override
                 @OnThread(Tag.FX)
@@ -3674,9 +3684,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 {
                     flowEditorPane.setFakeCaret(true);
                 }
-            }, suggestionDetails, null, SuggestionShown.RARE, i ->
-            {
-            }, new SuggestionListListener()
+            };
+            SuggestionListListener listener = new SuggestionListListener()
             {
                 @Override
                 public @OnThread(Tag.FXPlatform) void suggestionListChoiceClicked(SuggestionList suggestionList, int highlighted)
@@ -3758,11 +3767,23 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                     activeCompletion = null;
                     flowEditorPane.requestFocus();
                 }
-            });
+            };
+            SuggestionList suggestionList;
+            if (reusableCompletion != null && reusableCompletion.canReuse(flowEditorPane))
+            {
+                suggestionList = reusableCompletion;
+                suggestionList.reset(suggestionDetails, null, SuggestionShown.RARE, null, listener);
+            }
+            else
+            {
+                suggestionList = new SuggestionList(listParent, suggestionDetails, null, SuggestionShown.RARE, null, listener);
+                reusableCompletion = suggestionList;
+            }
             String prefix = document.getContent(originalPosition, flowEditorPane.getCaretPosition()).toString();
             suggestionList.calculateEligible(prefix, true, false);
             suggestionList.updateVisual(prefix);
             suggestionList.highlightFirstEligible();
+            flowEditorPane.setFakeCaret(true);
             activeCompletion = suggestionList;
             suggestionList.show(flowEditorPane, spLoc, !automatic);
             if (watcher != null)

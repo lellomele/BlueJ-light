@@ -1,4 +1,4 @@
-# BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained.
+# BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained.
 param(
     [Parameter(Mandatory=$true)][string]$JdkPath,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
@@ -13,7 +13,7 @@ if (Test-Path -LiteralPath $imagePath) { throw "Destination already exists: $ima
 $libDir = Join-Path $projectDir 'bluej/build/resources/main/lib'
 if (!(Test-Path -LiteralPath (Join-Path $libDir 'boot.jar'))) { throw 'Build :bluej:assemble first.' }
 & (Join-Path $jdk 'bin/jpackage.exe') --type app-image --name 'BlueJ light' `
-    --app-version '5.6.4' --vendor 'Prof. Ing. Raffaele Mele' `
+    --app-version '5.6.5' --vendor 'Prof. Ing. Raffaele Mele' `
     --copyright "$([char]0xA9) 2026 - Prof. Ing. Raffaele Mele" `
     --input $libDir --main-jar boot.jar --main-class bluej.Boot `
     --runtime-image $jdk --dest $destination --icon (Join-Path $projectDir 'bluej/icons/bluej-light.ico') `

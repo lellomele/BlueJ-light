@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024  Michael Kolling and John Rosenberg
@@ -60,7 +60,7 @@ public class Boot
     // The version numbers for BlueJ and Greenfoot are changed in the top-level
     // version.properties file and then the :boot:updateVersionNumber task should be
     // executed to change them here and elsewhere where needed.
-    public static final String BLUEJ_VERSION = "5.6.4-light";
+    public static final String BLUEJ_VERSION = "5.6.5-light";
     public static final String GREENFOOT_VERSION = "3.9.0";
     public static final String GREENFOOT_API_VERSION = "3.1.0";
 
