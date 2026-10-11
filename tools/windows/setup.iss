@@ -6,7 +6,7 @@
   #error OutputPath is required
 #endif
 #ifndef Variant
-  #define Variant "completo"
+  #define Variant "with-jdk"
 #endif
 [Setup]
 AppId={{A79AEAFB-E734-44E2-88C3-0D6104555131}
@@ -32,7 +32,7 @@ DisableProgramGroupPage=yes
 SetupIconFile=..\..\bluej\icons\bluej-light.ico
 UninstallDisplayIcon={app}\BlueJ light.exe
 LicenseFile=..\..\LICENSE.txt
-#if Variant == "senza-JDK"
+#if Variant == "without-jdk"
 InfoBeforeFile=no-jdk-info.txt
 #endif
 OutputDir={#OutputPath}
@@ -64,7 +64,7 @@ Source: "{#ImagePath}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 [Icons]
 Name: "{group}\BlueJ light"; Filename: "{app}\BlueJ light.exe"; WorkingDir: "{app}"; Check: not IsVerificationMode
 Name: "{autodesktop}\BlueJ light"; Filename: "{app}\BlueJ light.exe"; WorkingDir: "{app}"; Tasks: desktopicon; Check: not IsVerificationMode
-#if Variant == "senza-JDK"
+#if Variant == "without-jdk"
 Name: "{group}\{cm:SelectJdk}"; Filename: "{app}\BlueJ light.exe"; Parameters: "/selectjdk"; WorkingDir: "{app}"; Check: not IsVerificationMode
 #endif
 
@@ -74,6 +74,7 @@ Filename: "{app}\BlueJ light.exe"; WorkingDir: "{app}"; Description: "{cm:Launch
 [InstallDelete]
 Type: filesandordirs; Name: "{app}\runtime"
 Type: files; Name: "{app}\app\extensions2\submitter.jar"
+Type: files; Name: "{app}\LEGGIMI-JDK.txt"
 
 [Code]
 function IsVerificationMode: Boolean;

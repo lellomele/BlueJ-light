@@ -20,7 +20,9 @@ Copy-Item -LiteralPath (Join-Path $full 'README.md'),(Join-Path $full 'LICENSE.t
 Copy-Item -LiteralPath (Join-Path $full 'LICENSING.md') -Destination $external
 Copy-Item -LiteralPath (Join-Path $full 'README.it.md') -Destination $external
 Copy-Item -LiteralPath (Join-Path $full 'examples') -Destination $external -Recurse -Force
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows/no-jdk-info.txt') -Destination (Join-Path $external 'LEGGIMI-JDK.txt')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows/no-jdk-info.txt') -Destination (Join-Path $external 'README-JDK.txt')
+$legacyJdkInfo = Join-Path $external 'LEGGIMI-JDK.txt'
+if (Test-Path -LiteralPath $legacyJdkInfo) { Remove-Item -LiteralPath $legacyJdkInfo }
 Push-Location (Join-Path $PSScriptRoot 'windows')
 try {
     & (Join-Path $mingw 'windres.exe') 'external-jdk-launcher.rc' (Join-Path $build 'launcher-resource.o')
@@ -30,8 +32,8 @@ try {
         '-lshell32' '-lole32' '-luuid' '-ladvapi32'
     if($LASTEXITCODE -ne 0){throw 'Cannot compile external-JDK launcher.'}
 } finally { Pop-Location }
-foreach($variant in @('completo','senza-JDK')) {
-    $image=if($variant -eq 'completo'){$full}else{$external}
+foreach($variant in @('with-jdk','without-jdk')) {
+    $image=if($variant -eq 'with-jdk'){$full}else{$external}
     & $compiler '/Q' "/DImagePath=$image" "/DOutputPath=$output" "/DVariant=$variant" (Join-Path $PSScriptRoot 'windows/setup.iss')
     if($LASTEXITCODE -ne 0){throw "Cannot compile $variant installer."}
 }

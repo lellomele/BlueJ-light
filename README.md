@@ -26,6 +26,7 @@ Compared with BlueJ 5.5.0, light focuses on local Java editing and compilation.
 
 Download from [Releases](https://github.com/lellomele/BlueJ-light/releases/latest).
 Requires Windows 10/11 x64 and a **JDK 21 x64**; all packages include JavaFX.
+Package filenames use English: `with-jdk`, `without-jdk` and `portable`.
 
 - **Complete installer:** includes the JDK.
 - **Without-JDK installer:** uses an existing JDK; a JRE is not sufficient.
