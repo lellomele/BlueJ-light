@@ -47,6 +47,7 @@ public class BootSmoke {
                 loader = editor.getClass().getClassLoader();
                 pkg = call(editor, "getPackage");
                 Thread.sleep(2000);
+                verifyDiagramShortcuts();
                 verifySnippetHelp();
                 fx(() -> {
                     System.out.println("PACKAGE_PATH " + call(pkg, "getPath"));
@@ -174,6 +175,79 @@ public class BootSmoke {
         }, "Light verification");
         verify.setDaemon(true);
         verify.start();
+    }
+
+    static void verifyDiagramShortcuts() throws Exception {
+        List<?> targets = fx(() -> new ArrayList<>((java.util.Collection<?>)call(pkg, "getClassTargets")));
+        Node diagram = (Node)editor;
+        int count = targets.size();
+        fx(() -> {
+            call(editor, "clearSelection");
+            diagram.getScene().getWindow().requestFocus();
+            diagram.requestFocus();
+            Event.fireEvent(diagram, new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.DELETE, false, false, false, false));
+            Event.fireEvent(diagram, new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.BACK_SPACE, false, false, false, false));
+            Event.fireEvent(diagram, new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.INSERT, true, false, false, false));
+            TextField text = new TextField("abc");
+            javafx.scene.layout.Pane pane = (javafx.scene.layout.Pane)diagram;
+            pane.getChildren().add(text);
+            try {
+                text.applyCss();
+                text.requestFocus();
+                text.positionCaret(3);
+                Event.fireEvent(text, new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.BACK_SPACE, false, false, false, false));
+                if (!text.getText().equals("ab")) throw new AssertionError("Text editing intercepted by diagram shortcut: " + text.getText());
+            } finally { pane.getChildren().remove(text); }
+            diagram.requestFocus();
+            return null;
+        });
+        verifyDiagramDialog(diagram, KeyCode.INSERT, true);
+        Object target = targets.get(0);
+        for (KeyCode key : List.of(KeyCode.DELETE, KeyCode.BACK_SPACE)) {
+            Node node = fx(() -> {
+                editor.getClass().getMethod("selectOnly", loader.loadClass("bluej.pkgmgr.target.Target")).invoke(editor, target);
+                call(target, "requestFocus");
+                return (Node)call(target, "getNode");
+            });
+            verifyDiagramDialog(node, key, false);
+        }
+        if (fx(() -> ((java.util.Collection<?>)call(pkg, "getClassTargets")).size()) != count)
+            throw new AssertionError("Cancelling a diagram command changed classes");
+        System.out.println("DIAGRAM_SHORTCUTS_OK insert=true delete=true backspace=true emptySelection=true textEditing=true shiftInsertPreserved=true cancelPreservesClasses=true");
+    }
+
+    static void verifyDiagramDialog(Node target, KeyCode key, boolean newClass) throws Exception {
+        CompletableFuture<Void> finished = new CompletableFuture<>();
+        Platform.runLater(() -> {
+            try {
+                Event.fireEvent(target, new KeyEvent(KeyEvent.KEY_PRESSED, "", "", key, false, false, false, false));
+                finished.complete(null);
+            } catch (Throwable ex) { finished.completeExceptionally(ex); }
+        });
+        DialogPane dialog = null;
+        for (int i = 0; i < 100 && dialog == null; i++) {
+            dialog = fx(() -> {
+                for (Window window : Window.getWindows()) {
+                    if (window.isShowing() && window.getScene() != null
+                        && window.getScene().getRoot() instanceof DialogPane pane) return pane;
+                }
+                return null;
+            });
+            if (dialog == null) Thread.sleep(50);
+        }
+        if (dialog == null) throw new AssertionError("Diagram key did not open dialog: " + key);
+        DialogPane shown = dialog;
+        fx(() -> {
+            boolean isNewClass = shown.lookup(".new-class-dialog") != null;
+            ButtonType cancel = shown.getButtonTypes().stream()
+                .filter(type -> type.getButtonData().isCancelButton()
+                    || type.getButtonData() == javafx.scene.control.ButtonBar.ButtonData.NO)
+                .findFirst().orElseThrow();
+            ((Button)shown.lookupButton(cancel)).fire();
+            if (isNewClass != newClass) throw new AssertionError("Wrong dialog for " + key);
+            return null;
+        });
+        finished.get(10, TimeUnit.SECONDS);
     }
 
     static MenuItem findArrangeMenu() {

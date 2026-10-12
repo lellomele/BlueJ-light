@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-12. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024,2025  Michael Kolling and John Rosenberg
@@ -916,6 +916,7 @@ public class PkgMgrFrame
         if(! Config.isGreenfoot())
         {
             this.editor = new PackageEditor(this, aPkg, showUsesProperty, showInheritsProperty, topOverlay);
+            editor.addEventFilter(KeyEvent.KEY_PRESSED, this::handleDiagramKeyPressed);
 
             pkgEditorScrollPane.setContent(editor);
             editor.setOnDragOver(event -> {
@@ -3180,6 +3181,31 @@ public class PkgMgrFrame
         };
     }
     
+    @OnThread(Tag.FXPlatform)
+    private void handleDiagramKeyPressed(KeyEvent event)
+    {
+        if (event.isConsumed() || event.isShiftDown() || event.isControlDown()
+            || event.isAltDown() || event.isMetaDown())
+            return;
+        for (Node node = event.getTarget() instanceof Node target ? target : null;
+             node != null; node = node.getParent())
+        {
+            if (node instanceof TextInputControl)
+                return;
+        }
+        PkgMgrAction action = switch (event.getCode()) {
+            case INSERT -> newClassAction;
+            case DELETE, BACK_SPACE -> removeAction;
+            default -> null;
+        };
+        if (action != null)
+        {
+            event.consume();
+            if (!action.isDisabled())
+                action.actionPerformed(false);
+        }
+    }
+
     /**
      * Adds shortcuts for Ctrl-TAB and Ctrl-Shift-TAB to the given pane, which move to the
      * next/previous pane of the main three (package editor, object bench, code pad) that are visible

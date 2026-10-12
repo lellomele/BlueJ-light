@@ -51,6 +51,7 @@ Open a BlueJ project and double-click a class to edit it.
 | Snippet catalogue | Help > Java Snippets |
 | Snippet fields | `Tab` / `Shift+Tab`; `Esc` to finish |
 | Arrange class diagram | Arrange Diagram; `Ctrl+Shift+L` |
+| New class / delete selected diagram items | Diagram focus: `Ins` / `Delete` or `Backspace`; deletion asks for confirmation |
 | Change JDK | Tools > Preferences > Java / JDK; restart BlueJ light |
 | Method outline | Editor Tools > Methods; `Ctrl+Shift+O` |
 | Navigate back / forward | Editor Tools > Previous / Next Location; `Alt+Left` / `Alt+Right` |

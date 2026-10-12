@@ -52,6 +52,7 @@ Aprire un progetto BlueJ e fare doppio clic su una classe per modificarla.
 | Catalogo snippet | Aiuto > Snippet Java |
 | Campi degli snippet | `Tab` / `Shift+Tab`; `Esc` per terminare |
 | Riordino del diagramma | Riordina diagramma; `Ctrl+Shift+L` |
+| Nuova classe / elimina elementi selezionati | Focus nel diagramma: `Ins` / `Delete` o `Backspace`; eliminazione con conferma |
 | Cambio JDK | Strumenti > Preferenze > Java / JDK; riavviare BlueJ light |
 | Elenco metodi | Strumenti dell'editor > Elenco metodi; `Ctrl+Shift+O` |
 | Navigazione indietro / avanti | Strumenti dell'editor > Posizione precedente / successiva; `Alt+Sinistra` / `Alt+Destra` |
