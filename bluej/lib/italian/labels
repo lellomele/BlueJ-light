@@ -98,7 +98,7 @@ prefmgr.misc.linkToLib=Utilizza questo URL quando viene generata la documentazio
 prefmgr.misc.linkToLibNoteLine1=Se per generare la documentazione si utilizza questo URL, \u00e8 necessario  che sia corretto e accessibile.
 prefmgr.misc.linkToLibNoteLine2=Per lavorare offline, deselezionare questa opzione.
 prefmgr.misc.tools.title=Strumenti opzionali
-prefmgr.misc.showTesting=Mostra gli strumenti di unit test 
+prefmgr.misc.showTesting=Mostra gli strumenti di unit test
 prefmgr.misc.showTeam=Mostra i controlli del team di lavoro
 prefmgr.misc.vm.title=Preferenze della Virtual Machine
 prefmgr.misc.optimiseVM=Usa l'ottimizzazione (l'esecuzione \u00e8 pi\u00f9 veloce, ma pu\u00f2 dare qualche problema nel debug)
@@ -215,7 +215,7 @@ editor.toggle-interface-viewLabel = Verifica documentazione
 
 editor.go-to-lineLabel = Vai alla linea...
 editor.gotoline.title = Vai alla linea
-editor.gotoline.label = Specifica la linea 
+editor.gotoline.label = Specifica la linea
 editor.gotoline.notNumericMessage = Il valore deve essere numerico
 
 editor.implementationLabel = Codice sorgente
@@ -247,8 +247,8 @@ editor.functions.addkey=Aggiungi un tasto
 editor.functions.delkey=Elimina un tasto
 
 editor.find.title = Trova
-editor.find.find.label = Trova: 
-editor.find.replace.label = Sostituisci: 
+editor.find.find.label = Trova:
+editor.find.replace.label = Sostituisci:
 editor.find.findNext=Trova il prossimo
 editor.find.replace=Sostituisci
 editor.find.replaceAll=Sostituisci tutti
@@ -281,13 +281,13 @@ editor.addjavadoc.parameter=Un parametro
 editor.addjavadoc.returnValue=Il valore di ritorno
 
 #Messages shown as a result of a search with replace all
-editor.replaceAll.replaced=Sostituisci 
-editor.replaceAll.intancesOf=\ instanza di 
+editor.replaceAll.replaced=Sostituisci
+editor.replaceAll.intancesOf=\ instanza di
 editor.replaceAll.string=Stringa
 editor.replaceAll.notFoundNothingReplaced=\ non trovato. Nessuna sostituzione.
 
 #Messages shown as a result of a search with highlight all
-editor.highlight.found=Trovato 
+editor.highlight.found=Trovato
 editor.highlight.notFound=\ non trovato.
 
 # Message shown in code completion pane when nothing is found
@@ -339,7 +339,7 @@ utility.packageChooser.previewPane1=Anteprima della
 utility.packageChooser.previewPane2=struttura del package
 
 # dialog titles and texts
-pkgmgr.title=BlueJ light:  
+pkgmgr.title=BlueJ light:
 
 pkgmgr.newPkg.title=Nuovo progetto
 pkgmgr.newMEpkg.title=Nuovo progetto ME
@@ -497,7 +497,7 @@ pkgmgr.runApplet.htmlExportedComment=<!-- ************ Generato da BlueJ Java De
 pkgmgr.printDialog.title=BlueJ:  Stampa il progetto
 pkgmgr.printDialog.printDiagram=Stampa il diagramma delle classi
 pkgmgr.printDialog.printSource=Stampa il codice sorgente
-pkgmgr.printDialog.printReadme=Stampa il readme del progetto 
+pkgmgr.printDialog.printReadme=Stampa il readme del progetto
 
 # method call dialog
 pkgmgr.methodCall.titleCreate=BlueJ:  Crea oggetto
@@ -917,3 +917,5 @@ jdk.invalid=La cartella non contiene un JDK 21 Windows x64.
 jdk.missing=Seleziona un JDK compatibile.
 jdk.restart=La modifica richiede il riavvio di BlueJ light.
 jdk.saveError=Impossibile salvare la scelta del JDK.
+
+# Java editor tabs and documentation

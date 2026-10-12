@@ -53,9 +53,8 @@ import bluej.editor.flow.StatusLabel.Status;
 import bluej.editor.base.TextLine.HighlightType;
 import bluej.editor.base.TextLine.StyledSegment;
 import bluej.editor.flow.PrintDialog.PrintChoices;
-import bluej.editor.stride.FXTabbedEditor;
-import bluej.editor.stride.FlowFXTab;
-import bluej.editor.stride.FrameEditor;
+import bluej.editor.tabbed.FXTabbedEditor;
+import bluej.editor.tabbed.FlowFXTab;
 import bluej.extensions2.editor.DocumentListener;
 import bluej.parser.*;
 import bluej.parser.AssistContent.ParamInfo;
@@ -81,9 +80,6 @@ import bluej.pkgmgr.target.ClassTarget;
 import bluej.pkgmgr.target.Target;
 import bluej.prefmgr.PrefMgr;
 import bluej.prefmgr.PrefMgr.PrintSize;
-import bluej.stride.framedjava.elements.CallElement;
-import bluej.stride.framedjava.elements.CodeElement;
-import bluej.stride.framedjava.elements.NormalMethodElement;
 import bluej.editor.fixes.SuggestionList;
 import bluej.editor.fixes.SuggestionList.SuggestionDetails;
 import bluej.editor.fixes.SuggestionList.SuggestionDetailsWithHTMLDoc;
@@ -173,7 +169,10 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private final Deque<TrackedPosition> navigationBack = new ArrayDeque<>();
     private final Deque<TrackedPosition> navigationForward = new ArrayDeque<>();
     private String historyDiskText = "";
+    private String observedDiskText = "";
+    private long observedDiskLength;
     private boolean recoveryPending;
+    private bluej.light.LocalHistory.Draft pendingRecoveredDraft;
     private int historyGeneration;
     private FXPlatformRunnable cancelDraft;
     private boolean formatting;
@@ -271,38 +270,55 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             JavaFXUtil.runNowOrLater(() -> {
                 if (generation != historyGeneration || !source.toString().equals(filename)) return;
                 recoveryPending = false;
-                if (recovered.isPresent())
-                {
-                    Alert prompt = new Alert(Alert.AlertType.CONFIRMATION);
-                    prompt.getDialogPane().setId("light-recovery-dialog");
-                    if (getSourcePane().getScene() != null) prompt.initOwner(getSourcePane().getScene().getWindow());
-                    bluej.BlueJTheme.setWindowIconFX(prompt);
-                    prompt.setTitle(Config.getString("light.recovery"));
-                    prompt.setHeaderText(source.getFileName().toString());
-                    prompt.setContentText(Config.getString(recovered.get().baseHash().equals(bluej.light.LocalHistory.hash(disk))
-                        ? "light.recovery.message" : "light.recovery.conflict"));
-                    ButtonType restore = new ButtonType(Config.getString("light.restore"), ButtonBar.ButtonData.OK_DONE);
-                    ButtonType discard = new ButtonType(Config.getString("light.discard"), ButtonBar.ButtonData.NO);
-                    prompt.getButtonTypes().setAll(restore, discard, ButtonType.CANCEL);
-                    ButtonType answer = prompt.showAndWait().orElse(ButtonType.CANCEL);
-                    if (answer == restore) restoreHistoryText(recovered.get().text());
-                    else if (answer == discard) bluej.light.HistoryTasks.submit(() -> localHistory.clearDraft(source));
-                }
+                pendingRecoveredDraft = recovered.orElse(null);
+                showRecoveryPrompt();
                 if (!recoveryPending && isModified()) scheduleDraft();
             });
         });
     }
 
+    private void showRecoveryPrompt()
+    {
+        if (pendingRecoveredDraft == null || !isOpen() || getWindow() == null || !getWindow().isShowing()) return;
+        bluej.light.LocalHistory.Draft draft = pendingRecoveredDraft;
+        pendingRecoveredDraft = null;
+        int generation = historyGeneration;
+        java.nio.file.Path source = java.nio.file.Path.of(filename);
+        Alert prompt = new Alert(Alert.AlertType.CONFIRMATION);
+        prompt.getDialogPane().setId("light-recovery-dialog");
+        prompt.initOwner(getWindow());
+        bluej.BlueJTheme.setWindowIconFX(prompt);
+        prompt.setTitle(Config.getString("light.recovery"));
+        prompt.setHeaderText(source.getFileName().toString());
+        prompt.setContentText(Config.getString(draft.baseHash().equals(bluej.light.LocalHistory.hash(historyDiskText))
+            ? "light.recovery.message" : "light.recovery.conflict"));
+        ButtonType restore = new ButtonType(Config.getString("light.restore"), ButtonBar.ButtonData.OK_DONE);
+        ButtonType discard = new ButtonType(Config.getString("light.discard"), ButtonBar.ButtonData.NO);
+        prompt.getButtonTypes().setAll(restore, discard, ButtonType.CANCEL);
+        ButtonType answer = prompt.showAndWait().orElse(ButtonType.CANCEL);
+        if (generation != historyGeneration || !source.toString().equals(filename)) return;
+        if (answer == restore) restoreHistoryText(draft.text());
+        else if (answer == discard) bluej.light.HistoryTasks.submit(() -> localHistory.clearDraft(source));
+    }
+
+    private void invalidateRecoveryWork()
+    {
+        historyGeneration++;
+        recoveryPending = false;
+        pendingRecoveredDraft = null;
+        if (cancelDraft != null) { cancelDraft.run(); cancelDraft = null; }
+    }
+
     private void scheduleDraft()
     {
         if (filename == null || recoveryPending || isReadOnly() || document.getLength() > bluej.light.LocalHistory.MAX_BYTES) return;
-        if (cancelDraft != null) cancelDraft.run();
+        if (cancelDraft != null) return;
         cancelDraft = JavaFXUtil.runAfter(javafx.util.Duration.seconds(1.5), () -> {
             cancelDraft = null;
             java.nio.file.Path source = java.nio.file.Path.of(filename);
             String text = document.getFullContent();
             String base = bluej.light.LocalHistory.hash(historyDiskText);
-            bluej.light.HistoryTasks.submit(() -> localHistory.draft(source, text, base));
+            bluej.light.HistoryTasks.submitDraft(source, () -> localHistory.draft(source, text, base));
         });
     }
     // version number
@@ -467,7 +483,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 r.add(new IdentifierDefinition(Config.getString("editor.goto.class", null, p, false), () -> ct.open()));
             }
         }
-        // Also look for classes in standard library or Greenfoot library:
+        // Also look for classes in the standard library:
         PackageOrClass resolved = getParsedNode().resolvePackageOrClass(name, null, flowEditorPane.getCaretPosition());
         String resolvedName = resolved == null || resolved instanceof PackageEntity ? null : resolved.getName();
         if (resolvedName != null)
@@ -478,10 +494,6 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             if (resolvedName.startsWith("java.") || resolvedName.startsWith("javax."))
             {
                 r.add(new IdentifierDefinition(Config.getString("editor.goto.documentation", null, p, false), () -> fxTabbedEditor.openJavaCoreDocTab(resolvedName)));
-            }
-            else if (resolvedName.startsWith("greenfoot."))
-            {
-                r.add(new IdentifierDefinition(Config.getString("editor.goto.documentation", null, p, false), () -> fxTabbedEditor.openGreenfootDocTab(resolvedName)));
             }
         }
 
@@ -1323,38 +1335,62 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     /**
      * Check whether the source file has changed on disk. If it has, reload.
      */
-    private void checkForChangeOnDisk()
+    private boolean checkForChangeOnDisk()
+    {
+        return checkForChangeOnDisk(false);
+    }
+
+    private boolean checkForChangeOnDisk(boolean verifyContent)
     {
         if (filename == null)
         {
-            return;
+            return true;
         }
         File file = new File(filename);
         long modified = file.lastModified();
-        // Prevent infinite loop which can occur when we re-enter
-        // this method while regaining focus from the modal dialog.
-        if (modified > lastModified + 1000 && !showingChangedOnDiskDialog)
+        // Nested FX callbacks must not save while the conflict dialog is deciding.
+        if (showingChangedOnDiskDialog) return false;
+        if (!verifyContent && modified == lastModified && file.length() == observedDiskLength) return true;
+        final String diskText;
+        try
+        {
+            diskText = Files.readString(file.toPath(), characterSet).replace("\r\n", "\n").replace("\r", "\n");
+        }
+        catch (IOException ex)
+        {
+            info.message(Config.getString("editor.info.fileReadError"));
+            return false;
+        }
+        if (!diskText.equals(observedDiskText))
         {
             Debug.message("File " + filename + " changed on disk; our record is " + lastModified + " but file was " + modified);
             if (saveState.isChanged())
             {
                 showingChangedOnDiskDialog = true;
-                int answer = DialogManager.askQuestionFX(getWindow(), "changed-on-disk");
-                if (answer == 0)
+                try
                 {
-                    doReload();
+                    int answer = DialogManager.askQuestionFX(getWindow(), "changed-on-disk");
+                    if (answer == 0)
+                    {
+                        doReload();
+                        return !saveState.isChanged();
+                    }
                 }
-                else
+                finally
                 {
-                    setLastModified(modified); // don't ask again for this change
+                    showingChangedOnDiskDialog = false;
                 }
-                showingChangedOnDiskDialog = false;
             }
             else
             {
                 doReload();
+                return !saveState.isChanged();
             }
         }
+        observedDiskText = diskText;
+        observedDiskLength = file.length();
+        setLastModified(modified);
+        return true;
     }
 
 
@@ -1386,6 +1422,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
 
     public void setParent(FXTabbedEditor parent, boolean partOfMove)
     {
+        if (parent == null && !partOfMove) invalidateRecoveryWork();
         if (watcher != null)
         {
             if (!partOfMove && parent != null)
@@ -1464,6 +1501,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     @Override
     public boolean showFile(String filename, Charset charset, boolean compiled, String docFilename)
     {
+        invalidateRecoveryWork();
         this.filename = filename;
         this.docFilename = docFilename;
         this.characterSet = charset;
@@ -1488,7 +1526,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 }
 
                 ignoreChanges = true;
-                document.replaceText(0, document.getLength(), Files.readString(file.toPath(), charset).replace("\r", "").replace("\t", "    "));
+                document.replaceText(0, document.getLength(), Files.readString(file.toPath(), charset).replace("\r\n", "\n").replace("\r", "\n"));
                 setLastModified(file.lastModified());
                 // Position caret at start, not the end:
                 getSourcePane().positionCaret(0);
@@ -1529,6 +1567,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         if (filename != null)
         {
             historyDiskText = document.getFullContent();
+            observedDiskText = historyDiskText;
+            observedDiskLength = new File(filename).length();
             navigationBack.clear(); navigationForward.clear();
             checkRecovery();
         }
@@ -1725,15 +1765,6 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         doReload();
     }
 
-    private void read(Reader reader) throws IOException
-    {
-        document.replaceText(0, document.getLength(), CharStreams.toString(reader).replace("\r", ""));
-        // Position caret at start, not the end:
-        getSourcePane().positionCaret(0);
-
-        undoManager.forgetHistory();
-    }
-
     /**
      * Revert the buffer contents to the last saved version. Do not ask any
      * question - just do it. Must have a file name.
@@ -1741,22 +1772,21 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public void doReload()
     {
         removeSearchHighlights();
-        Reader reader = null;
-
         try
         {
-            FileInputStream inputStream = new FileInputStream(filename);
-            reader = new InputStreamReader(inputStream, characterSet);
-            read(reader);
-            try
-            {
-                reader.close();
-                inputStream.close();
-            }
-            catch (IOException ioe)
-            {
-            }
+            String text = Files.readString(java.nio.file.Path.of(filename), characterSet)
+                .replace("\r\n", "\n").replace("\r", "\n");
+            String previous = document.getFullContent();
+            java.nio.file.Path source = java.nio.file.Path.of(filename);
+            invalidateRecoveryWork();
+            bluej.light.HistoryTasks.submit(() -> localHistory.snapshot(source, previous, "before reload"));
+            document.replaceText(0, document.getLength(), text);
+            getSourcePane().positionCaret(0);
+            undoManager.forgetHistory();
+            historyDiskText = text;
+            observedDiskText = text;
             File file = new File(filename);
+            observedDiskLength = file.length();
             setLastModified(file.lastModified());
 
             if (sourceIsCode)
@@ -1781,13 +1811,6 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             setChanged();
         }
         finally {
-            try {
-                if (reader != null) {
-                    reader.close();
-                }
-            }
-            catch (IOException ioe) {}
-
             if (finder != null && finder.isVisible()) {
                 findNext(false);
             }
@@ -1800,6 +1823,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         final FXTabbedEditor fxTabbedEditor;
         boolean becameVisible = false;
         FXTabbedEditor tabParent = fxTab.getParent();
+        if (!vis && tabParent != null && !saveForClose())
+            return;
         if (!vis && tabParent == null)
         {
             // If we already aren't in a window and are being told to hide, nothing to do:
@@ -1809,11 +1834,14 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         // or we're being told to show and we don't have a window:
         else if (vis && (openInNewWindow || tabParent == null))
         {
-            // If there is an existing parent, we need to leave it:
-            if (tabParent != null)
-                tabParent.close(fxTab);
             fxTabbedEditor = fetchTabbedEditor.getFXTabbedEditor(openInNewWindow);
-            becameVisible = fxTabbedEditor.addTab(fxTab, vis, true);
+            if (tabParent != null)
+            {
+                tabParent.moveTabTo(fxTab, fxTabbedEditor);
+                becameVisible = true;
+            }
+            else
+                becameVisible = fxTabbedEditor.addTab(fxTab, vis, true);
         }
         else
         {
@@ -1845,6 +1873,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             // Make sure caret is visible after open:
             getSourcePane().ensureCaretShowing();
             requestLayout();
+            JavaFXUtil.runAfterCurrent(this::showRecoveryPrompt);
         }
         else
         {
@@ -1877,7 +1906,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     @Override
     public boolean isOpen()
     {
-        return fxTabbedEditor != null && fxTabbedEditor.isWindowVisible();
+        FXTabbedEditor parent = fxTab.getParent();
+        return parent != null && parent.containsTab(fxTab) && parent.isWindowVisible();
     }
 
     @Override
@@ -1888,37 +1918,25 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         {
             // Play it safe and avoid overwriting code that has been changed outside BlueJ (or at least,
             // outside *this* instance of BlueJ):
-            if(PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES))
-                checkForChangeOnDisk();
+            if (PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES) && !checkForChangeOnDisk(true))
+                throw new IOException(Config.getString("editor.info.fileReadError"));
             if (!saveState.isChanged())
             {
                 return;
             }
 
-            Writer writer = null;
             try
             {
-                // The crash file is used during writing and will remain in
-                // case of a crash during the write operation.
-                String crashFilename = filename + FlowEditor.CRASHFILE_SUFFIX;
-
-                // make a backup to the crash file
-                FileUtility.copyFile(filename, crashFilename);
-
-                OutputStream ostream = new BufferedOutputStream(new FileOutputStream(filename));
-                writer = new OutputStreamWriter(ostream, characterSet);
-                getSourcePane().write(writer);
-                writer.close();
-                writer = null;
+                String afterSave = document.getFullContent();
+                bluej.light.AtomicSourceSave.save(java.nio.file.Path.of(filename), afterSave, characterSet, CRASHFILE_SUFFIX);
                 setLastModified(new File(filename).lastModified());
-                File crashFile = new File(crashFilename);
-                crashFile.delete();
 
                 if (cancelDraft != null) { cancelDraft.run(); cancelDraft = null; }
                 java.nio.file.Path historySource = java.nio.file.Path.of(filename);
                 String beforeSave = historyDiskText;
-                String afterSave = document.getFullContent();
                 historyDiskText = afterSave;
+                observedDiskText = afterSave;
+                observedDiskLength = new File(filename).length();
                 historyGeneration++;
                 recoveryPending = false;
                 bluej.light.HistoryTasks.submit(() -> {
@@ -1935,18 +1953,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 failureException = ex;
                 info.message (Config.getString("editor.info.errorSaving") + " - " + ex.getLocalizedMessage());
             }
-            finally
-            {
-                try
-                {
-                    if (writer != null)
-                        writer.close();
-                }
-                catch (IOException ex)
-                {
-                    failureException = ex;
-                }
-            }
+
         }
 
         // If an error occurred, set a message in the editor status bar, and
@@ -1983,16 +1990,23 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     {
         cancelFreshState();
 
+        if (saveForClose())
+            doClose();
+    }
+
+    /** Saves before a tab/window closes; failures must retain the editable buffer. */
+    public boolean saveForClose()
+    {
         try
         {
             save();
+            return true;
         }
-        catch (IOException ioe)
+        catch (IOException ex)
         {
-            DialogManager.showErrorTextFX(getWindow(), "Error saving source code");
+            info.messageImportant(Config.getString("editor.info.errorSaving") + " - " + ex.getLocalizedMessage());
+            return false;
         }
-
-        doClose();
     }
 
     /**
@@ -2001,7 +2015,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public void doClose()
     {
         setEditorVisible(false, false);
-        if (watcher != null)
+        if (watcher != null && fxTab.getParent() == null)
         {
             watcher.closeEvent(this);
         }
@@ -2323,10 +2337,14 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     @Override
     public void changeName(String title, String filename, String javaFilename, String docFilename)
     {
+        invalidateRecoveryWork();
         this.filename = filename;
         this.docFilename = docFilename;
         windowTitle = title;
         setWindowTitle();
+        observedDiskLength = filename == null ? 0 : new File(filename).length();
+        bluej.light.SessionRecovery.changed();
+        if (isModified()) scheduleDraft();
     }
 
     /**
@@ -2664,69 +2682,6 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public TextEditor assumeText()
     {
         return this;
-    }
-
-    @Override
-    public FrameEditor assumeFrame()
-    {
-        return null;
-    }
-
-    @Override
-    public void insertAppendMethod(NormalMethodElement method, FXPlatformConsumer<Boolean> after)
-    {
-        NodeAndPosition<ParsedNode> classNode = findClassNode();
-        if (classNode != null) {
-            NodeAndPosition<ParsedNode> existingMethodNode = findMethodNode(method.getName(), classNode);
-
-            if (existingMethodNode != null) {
-                //Append to existing method:
-                String text = "";
-                for (CodeElement codeElement : method.getContents()) {
-                    text += codeElement.toJavaSource().toTemporaryJavaCodeString();
-                }
-                appendTextToNode(existingMethodNode, text);
-                after.accept(false);
-                return;
-            }
-
-            //Make a new method:
-            appendTextToNode(classNode, method.toJavaSource().toTemporaryJavaCodeString());
-            after.accept(true);
-        }
-        after.accept(false);
-    }
-
-    @Override
-    public void insertMethodCallInConstructor(String className, CallElement callElement, FXPlatformConsumer<Boolean> after)
-    {
-        NodeAndPosition<ParsedNode> classNode = findClassNode();
-        if (classNode != null) {
-            NodeAndPosition<ParsedNode> constructor = findMethodNode(className, classNode);
-            if (constructor == null) {
-                addDefaultConstructor(className, callElement);
-            }
-            else {
-                String methodName = callElement.toJavaSource().toTemporaryJavaCodeString();
-                methodName = methodName.substring(0, methodName.indexOf('('));
-                if (!hasMethodCall(methodName, constructor, true)) {
-                    //Add at the end of the constructor:
-                    appendTextToNode(constructor, callElement.toJavaSource().toTemporaryJavaCodeString());
-                    after.accept(true);
-                    return;
-                }
-            }
-        }
-        after.accept(false);
-    }
-
-    private void addDefaultConstructor(String className, CallElement callElement)
-    {
-        NodeAndPosition<ParsedNode> classNode = findClassNode();
-        if (classNode != null) {
-            //Make a new method:
-            appendTextToNode(classNode, "public " + className + "()\n{\n" + callElement.toJavaSource().toTemporaryJavaCodeString() + "}\n");
-        }
     }
 
     /**

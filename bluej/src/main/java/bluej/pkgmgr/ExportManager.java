@@ -88,10 +88,6 @@ final class ExportManager
         Project proj = frame.getProject();
         ExportDialog.ProjectInfo projectInfo = new ExportDialog.ProjectInfo(proj);
 
-        boolean hasStride = proj.getPackageNames().stream().map(proj::getPackage)
-            .flatMap(p -> p.getClassTargets().stream())
-            .anyMatch(ct -> ct.getSourceType() == SourceType.Stride);
-
         Window parent = frame.getWindow();
         if (dialog == null)
             dialog = new ExportDialog(parent, projectInfo);
@@ -124,7 +120,7 @@ final class ExportManager
         String sourceDir = proj.getProjectDir().getPath();
 
         createJar(proj, fileName.getAbsolutePath().toString(), sourceDir, info.mainClassName, info.selectedFiles,
-            info.includeSource, info.includePkgFiles, hasStride);
+            info.includeSource, info.includePkgFiles);
     }
 
     /**
@@ -132,7 +128,7 @@ final class ExportManager
      */
     @OnThread(Tag.FXPlatform)
     private void createJar(Project proj, String fileName, String sourceDir, String mainClass,
-                           List<File> userLibs, boolean includeSource, boolean includePkgFiles, boolean includeStrideLang)
+                           List<File> userLibs, boolean includeSource, boolean includePkgFiles)
     {
         
         // Create a single jar file
@@ -159,10 +155,6 @@ final class ExportManager
             writeDirToJar(new File(sourceDir), "", jarOutput, includeSource,
                             includePkgFiles,
                             jarFile.getCanonicalFile());
-            if (includeStrideLang)
-            {
-                includeJarContent(new File(Config.getBlueJLibDir(), "lang-stride.jar"), jarOutput);
-            }
             for (URL url : proj.getPlusLibsContent())
             {
                 try

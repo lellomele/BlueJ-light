@@ -11,7 +11,7 @@ $full=(Resolve-Path -LiteralPath $FullImagePath).Path
 $compiler=(Resolve-Path -LiteralPath $CompilerPath).Path
 $mingw=(Resolve-Path -LiteralPath $MingwPath).Path
 $output=[System.IO.Path]::GetFullPath($OutputDirectory)
-$build=Join-Path $project 'bench/installers'
+$build=Join-Path $project ('bench/installers/build-'+[Guid]::NewGuid().ToString('N'))
 $external=Join-Path $build 'without-jdk'
 [System.IO.Directory]::CreateDirectory($external) | Out-Null
 [System.IO.Directory]::CreateDirectory($output) | Out-Null
@@ -37,4 +37,5 @@ foreach($variant in @('with-jdk','without-jdk')) {
     & $compiler '/Q' "/DImagePath=$image" "/DOutputPath=$output" "/DVariant=$variant" (Join-Path $PSScriptRoot 'windows/setup.iss')
     if($LASTEXITCODE -ne 0){throw "Cannot compile $variant installer."}
 }
-Get-ChildItem -LiteralPath $output -Filter 'BlueJ-light-5.6.5-win64-*.exe' | Select-Object Name,Length
+Get-ChildItem -LiteralPath $output -Filter 'BlueJ-light-5.7.0-win64-*.exe' | Select-Object Name,Length
+Write-Output "WITHOUT_JDK_IMAGE $external"

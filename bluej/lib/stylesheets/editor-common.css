@@ -1,0 +1,40 @@
+/* Java editor window styling, retained from BlueJ's shared editor theme.
+ * BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele.
+ * GNU GPLv2 with Classpath Exception; original attribution in LICENSE.txt.
+ */
+.root {
+    -fx-font-family: "Source Sans Pro";
+}
+
+.label {
+    -fx-padding: -2 1 -1 1;
+}
+
+.button {
+    -fx-border-radius: 5;
+    -fx-padding: 3;
+}
+
+.bold {
+    -fx-font-weight: bold;
+}
+
+.text-field, .text-area {
+    -fx-highlight-text-fill: black;
+}
+
+.icon-label {
+    -fx-text-fill: purple;
+    -fx-font-size: 16px;
+    -fx-font-family: "serif";
+    -fx-font-weight: bold;
+}
+
+.content {
+    -fx-background-radius: 0 !important;
+}
+
+.scroll-pane {
+    -fx-padding: 0 !important;
+    -fx-background-radius: 0 !important;
+}

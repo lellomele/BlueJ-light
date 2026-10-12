@@ -379,7 +379,7 @@ utility.packageChooser.previewPane1=Preview of possible
 utility.packageChooser.previewPane2=package structure
 
 # dialog titles and texts
-pkgmgr.title=BlueJ light:  
+pkgmgr.title=BlueJ light:
 
 pkgmgr.newPkg.title=New Project
 pkgmgr.newMEpkg.title=New ME Project
@@ -419,8 +419,6 @@ pkgmgr.classmenu.compile=Compile
 pkgmgr.classmenu.inspect=Inspect
 pkgmgr.classmenu.remove=Delete
 pkgmgr.classmenu.duplicate=Duplicate...
-pkgmgr.classmenu.convertToJava=Convert to Java
-pkgmgr.classmenu.convertToStride=Convert to Stride
 pkgmgr.classmenu.createTest=Create Test Class
 pkgmgr.classmenu.launchFX=Run JavaFX Application
 pkgmgr.classmenu.moreMethods=more methods
@@ -554,7 +552,7 @@ pkgmgr.versionDlg.newVersion=The most recent BlueJ version is
 pkgmgr.printDialog.title=BlueJ:  Print Project
 pkgmgr.printDialog.printDiagram=Print class diagram
 pkgmgr.printDialog.printSource=Print source code
-pkgmgr.printDialog.printReadme=Print project readme 
+pkgmgr.printDialog.printReadme=Print project readme
 
 # method call dialog
 pkgmgr.methodCall.titleCreate=Create Object
@@ -979,9 +977,9 @@ light.diagram.cancel=Cancel Diagram Arrangement
 light.diagram.failed=Could not arrange the diagram.
 
 menu.help.copyright.title=BlueJ Copyright, Licensing and Redistribution
-menu.help.copyright.line1=BlueJ is available under the GNU General Public License  
+menu.help.copyright.line1=BlueJ is available under the GNU General Public License
 menu.help.copyright.line2=version 2 with Classpath exception.
-menu.help.copyright.line3=For more information please see the files LICENSE.txt 
+menu.help.copyright.line3=For more information please see the files LICENSE.txt
 menu.help.copyright.line4=and THIRDPARTYLICENSE.txt.
 
 #Collection
@@ -1063,3 +1061,12 @@ jdk.invalid=The folder is not a JDK 21 Windows x64.
 jdk.missing=Select a compatible JDK.
 jdk.restart=Changes take effect after restarting BlueJ light.
 jdk.saveError=Cannot save the JDK selection.
+
+# Java editor tabs and documentation
+editor.tab.close=Close
+editor.tab.move=Move tab...
+editor.tab.move.new=To new window
+editor.tab.move.existing=Window
+editor.tab.compile=Compile
+editor.documentation.title=Documentation
+editor.documentation.open.external=Open In External Browser

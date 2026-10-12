@@ -73,10 +73,4 @@ public class StdClassRole extends ClassRole
         return List.of();
     }
 
-    @Override
-    @OnThread(Tag.Any)
-    public boolean canConvertToStride()
-    {
-        return true;
-    }
 }

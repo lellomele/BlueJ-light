@@ -3,5 +3,4 @@ rootProject.name = 'bluej-light'
 include(':anns-threadchecker')
 include(':boot')
 include(':bluej')
-include(':lang-stride')
 include(':threadchecker')

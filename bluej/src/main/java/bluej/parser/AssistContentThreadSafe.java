@@ -30,7 +30,6 @@ import java.util.stream.Collectors;
 
 import bluej.parser.AssistContent.Access;
 import bluej.pkgmgr.target.role.Kind;
-import bluej.stride.framedjava.elements.CodeElement;
 import javafx.scene.control.Label;
 import javafx.scene.text.Font;
 import nu.xom.Attribute;
@@ -306,7 +305,7 @@ public final class AssistContentThreadSafe
         if (javadoc != null)
         {
             Element javadocEl = new Element("javadoc");
-            CodeElement.preserveWhitespace(javadocEl);
+            javadocEl.addAttribute(new nu.xom.Attribute("xml:space", "http://www.w3.org/XML/1998/namespace", "preserve"));
             javadocEl.appendChild(javadoc);
             el.appendChild(javadocEl);
         }

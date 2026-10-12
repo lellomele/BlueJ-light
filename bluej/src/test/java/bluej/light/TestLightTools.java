@@ -54,7 +54,7 @@ public class TestLightTools
     @Test public void outlineAcceptsIncompleteCode() { assertFalse(MethodOutline.parse("class X { void first() {} void second() {").isEmpty()); }
     @Test public void diagnosticCodeIsIndependentOfCompilerLanguage()
     {
-        assertEquals("Nomi e visibilita", ErrorExplanations.explain("compiler.err.cant.resolve.location", Locale.ITALIAN).concept());
+        assertEquals("Nomi e visibilit\u00e0", ErrorExplanations.explain("compiler.err.cant.resolve.location", Locale.ITALIAN).concept());
         assertEquals(2, ErrorExplanations.explain("compiler.err.cant.resolve.location", Locale.ENGLISH).hints().size());
         assertTrue(ErrorExplanations.explain("unrecognized", Locale.ENGLISH).hints().getFirst().contains("original"));
     }

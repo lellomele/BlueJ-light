@@ -38,8 +38,7 @@ import bluej.debugmgr.objectbench.ObjectBench;
 import bluej.debugmgr.objectbench.ObjectWrapper;
 import bluej.editor.Editor;
 import bluej.editor.fixes.ProjectImportInformation;
-import bluej.editor.stride.FXTabbedEditor;
-import bluej.editor.stride.FrameShelfStorage;
+import bluej.editor.tabbed.FXTabbedEditor;
 import bluej.extensions2.BProject;
 import bluej.extensions2.ExternalFileLauncher;
 import bluej.extensions2.ExtensionBridge;
@@ -191,8 +190,6 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
     @OnThread(value = Tag.Any,requireSynchronized = true)
     private ImportScanner importScanner;
 
-    /** check if the project is a dvcs project**/
-    private FrameShelfStorage shelfStorage;
     private final BooleanProperty terminalShowing = new SimpleBooleanProperty(false);
     private final BooleanProperty debuggerShowing = new SimpleBooleanProperty(false);
     // Which thread to run on.  null means we have never asked the user about it.
@@ -1391,8 +1388,7 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
 
         for (PkgMgrFrame frame : frames)
         {
-            frame.doSave();
-            frame.setStatus(Config.getString("pkgmgr.packageSaved"));
+            if (frame.doSave()) frame.setStatus(Config.getString("pkgmgr.packageSaved"));
         }
     }
 
@@ -1402,16 +1398,14 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
      */
     public void saveAllEditors() throws IOException
     {
-        Iterator<Package> i = packages.values().iterator();
         IOException exception = null;
-
-        while(i.hasNext()) {
-            Package pkg = i.next();
+        for (Package pkg : List.copyOf(packages.values())) {
             try {
                 pkg.saveFilesInEditors();
             }
             catch(IOException ioe) {
-                exception = ioe;
+                if (exception == null) exception = ioe;
+                else exception.addSuppressed(ioe);
                 Debug.reportError("Error while trying to save editor file:", ioe);
             }
         }
@@ -2267,14 +2261,6 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
     private Rectangle recallFxPosition(int index)
     {
         return recallPosition("editor.fx", fxCachedEditorSizes, index);
-    }
-
-    @OnThread(Tag.FXPlatform)
-    public FrameShelfStorage getShelfStorage()
-    {
-        if (shelfStorage == null)
-            shelfStorage = new FrameShelfStorage(this.projectDir);
-        return shelfStorage;
     }
 
     public BooleanProperty terminalShowing()

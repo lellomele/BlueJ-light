@@ -219,9 +219,9 @@ public class FileUtility
     }
 
     @OnThread(Tag.FX)
-    public static ExtensionFilter getJavaStrideSourceFilterFX()
+    public static ExtensionFilter getJavaSourceFilterFX()
     {
-        return new ExtensionFilter("Java/Stride source", "*." + SourceType.Java.getExtension(), "*." + SourceType.Stride.getExtension());
+        return new ExtensionFilter("Java source", "*." + SourceType.Java.getExtension());
     }
 
     /**

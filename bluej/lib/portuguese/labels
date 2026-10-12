@@ -404,8 +404,6 @@ pkgmgr.classmenu.compile=Compilar
 pkgmgr.classmenu.inspect=Inspecionar
 pkgmgr.classmenu.remove=Remover
 pkgmgr.classmenu.duplicate=Duplicar...
-pkgmgr.classmenu.convertToJava=Converter para Java
-pkgmgr.classmenu.convertToStride=Converter para Stride
 pkgmgr.classmenu.createTest=Criar Teste de Unidade
 pkgmgr.classmenu.launchFX=Executar aplica\u00E7\u00E3o JavaFX
 pkgmgr.classmenu.moreMethods=mais m\u00E9todos
@@ -842,7 +840,7 @@ graph.tooltip.classBroken=Esta classe n\u00E3o pode ser analisada no momento
 
 menu.help.copyright.title=Direitos Autorais, de C\u00F3pia e Redistribui\u00E7\u00E3o do BlueJ
 menu.help.copyright.line1=BlueJ est\u00E1 dispon\u00EDvel sob a licen\u00E7a
-menu.help.copyright.line2=GNU General Public License version 2 com a exce\u00E7\u00E3o do 'classpath'. 
+menu.help.copyright.line2=GNU General Public License version 2 com a exce\u00E7\u00E3o do 'classpath'.
 menu.help.copyright.line3=Para informa\u00E7\u00F5es adicionais, verifique os arquivos
 menu.help.copyright.line4=LICENSE.txt e THIRDPARTYLICENSE.txt.
 
@@ -910,3 +908,12 @@ printing.progress.title=Imprimindo
 printing.progress.file=Arquivo em processamento (${cur}/${total} linhas)
 printing.progress.project=Projeto em processamento (${cur}/${total} elementos)
 printing.progress.canceling=Cancelando...
+
+# Java editor tabs and documentation
+editor.tab.close=Fechar
+editor.tab.move=Mover aba...
+editor.tab.move.new=Para nova janela
+editor.tab.move.existing=Janela
+editor.tab.compile=Compilar
+editor.documentation.title=Documenta\u00E7\u00E3o
+editor.documentation.open.external=Abrir em Navegador Externo

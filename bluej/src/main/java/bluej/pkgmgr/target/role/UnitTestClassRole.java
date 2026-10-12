@@ -336,13 +336,6 @@ public class UnitTestClassRole extends ClassRole
     }
 
     @Override
-    @OnThread(Tag.Any)
-    public boolean canConvertToStride()
-    {
-        return false; // annotations needed for JUnit are not supported
-    }
-
-    @Override
     public void run(final PkgMgrFrame pmf, final ClassTarget ct, final String param)
     {
         Terminal terminal = pmf.getPackage().getProject().getTerminal();

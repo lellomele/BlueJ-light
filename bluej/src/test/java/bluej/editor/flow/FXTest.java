@@ -118,12 +118,14 @@ public class FXTest extends ApplicationTest
         try
         {
             JavaFXUtil.runNowOrLater(() -> {
-                future.complete(fxFetcher.get());
+                try { future.complete(fxFetcher.get()); }
+                catch (Throwable error) { future.completeExceptionally(error); }
             });
-            return future.get(10, TimeUnit.SECONDS);
+            return awaitFx(future);
         }
-        catch (ExecutionException | TimeoutException | InterruptedException e)
+        catch (InterruptedException e)
         {
+            Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         }
     }
@@ -135,15 +137,32 @@ public class FXTest extends ApplicationTest
         try
         {
             JavaFXUtil.runNowOrLater(() -> {
-                fxTask.run();
-                future.complete(true);
+                try {
+                    fxTask.run();
+                    future.complete(true);
+                }
+                catch (Throwable error) { future.completeExceptionally(error); }
             });
-            future.get(5, TimeUnit.SECONDS);
+            awaitFx(future);
         }
-        catch (ExecutionException | TimeoutException | InterruptedException e)
+        catch (InterruptedException e)
         {
+            Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         }
+    }
+
+    private static <T> T awaitFx(CompletableFuture<T> future) throws InterruptedException
+    {
+        try { return future.get(15, TimeUnit.SECONDS); }
+        catch (ExecutionException e)
+        {
+            Throwable cause = e.getCause();
+            if (cause instanceof Error error) throw error;
+            if (cause instanceof RuntimeException error) throw error;
+            throw new RuntimeException(cause);
+        }
+        catch (TimeoutException e) { throw new RuntimeException("JavaFX test action timed out", e); }
     }
 
     @Override

@@ -2,8 +2,10 @@
 param(
     [Parameter(Mandatory=$true)][string]$ImagePath,
     [string]$ExternalJdkPath,
+    [string]$FixturePath,
     [switch]$PortablePreferences,
-    [ValidateSet('BootSmoke','CompilationRaceSmoke','CompilationQueuePathsSmoke')][string]$HarnessClass='BootSmoke',
+    [switch]$OpenProjectFile,
+    [ValidateSet('BootSmoke','CompilationRaceSmoke','CompilationQueuePathsSmoke','RecoverySmoke','JvmRecoverySmoke','SnippetContextSmoke')][string]$HarnessClass='BootSmoke',
     [ValidateSet('all','manual','automatic')][string]$RaceMode='all',
     [ValidateSet('all','global','idle','failure','mixed')][string]$QueueMode='all',
     [string]$WorkName='windows-verification'
@@ -19,7 +21,8 @@ $classes = Join-Path $work 'classes'
 [System.IO.Directory]::CreateDirectory($classes) | Out-Null
 $fixture = Join-Path $work 'SmokeProject'
 if (Test-Path -LiteralPath $fixture) { throw 'Use a fresh verification directory.' }
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'SmokeProject') -Destination $fixture -Recurse
+$fixtureSource = if($FixturePath){(Resolve-Path -LiteralPath $FixturePath).Path}else{Join-Path $PSScriptRoot 'SmokeProject'}
+Copy-Item -LiteralPath $fixtureSource -Destination $fixture -Recurse
 $homeDir = if($PortablePreferences){Join-Path $image 'data'}else{Join-Path $work 'home'}
 [System.IO.Directory]::CreateDirectory($homeDir) | Out-Null
 $sources = @((Join-Path $PSScriptRoot 'BootSmoke.java'),(Join-Path $PSScriptRoot 'AdvancedSmoke.java'),(Join-Path $PSScriptRoot 'EditorCompletionSmoke.java'))
@@ -44,8 +47,9 @@ try {
         $testConfig = $testConfig.Replace('[JavaOptions]',"[JavaOptions]`njava-options=-Dbluej.light.queue.mode=$QueueMode")
     }
     [System.IO.File]::WriteAllText($config, $testConfig, [System.Text.UTF8Encoding]::new($false))
+    $projectArgument = if($OpenProjectFile){Join-Path $fixture 'package.bluej'}else{$fixture}
     $process = Start-Process -FilePath (Join-Path $image 'BlueJ light.exe') -WorkingDirectory $projectDir `
-        -ArgumentList @("`"$fixture`"", "`"$(if($PortablePreferences){'@portable'}else{$homeDir})`"", "`"-bluej.userHome=$homeDir`"") -WindowStyle Hidden -PassThru
+        -ArgumentList @("`"$projectArgument`"", "`"$(if($PortablePreferences){'@portable'}else{$homeDir})`"", "`"-bluej.userHome=$homeDir`"") -WindowStyle Hidden -PassThru
     if (!$process.WaitForExit(180000)) {
         Stop-Process -Id $process.Id
         throw 'Packaged workflow verification timed out.'
@@ -56,7 +60,7 @@ try {
         throw "Packaged application exited with code $($process.ExitCode). Log: $log"
     }
     $result = Get-Content -LiteralPath $log -Raw
-    $successMarker = switch ($HarnessClass) { 'CompilationRaceSmoke' { 'COMPILATION_RACE_OK' } 'CompilationQueuePathsSmoke' { 'COMPILATION_PATHS_OK' } default { 'SMOKE_OK' } }
+    $successMarker = switch ($HarnessClass) { 'CompilationRaceSmoke' { 'COMPILATION_RACE_OK' } 'CompilationQueuePathsSmoke' { 'COMPILATION_PATHS_OK' } 'RecoverySmoke' { 'RECOVERY_OK' } 'JvmRecoverySmoke' { 'JVM_RECOVERY_OK' } 'SnippetContextSmoke' { 'SNIPPET_CONTEXT_OK' } default { 'SMOKE_OK' } }
     if (!$result.Contains($successMarker) -or $result.Contains('IllegalAccessError')) {
         throw "Packaged workflow failed. Log: $log"
     }

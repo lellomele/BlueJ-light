@@ -281,14 +281,14 @@ utility.packageChooser.previewPane1=\u9884\u89c8
 utility.packageChooser.previewPane2=\u5305\u7ed3\u6784
 
 # dialog titles and texts
-pkgmgr.title=BlueJ:  
+pkgmgr.title=BlueJ:
 
 pkgmgr.newPkg.title=\u65b0\u5efa\u9879\u76ee
 pkgmgr.newPkg.buttonLabel=\u65b0\u5efa
 pkgmgr.openPkg.title=\u6253\u5f00\u9879\u76ee
 pkgmgr.openPkg.buttonLabel=\u6253\u5f00
 pkgmgr.openNonBlueJPkg.title=\u6253\u5f00\u975eBlueJ\u7684\u9879\u76ee
-pkgmgr.openNonBlueJPkg.buttonLabel=\u5728BlueJ\u4e2d\u6253\u5f00 
+pkgmgr.openNonBlueJPkg.buttonLabel=\u5728BlueJ\u4e2d\u6253\u5f00
 pkgmgr.saveAs.title=\u4fdd\u5b58\u9879\u76ee
 pkgmgr.saveAs.buttonLabel=\u4fdd\u5b58
 pkgmgr.addClass.title=\u9009\u62e9\u8981\u589e\u52a0\u7684Java\u7c7b
@@ -428,7 +428,7 @@ pkgmgr.runApplet.htmlExportedComment=<!-- \u6b64\u6587\u4ef6\u7531BlueJ Java Dev
 pkgmgr.printDialog.title=BlueJ:  \u6253\u5370\u9879\u76ee
 pkgmgr.printDialog.printDiagram=\u6253\u5370\u7c7b\u56fe
 pkgmgr.printDialog.printSource=\u6253\u5370\u6e90\u7801
-pkgmgr.printDialog.printReadme=\u6253\u5370\u9879\u76ee\u7684 readme 
+pkgmgr.printDialog.printReadme=\u6253\u5370\u9879\u76ee\u7684 readme
 
 # method call dialog
 pkgmgr.methodCall.titleCreate=BlueJ:  \u65b0\u5efa\u5bf9\u8c61
@@ -605,3 +605,10 @@ about.theTeam=$APPNAME\u5f00\u53d1\u5c0f\u7ec4:
 
 # Work Indicator
 workIndicator.resetMachine=\u91cd\u542f Java \u865a\u62df\u673a@^R
+
+# Java editor tabs and documentation
+editor.tab.close=\u5173\u95ed
+editor.tab.move=\u79fb\u52a8\u6807\u7b7e...
+editor.tab.move.new=\u8f6c\u81f3\u65b0\u7a97\u53e3
+editor.tab.move.existing=\u7a97\u53e3
+editor.documentation.title=\u6587\u6863

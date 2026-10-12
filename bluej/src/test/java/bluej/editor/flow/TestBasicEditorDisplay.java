@@ -23,7 +23,6 @@ package bluej.editor.flow;
 
 import bluej.Config;
 import bluej.collect.DiagnosticWithShown;
-import bluej.collect.StrideEditReason;
 import bluej.compiler.CompileReason;
 import bluej.compiler.CompileType;
 import bluej.editor.Editor;
@@ -32,12 +31,9 @@ import bluej.editor.base.MarginAndTextLine;
 import bluej.editor.base.TextLine;
 import bluej.editor.flow.gen.GenRandom;
 import bluej.editor.flow.gen.GenString;
-import bluej.editor.stride.FrameCatalogue.ShowReason;
 import bluej.parser.InitConfig;
 import bluej.pkgmgr.Package;
 import bluej.prefmgr.PrefMgr;
-import bluej.stride.generic.Frame.View;
-import bluej.stride.generic.Frame.ViewChangeReason;
 import bluej.utility.Utility;
 import com.google.common.io.Files;
 import com.pholser.junit.quickcheck.From;
@@ -161,12 +157,6 @@ public class TestBasicEditorDisplay extends FXTest
             }
 
             @Override
-            public void recordStrideEdit(String javaSource, String strideSource, StrideEditReason reason)
-            {
-
-            }
-
-            @Override
             public void clearAllBreakpoints()
             {
 
@@ -228,24 +218,6 @@ public class TestBasicEditorDisplay extends FXTest
 
             @Override
             public void recordCodeCompletionEnded(Integer lineNumber, Integer columnNumber, String xpath, Integer elementOffset, String stem, String replacement, int codeCompletionId)
-            {
-
-            }
-
-            @Override
-            public void recordUnknownCommandKey(String enclosingFrameXpath, int cursorIndex, char key)
-            {
-
-            }
-
-            @Override
-            public void recordShowHideFrameCatalogue(String enclosingFrameXpath, int cursorIndex, boolean show, ShowReason reason)
-            {
-
-            }
-
-            @Override
-            public void recordViewModeChange(String enclosingFrameXpath, int cursorIndex, View oldView, View newView, ViewChangeReason reason)
             {
 
             }

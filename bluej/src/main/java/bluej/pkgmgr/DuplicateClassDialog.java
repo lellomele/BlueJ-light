@@ -31,7 +31,7 @@ import threadchecker.Tag;
 
 
 /**
- * Dialog for duplicating a Java/Stride class.
+ * Dialog for duplicating a Java class.
  *
  * @author Amjad Altadmri
  */
@@ -43,7 +43,7 @@ public class DuplicateClassDialog extends InputDialog<String>
      *
      * @param parent      the PkgMgrFrame's window which represents the package working on.
      * @param name        the suggested name for the duplicated class.
-     * @param sourceType  the type of the class's source; currently, Java or Stride.
+     * @param sourceType  the type of the class's source; Java.
      */
     public DuplicateClassDialog(Window parent, String name, SourceType sourceType)
     {

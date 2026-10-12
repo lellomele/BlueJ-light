@@ -88,6 +88,7 @@ public class CompilerAPICompiler extends Compiler
             return false;
         }
         
+        final java.util.Map<JavaFileObject, SourceCoordinates> sourceCoordinates = new java.util.IdentityHashMap<>();
         DiagnosticListener<JavaFileObject> diagListener = new DiagnosticListener<JavaFileObject>() {
             @Override
             public void report(Diagnostic<? extends JavaFileObject> diag)
@@ -116,18 +117,37 @@ public class CompilerAPICompiler extends Compiler
                 int diagType;
                 bluej.compiler.Diagnostic bjDiagnostic;
                 DiagnosticMessage message = new DiagnosticMessage(diag.getMessage(Locale.ENGLISH), diag.getMessage(Config.getLocale()));
+                long beginLine = diag.getLineNumber();
+                long beginColumn = diag.getColumnNumber();
+                long endLine = beginLine;
+                long endColumn = diag.getEndPosition() == Diagnostic.NOPOS ? beginColumn
+                    : diag.getEndPosition() - diag.getPosition() + beginColumn;
+                if (diag.getSource() != null && diag.getPosition() != Diagnostic.NOPOS)
+                {
+                    try
+                    {
+                        JavaFileObject file = diag.getSource();
+                        SourceCoordinates coordinates = sourceCoordinates.get(file);
+                        if (coordinates == null)
+                        {
+                            coordinates = new SourceCoordinates(file.getCharContent(true));
+                            sourceCoordinates.put(file, coordinates);
+                        }
+                        SourceCoordinates.Position start = coordinates.at(diag.getPosition());
+                        SourceCoordinates.Position end = coordinates.at(diag.getEndPosition() == Diagnostic.NOPOS
+                            ? diag.getPosition() : diag.getEndPosition());
+                        beginLine = start.line(); beginColumn = start.column();
+                        endLine = end.line(); endColumn = end.column();
+                    }
+                    catch (java.io.IOException | RuntimeException ex) { bluej.utility.Debug.message("Cannot map compiler source positions: " + ex.getMessage()); }
+                }
                 
                 if (diag.getKind() == Diagnostic.Kind.ERROR) {
                     diagType = bluej.compiler.Diagnostic.ERROR;
-                    message = new DiagnosticMessage(processMessage(src, (int) diag.getLineNumber(), message.englishMessage()), message.localisedMessage());
-                    long beginCol = diag.getColumnNumber();
-                    long endCol = diag.getEndPosition() - diag.getPosition() + beginCol;
+                    message = new DiagnosticMessage(processMessage(src, (int) beginLine, message.englishMessage()), message.localisedMessage());
                     // http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=7158654
                     // getEndPosition() shouldn't return NOPOS (-1) if getStartPosition()
                     //    doesn't - but sometimes it does.
-                    if (diag.getEndPosition() == Diagnostic.NOPOS) {
-                        endCol = beginCol;
-                    }
                     // It turns out that sometimes (not sure if bug or feature) java can
                     // give back a diagnostic with a line number of -1.  In the case I've seen
                     // (see GREENFOOT-596), it givens an error with -1 "'void' type not allowed here"
@@ -139,8 +159,8 @@ public class CompilerAPICompiler extends Compiler
                         bjDiagnostic = null;
                     else
                         bjDiagnostic = new bluej.compiler.Diagnostic(diagType,
-                            message, src, diag.getLineNumber(), beginCol,
-                            diag.getLineNumber(), endCol, DiagnosticOrigin.JAVAC, getNewErrorIdentifer());
+                            message, src, beginLine, beginColumn,
+                            endLine, endColumn, DiagnosticOrigin.JAVAC, getNewErrorIdentifer());
                 }
                 else if (diag.getKind() == Diagnostic.Kind.WARNING) {
                     if (message.englishMessage().startsWith("bootstrap class path not set in conjunction with -source ")) {
@@ -157,11 +177,9 @@ public class CompilerAPICompiler extends Compiler
                         return;
                     }
                     diagType = bluej.compiler.Diagnostic.WARNING;
-                    long beginCol = diag.getColumnNumber();
-                    long endCol = diag.getEndPosition() - diag.getPosition() + beginCol;
                     bjDiagnostic = new bluej.compiler.Diagnostic(diagType,
-                            message, src, diag.getLineNumber(), beginCol,
-                            diag.getLineNumber(), endCol, DiagnosticOrigin.JAVAC, getNewErrorIdentifer());
+                            message, src, beginLine, beginColumn,
+                            endLine, endColumn, DiagnosticOrigin.JAVAC, getNewErrorIdentifer());
                 }
                 else {
                     diagType = bluej.compiler.Diagnostic.NOTE;

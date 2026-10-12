@@ -370,7 +370,7 @@ utility.packageChooser.previewPane1=\uac00\ub2a5\ud55c \ubbf8\ub9ac\ubcf4\uae30
 utility.packageChooser.previewPane2=\ud328\ud0a4\uc9c0 \uad6c\uc870
 
 # dialog titles and texts
-pkgmgr.title=BlueJ:  
+pkgmgr.title=BlueJ:
 
 pkgmgr.newPkg.title=\uc0c8 \ud504\ub85c\uc81d\ud2b8
 pkgmgr.newMEpkg.title=\uc0c8 ME \ud504\ub85c\uc81d\ud2b8
@@ -410,8 +410,6 @@ pkgmgr.classmenu.compile=\ucef4\ud30c\uc77c
 pkgmgr.classmenu.inspect=\uac80\uc0ac
 pkgmgr.classmenu.remove=\uc0ad\uc81c
 pkgmgr.classmenu.duplicate=\ubcf5\uc81c...
-pkgmgr.classmenu.convertToJava=Java\ub85c \ubcc0\ud658
-pkgmgr.classmenu.convertToStride=Stride\ub85c \ubcc0\ud658
 pkgmgr.classmenu.createTest=\ud14c\uc2a4\ud2b8 \ud074\ub798\uc2a4 \uc0dd\uc131
 pkgmgr.classmenu.launchFX=JavaFX \uc560\ud50c\ub9ac\ucf00\uc774\uc158 \uc2e4\ud589
 pkgmgr.classmenu.moreMethods=\ub354 \ub9ce\uc740 \uba54\uc18c\ub4dc
@@ -533,7 +531,7 @@ pkgmgr.versionDlg.newVersion=\uac00\uc7a5 \ucd5c\uadfc BlueJ \ubc84\uc804:
 pkgmgr.printDialog.title=BlueJ:  \ud504\ub85c\uc81d\ud2b8 \uc778\uc1c4
 pkgmgr.printDialog.printDiagram=\ud074\ub798\uc2a4 \ub2e4\uc774\uc5b4\uadf8\ub7a8 \ud3ec\ud568
 pkgmgr.printDialog.printSource=\uc18c\uc2a4 \ucf54\ub4dc \ud3ec\ud568
-pkgmgr.printDialog.printReadme=\ud504\ub85c\uc81d\ud2b8 readme \ud3ec\ud568 
+pkgmgr.printDialog.printReadme=\ud504\ub85c\uc81d\ud2b8 readme \ud3ec\ud568
 
 # method call dialog
 pkgmgr.methodCall.titleCreate=\uac1d\uccb4 \uc0dd\uc131
@@ -945,3 +943,12 @@ printing.progress.title=\uc778\uc1c4 \uc911
 printing.progress.file=\ud30c\uc77c \uc9c4\ud589 (${cur}/${total} \uc904)
 printing.progress.project=\ud504\ub85c\uc81d\ud2b8 \uc9c4\ud589 (${cur}/${total} \ud56d\ubaa9)
 printing.progress.canceling=\ucde8\uc18c \uc911...
+
+# Java editor tabs and documentation
+editor.tab.close=\ub2eb\uae30
+editor.tab.move=\ud0ed \uc774\ub3d9...
+editor.tab.move.new=\uc0c8 \ucc3d\uc73c\ub85c \uc774\ub3d9
+editor.tab.move.existing=\ucc3d \uc120\ud0dd
+editor.tab.compile=\ucef4\ud30c\uc77c
+editor.documentation.title=\ubb38\uc11c\ud654
+editor.documentation.open.external=\uc678\ubd80 \ube0c\ub77c\uc6b0\uc800\uc5d0\uc11c \uc5f4\uae30

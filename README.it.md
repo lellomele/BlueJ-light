@@ -4,7 +4,7 @@
 
 Ambiente Java indipendente basato su BlueJ 5.5.0, con editor ottimizzato,
 completamento automatico, snippet ricercabili, riordino del diagramma delle
-classi, selettore JDK integrato e strumenti didattici. Versione attuale: **5.6.5-light**.
+classi, selettore JDK integrato e strumenti didattici. Versione attuale: **5.7.0-light**.
 Non è una release ufficiale di BlueJ.
 
 ## Cosa Cambia In Light
@@ -34,6 +34,11 @@ I nomi dei file usano l'inglese: `with-jdk`, `without-jdk` e `portable`.
   Conservare `app`, `runtime` e `portable.flag`; le preferenze sono in `data`.
 
 Gli eseguibili non sono firmati; Windows potrebbe mostrare un avviso.
+Per i pacchetti con JDK incluso, usare un percorso di installazione/estrazione con
+caratteri ASCII: questo runtime non si è avviato in un percorso provato con una lettera greca.
+Gli installer possono registrare i progetti `.bluej` in Apri con. Scegliere BlueJ light
+come app predefinita in Windows; le preferenze esistenti non vengono sostituite.
+La portable non registra tipi di file.
 
 ## Uso
 
@@ -82,9 +87,12 @@ esterne del progetto. Esempio: `examples/Sum` nella cartella dell'applicazione
 | Greenfoot | Escluso dalla compilazione: è un ambiente didattico distinto, non necessario a questa applicazione orientata a Java. |
 | Submitter | L'estensione opzionale per inviare progetti via email/FTP è estranea all'editing. È esclusa perché questa distribuzione non fornisce i suoi sorgenti corrispondenti. |
 
-**Stride non è completamente rimosso:** il supporto interno condiviso rimane
-per compatibilità, ma i componenti grafici specifici vengono creati solo aprendo
-un editor Stride. Restano compilazione Java, debugger, banco degli oggetti e JUnit.
+**Solo sorgenti Java:** il linguaggio a blocchi, il relativo editor e gli strumenti
+di conversione non sono inclusi. Converti le classi Stride in Java con BlueJ
+originale prima di aprire il progetto in BlueJ light. Rimuovi gli import del runtime
+del linguaggio e sostituisci le eventuali chiamate specifiche con equivalenti Java.
+I sorgenti non riconosciuti non vengono cancellati. Restano compilazione Java,
+debugger, banco degli oggetti e JUnit.
 Restano anche gli aggiornamenti e gli avvisi ufficiali: light non è un'applicazione
 completamente priva di comunicazioni di rete.
 
@@ -97,10 +105,16 @@ Con posizioni bloccate si evitano collisioni tra box, ma i collegamenti usano i 
 standard BlueJ e possono incrociarsi. Il riordino delle classi nuove conserva quelle
 caricate dal progetto o posizionate manualmente.
 La cronologia conserva fino a 50 versioni o 20 MiB per file nelle preferenze, e bozze
-fino a 5 MiB dopo 1,5 secondi di inattività. Non sostituisce un backup; file copiati o
-spostati hanno cronologie distinte. Le anteprime sono limitate a 200.000 caratteri,
+fino a 5 MiB. Il checkpoint viene richiesto 1,5 secondi dopo l'inizio delle modifiche,
+anche durante la digitazione continua; un crash prima della scrittura può perdere le ultime modifiche.
+Non sostituisce un backup; file copiati o spostati hanno cronologie distinte.
+Le anteprime sono limitate a 200.000 caratteri,
 ma il ripristino usa il testo completo. I sorgenti rimangono solo sul computer,
 senza invii; dopo il ripristino restano attivi i normali salvataggi BlueJ.
+Dopo una chiusura anomala, progetti e classi Java aperte vengono riaperti se il relativo automatismo
+è attivo nelle Preferenze. Il registro locale conserva fino a 200 package e 1000 classi per package.
+I file mancanti non vengono ricreati. Il recupero richiede preferenze scrivibili e non riprende lo stato
+di un programma Java in esecuzione: oggetti ed esecuzione vanno ricreati dopo il riavvio della JVM.
 Compilazione e test degli esercizi hanno ciascuno un limite
 di 30 secondi e 256 MiB di memoria. I risultati non sono certificazioni di valutazione;
 i dettagli atteso/ottenuto dipendono dall'asserzione JUnit usata.

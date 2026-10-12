@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * Class to be used by editors (Java and Stride) to manage quick fixes.
+ * Manages Java editor quick fixes.
  */
 public class EditorFixesManager
 {

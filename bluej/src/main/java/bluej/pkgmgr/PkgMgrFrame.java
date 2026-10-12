@@ -507,6 +507,7 @@ public class PkgMgrFrame
                         showingDebugger.bindBidirectional(newPkg.getProject().debuggerShowing());
                         showingTerminal.bindBidirectional(newPkg.getProject().terminalShowing());
                     }
+                    bluej.light.SessionRecovery.changed();
                 });
             });
             showingTestResults.bindBidirectional(TestDisplayFrame.showingProperty());
@@ -1049,11 +1050,12 @@ public class PkgMgrFrame
      * Closes the current package.
      */
     @OnThread(Tag.FXPlatform)
-    public void closePackage()
+    public boolean closePackage()
     {
         if (isEmptyFrame()) {
-            return;
+            return true;
         }
+        if (!prepareClose() || !getPackage().closeAllEditors()) return false;
         Package thePkg = getPackage();
         
         extMgr.packageClosing(thePkg);
@@ -1080,7 +1082,6 @@ public class PkgMgrFrame
             enableFunctions(false);
         }
 
-        getPackage().closeAllEditors();
         getPackage().setEditor(null);
         
 
@@ -1093,6 +1094,24 @@ public class PkgMgrFrame
         // the project
         if (PkgMgrFrame.getAllProjectFrames(proj) == null) {
             Project.cleanUp(proj);
+        }
+        return true;
+    }
+
+    /** Keep the project and its buffers available when a source cannot be saved. */
+    @OnThread(Tag.FXPlatform)
+    public boolean prepareClose()
+    {
+        if (isEmptyFrame()) return true;
+        try
+        {
+            getProject().saveAllEditors();
+            return true;
+        }
+        catch (IOException ex)
+        {
+            setStatus(Config.getString("editor.info.errorSaving") + " - " + ex.getLocalizedMessage());
+            return false;
         }
     }
 
@@ -1635,24 +1654,19 @@ public class PkgMgrFrame
     @OnThread(Tag.FXPlatform)
     public void doClose(boolean keepLastFrame, boolean doSave)
     {
+        if (!prepareClose()) return;
         if (doSave) {
-            doSave();
+            if (!doSave()) return;
         }
 
-        // Update the "project open" property, and update actions
-        // *only if we are in the context of closing a project and keeping 1 BlueJ window alive*
-        if(keepLastFrame)
-        {
-            projectOpenProperty.set(false);
-        }
-        
         // If only one frame and this was from the menu
         // "close", close should close existing package rather
         // than remove frame
 
         if (frameCount() == 1) {
             if (keepLastFrame && !Config.isGreenfoot()) { // close package, leave frame, but not for greenfoot
-                closePackage();
+                if (!closePackage()) return;
+                projectOpenProperty.set(false);
 
                 // Must update window after package has been closed:
                 updateWindow();
@@ -1668,7 +1682,7 @@ public class PkgMgrFrame
             }
         }
         else {
-            closePackage();
+            if (!closePackage()) return;
             PkgMgrFrame.closeFrame(this);
         }
     }
@@ -1677,10 +1691,10 @@ public class PkgMgrFrame
      * Save this package. Don't ask questions - just do it.
      */
     @OnThread(Tag.FXPlatform)
-    public synchronized void doSave()
+    public synchronized boolean doSave()
     {
         if (isEmptyFrame()) {
-            return;
+            return true;
         }
         
         // store the current editor size in the bluej.pkg file
@@ -1726,7 +1740,9 @@ public class PkgMgrFrame
             p.put("package.showUses", Boolean.toString(showUsesProperty.get()));
             p.put("package.showExtends", Boolean.toString(showInheritsProperty.get()));
         }
-        pkg.get().save(p);
+        boolean saved = pkg.get().save(p);
+        if (!saved) setStatus(Config.getString("editor.info.errorSaving"));
+        return saved;
     }
         
     /**
@@ -1758,7 +1774,7 @@ public class PkgMgrFrame
     public void doAddFromFile()
     {
         // multi selection file dialog that shows .java and .class files
-        List<File> classes = FileUtility.getMultipleFilesFX(getWindow(), Config.getString("pkgmgr.addClass.title"), FileUtility.getJavaStrideSourceFilterFX());
+        List<File> classes = FileUtility.getMultipleFilesFX(getWindow(), Config.getString("pkgmgr.addClass.title"), FileUtility.getJavaSourceFilterFX());
 
         if (classes == null || classes.isEmpty())
             return;
@@ -1909,7 +1925,8 @@ public class PkgMgrFrame
     public void showCopyright()
     {
         DialogManager.showTextFX(getWindow(), String.join("\n",
-                "BlueJ \u00a9 2000-2022 Michael K\u00F6lling, John Rosenberg.", "",
+                "BlueJ \u00a9 2000-2022 Michael K\u00F6lling, John Rosenberg.",
+                "BlueJ light \u00a9 2026 Raffaele Mele", "",
                 Config.getString("menu.help.copyright.line1"),
                 Config.getString("menu.help.copyright.line2"),
                 Config.getString("menu.help.copyright.line3"),
@@ -2882,7 +2899,10 @@ public class PkgMgrFrame
         }
 
         JavaFXUtil.onceNotNull(stageProperty, stage -> {
-            stage.setOnCloseRequest(e -> PkgMgrFrame.this.doClose(false, true));
+            stage.setOnCloseRequest(e -> {
+                e.consume();
+                PkgMgrFrame.this.doClose(false, true);
+            });
         });
     }
 

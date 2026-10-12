@@ -696,7 +696,6 @@
                 <exclude name="lib/bluejcore.jar"/>
                 <exclude name="lib/bluejeditor.jar"/>
                 <exclude name="lib/bluejext2.jar"/>
-                <exclude name="lib/lang-stride.jar"/>
                 <exclude name="lib/greenfoot.jar"/>
                 <exclude name="lib/greenfoot/"/>
                 

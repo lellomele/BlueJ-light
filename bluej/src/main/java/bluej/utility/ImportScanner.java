@@ -32,8 +32,13 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 import bluej.Config;
@@ -64,8 +69,11 @@ public class ImportScanner
     private final Object monitor = new Object();
     // Root package with "" as ident.
     private CompletableFuture<RootPackageInfo> root;
+    private int scanAttempts;
+    private long retryAfterNanos;
     // The Project which we are scanning for:
     private final Project project;
+    private static final Object cacheWriteLock = new Object();
 
     public ImportScanner(Project project)
     {
@@ -79,8 +87,8 @@ public class ImportScanner
      */
     private class PackageInfo
     {
-        // Value can be null if details not loaded yet
-        public final HashMap<String, AssistContentThreadSafe> types = new HashMap<>();
+        // Empty values identify indexed types whose details have not been loaded yet.
+        public final ConcurrentMap<String, Optional<AssistContentThreadSafe>> types = new ConcurrentHashMap<>();
         public final HashMap<String, PackageInfo> subPackages = new HashMap<>();
     
         // Records a class with the given name (scoped relative to this package).
@@ -104,7 +112,7 @@ public class ImportScanner
             else
             {
                 // Lives in this package:
-                types.put(name, null);
+                types.put(name, Optional.empty());
             }
         }
 
@@ -116,46 +124,41 @@ public class ImportScanner
          * @param name The unqualified type name, e.g. "String".
          */
         @OnThread(Tag.Worker)
-        private AssistContentThreadSafe getType(String prefix, String name, JavadocResolver javadocResolver)
+        private AssistContentThreadSafe getType(String prefix, String name, JavadocResolver javadocResolver, long deadline)
         {
-            return types.computeIfAbsent(name, s -> {
-                // To safely get an AssistContentThreadSafe, we must create one from the FXPlatform thread.
-                // So we need to hop across to the FXPlatform thread.  Because we are an arbitrary background
-                // worker thread, it is safe to use wait afterwards; without risk of deadlock:
+            Optional<AssistContentThreadSafe> cached = types.get(name);
+            if (cached != null && cached.isPresent()) return cached.get();
+                if (System.nanoTime() >= deadline) return null;
                 try
                 {
                     CompletableFuture<AssistContentThreadSafe> f = new CompletableFuture<>();
                     Platform.runLater(() -> {
-                        Class<?> c = project.loadClass(prefix + s);
-
-                        // This happens reasonably often while the user is typing in an import in Stride,
-                        // so it's not necessarily a bug:
-                        if (c == null)
+                        if (System.nanoTime() >= deadline) { f.complete(null); return; }
+                        try
                         {
-                            f.complete(null);
+                            Class<?> c = project.loadClass(prefix + name);
+                            f.complete(c == null ? null : new AssistContentThreadSafe(new ImportedTypeCompletion(c, javadocResolver)));
                         }
-                        else
+                        catch (Throwable error)
                         {
-                            AssistContentThreadSafe ac = null;
-                            try
-                            {
-                                ac = new AssistContentThreadSafe(new ImportedTypeCompletion(c, javadocResolver));
-                            }
-                            catch (Throwable t)
-                            {
-                                Debug.reportError(t);
-                            }
-                            f.complete(ac);
+                            f.completeExceptionally(error);
+                            if (error instanceof VirtualMachineError fatal) throw fatal;
                         }
                     });
-                    return f.get();
+                    AssistContentThreadSafe value = f.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+                    if (value != null) types.put(name, Optional.of(value));
+                    return value;
+                }
+                catch (InterruptedException e)
+                {
+                    Thread.currentThread().interrupt();
+                    return null;
                 }
                 catch (Exception e)
                 {
                     Debug.reportError(e);
                     return null;
                 }
-            });
         }
 
         /**
@@ -170,7 +173,7 @@ public class ImportScanner
          * @return The 
          */
         @OnThread(Tag.Worker)
-        public List<AssistContentThreadSafe> getImportedTypes(String prefix, Iterator<String> idents, JavadocResolver javadocResolver)
+        public List<AssistContentThreadSafe> getImportedTypes(String prefix, Iterator<String> idents, JavadocResolver javadocResolver, long deadline)
         {
             if (!idents.hasNext())
                 return Collections.emptyList();
@@ -182,13 +185,13 @@ public class ImportScanner
 
                 // Take a copy in case it causes problems that getType modifies the collection
                 Collection<String> typeNames = new ArrayList<>(types.keySet());
-                return typeNames.stream().map(t -> getType(prefix, t, javadocResolver)).filter(ac -> ac != null).collect(Collectors.toList());
+                return typeNames.stream().map(t -> getType(prefix, t, javadocResolver, deadline)).filter(ac -> ac != null).collect(Collectors.toList());
             }
             else if (idents.hasNext())
             {
                 // Still more identifiers to follow.  Look for package:
                 if (subPackages.containsKey(s))
-                    return subPackages.get(s).getImportedTypes(prefix + s + ".", idents, javadocResolver);
+                    return subPackages.get(s).getImportedTypes(prefix + s + ".", idents, javadocResolver, deadline);
                 else
                 {
                     // Maybe the next identifier isn't a package, but a class (that is, the outer class of an inner class)
@@ -204,10 +207,10 @@ public class ImportScanner
                             // Take a copy in case it causes problems that getType modifies the collection
                             Collection<String> typeNames = new ArrayList<>(types.keySet());
                             String outerClassName = currentClassIdentifier.replace(".*", "");
-                            return typeNames.stream().map(t -> getType(prefix, t, javadocResolver)).filter(acts -> acts != null && acts.getDeclaringClass() != null && acts.getDeclaringClass().equals(outerClassName)).collect(Collectors.toList());
+                            return typeNames.stream().map(t -> getType(prefix, t, javadocResolver, deadline)).filter(acts -> acts != null && acts.getDeclaringClass() != null && acts.getDeclaringClass().equals(outerClassName)).collect(Collectors.toList());
                         }
 
-                        ac = getType(prefix, s, javadocResolver);
+                        ac = getType(prefix, s, javadocResolver, deadline);
                         if (ac != null)
                         {
                             if (idents.hasNext())
@@ -230,7 +233,7 @@ public class ImportScanner
             else
             {
                 // Final identifier, not an asterisk, look for class:
-                AssistContentThreadSafe ac = getType(prefix, s, javadocResolver);
+                AssistContentThreadSafe ac = getType(prefix, s, javadocResolver, deadline);
                 if (ac != null)
                     return Collections.singletonList(ac);
                 else
@@ -249,7 +252,7 @@ public class ImportScanner
     }
     
     // PackageInfo, but for the root type.
-    private class RootPackageInfo extends PackageInfo
+    protected class RootPackageInfo extends PackageInfo
     {
         // Adds fully qualified class name to type list.
         public void addClass(String name)
@@ -265,32 +268,41 @@ public class ImportScanner
         synchronized (monitor)
         {
             // Already started calculating:
-            if (root != null)
+            if (root != null && (!root.isCompletedExceptionally() || scanAttempts >= 3 || System.nanoTime() < retryAfterNanos))
             {
                 return root;
             }
             else
             {
                 // Start calculating:
-                root = new CompletableFuture<>();
+                CompletableFuture<RootPackageInfo> pending = new CompletableFuture<>();
+                root = pending;
+                scanAttempts++;
                 // We don't use runBackground because we don't want to end up
                 // behind other callers of getRoot in the queue (this can
                 // cause a deadlock because there are no background threads
                 // available, as they are all blocked waiting for this
                 // future to complete):
-                new Thread("Import scanner") { public void run()
+                Thread scanner = new Thread("Import scanner") { public void run()
                 {
-                    RootPackageInfo rootPkg = findAllTypes();
                     try
                     {
-                        loadCachedImports(rootPkg);
+                        RootPackageInfo rootPkg = findAllTypes();
+                        try { loadCachedImports(rootPkg); }
+                        catch (RuntimeException ex) { Debug.reportError("Ignoring unusable import cache", ex); }
+                        pending.complete(rootPkg);
                     }
-                    finally
+                    catch (Throwable error)
                     {
-                        root.complete(rootPkg);
+                        synchronized (monitor) { retryAfterNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(2); }
+                        pending.completeExceptionally(error);
+                        if (error instanceof VirtualMachineError fatal) throw fatal;
+                        Debug.reportError("Import scanning failed", error);
                     }
-                }}.start();
-                return root;
+                }};
+                scanner.setDaemon(true);
+                scanner.start();
+                return pending;
             }
         }
     }
@@ -306,11 +318,17 @@ public class ImportScanner
     @OnThread(Tag.Worker)
     public List<AssistContentThreadSafe> getImportedTypes(String importSrc)
     {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
         try
         {
-            return getRoot().get().getImportedTypes("", Arrays.asList(importSrc.split("\\.", -1)).iterator(), project.getJavadocResolver());
+            return getRoot().get(10, TimeUnit.SECONDS).getImportedTypes("", Arrays.asList(importSrc.split("\\.", -1)).iterator(), project.getJavadocResolver(), deadline);
         }
-        catch (InterruptedException | ExecutionException e)
+        catch (InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+            return Collections.emptyList();
+        }
+        catch (ExecutionException | TimeoutException e)
         {
             Debug.reportError("Exception in getImportedTypes", e);
             return Collections.emptyList();
@@ -373,7 +391,7 @@ public class ImportScanner
      * details about the classes.
      */
     @OnThread(Tag.Worker)
-    private RootPackageInfo findAllTypes()
+    protected RootPackageInfo findAllTypes()
     {
         List<ClassGraph> classGraphs = getClassloaderConfig();
         RootPackageInfo r = new RootPackageInfo();
@@ -417,28 +435,33 @@ public class ImportScanner
      */
     public void saveCachedImports()
     {
-        if (getRoot().isDone())
+        CompletableFuture<RootPackageInfo> ready;
+        synchronized (monitor) { ready = root; }
+        if (ready == null || !ready.isDone() || ready.isCompletedExceptionally()) return;
+        String javaHome = getJavaHome();
+        String version = getVersion();
+        File path = getImportCachePath();
+        Utility.runBackground(() ->
         {
-            Element cache = new Element("packages");
-            cache.addAttribute(new Attribute("javaHome", getJavaHome()));
-            cache.addAttribute(new Attribute("version", getVersion()));
-            try
+            synchronized (cacheWriteLock)
             {
-                PackageInfo javaPkg = getRoot().get().subPackages.get("java");
-                if (javaPkg != null)
+                try
                 {
+                    PackageInfo javaPkg = ready.getNow(null).subPackages.get("java");
+                    if (javaPkg == null) return;
+                    Element cache = new Element("packages");
+                    cache.addAttribute(new Attribute("javaHome", javaHome));
+                    cache.addAttribute(new Attribute("version", version));
                     cache.appendChild(toXML(javaPkg, "java"));
-                    FileOutputStream os = new FileOutputStream(getImportCachePath());
-                    Utility.serialiseCodeTo(cache, os);
-                    os.close();
+                    java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+                    Utility.serialiseCodeTo(cache, output);
+                    bluej.light.AtomicSourceSave.save(path.toPath(),
+                        output.toString(java.nio.charset.StandardCharsets.UTF_8),
+                        java.nio.charset.StandardCharsets.UTF_8, ".backup");
                 }
+                catch (IOException | RuntimeException ex) { Debug.reportError("Cannot save import cache", ex); }
             }
-            catch (InterruptedException | ExecutionException | IOException e)
-            {
-                Debug.reportError(e);
-            }
-
-        }
+        });
     }
 
     /** Version of the currently running software */
@@ -504,7 +527,7 @@ public class ImportScanner
             {
                 AssistContentThreadSafe acts = new AssistContentThreadSafe(el);
                 String nameWithoutPackage = (acts.getDeclaringClass() == null ? "" : acts.getDeclaringClass() + "$") + acts.getName();
-                loadPkg.types.put(nameWithoutPackage, acts);
+                loadPkg.types.put(nameWithoutPackage, Optional.of(acts));
             }
         }
 
@@ -520,7 +543,7 @@ public class ImportScanner
     {
         Element el = new Element("package");
         el.addAttribute(new Attribute("name", name));
-        pkg.types.values().forEach(acts -> {if (acts != null) el.appendChild(acts.toXML());});
+        pkg.types.values().forEach(acts -> acts.ifPresent(type -> el.appendChild(type.toXML())));
         pkg.subPackages.forEach((subName, subPkg) -> el.appendChild(toXML(subPkg, subName)));
         return el;
     }

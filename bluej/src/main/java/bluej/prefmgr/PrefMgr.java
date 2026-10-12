@@ -73,7 +73,6 @@ public class PrefMgr
     public static final String ACCESSIBILITY_SUPPORT = "bluej.accessibility.support";
     public static final String NEWS_TESTING = "bluej.news.testing";
     public static final String START_WITH_SUDO = "bluej.startWithSudo";
-    public static final String STRIDE_SIDEBAR_SHOWING = "bluej.editor.stride.sidebarShowing";
     public static final String PACKAGE_PRINT_SOURCE = "bluej.packagePrint.source";
     public static final String PACKAGE_PRINT_DIAGRAM = "bluej.packagePrint.diagram";
     public static final String PACKAGE_PRINT_README = "bluej.packagePrint.readme";
@@ -90,7 +89,6 @@ public class PrefMgr
     
     public static final int MIN_EDITOR_FONT_SIZE = 6;
     public static final int MAX_EDITOR_FONT_SIZE = 160;
-    public static final int DEFAULT_STRIDE_FONT_SIZE = 11;
     public static final int DEFAULT_JAVA_FONT_SIZE = 12;
     public static final String DEFAULT_TEXTFILE_EXTENSIONS = ".txt, .md";
 
@@ -111,7 +109,6 @@ public class PrefMgr
     private static final StringProperty editorStandardFont = new SimpleStringProperty("Source Code Pro");
     private static final StringProperty editorFallbackFont = new SimpleStringProperty("monospace");
     @OnThread(Tag.FX)
-    private static IntegerProperty strideFontSize = null; // Setup in call to strideFontSizeProperty
 
     private static PrintSize printFontSize = PrintSize.STANDARD;
 
@@ -393,23 +390,6 @@ public class PrefMgr
         Config.putPropString(NAVIVIEW_EXPANDED, String.valueOf(expanded));
     }
     
-    @OnThread(Tag.FX)
-    public static IntegerProperty strideFontSizeProperty()
-    {
-        if (strideFontSize == null)
-        {
-            String fontSizePropName = "bluej.stride.editor.fontSize";
-            int sizeFromConfig = Config.getPropInteger(fontSizePropName,DEFAULT_STRIDE_FONT_SIZE);
-            int clampedSize = Math.max(MIN_EDITOR_FONT_SIZE, Math.min(MAX_EDITOR_FONT_SIZE, sizeFromConfig));
-            strideFontSize = new SimpleIntegerProperty(clampedSize);
-            
-            strideFontSize.addListener((a, b, newVal) -> {
-                Config.putPropInteger(fontSizePropName, newVal.intValue());
-            });
-        }
-        
-        return strideFontSize;
-    }
     
     /**
      * Get the property holding the player name, used for Greenfoot (set to determine what UserInfo
@@ -455,7 +435,6 @@ public class PrefMgr
         flags.put(AUTO_OPEN_LAST_PROJECTS, Config.getPropString(AUTO_OPEN_LAST_PROJECTS, "true"));
         flags.put(NEW_CLASS_FULL_CONTENT, Config.getPropString(NEW_CLASS_FULL_CONTENT, "true"));
         flags.put(START_WITH_SUDO, Config.getPropString(START_WITH_SUDO, "true"));
-        flags.put(STRIDE_SIDEBAR_SHOWING, Config.getPropString(STRIDE_SIDEBAR_SHOWING, "true"));
         flags.put(NEWS_TESTING, Config.getPropString(NEWS_TESTING, "false"));
 
         flags.put(PRINT_LINE_NUMBERS, Config.getPropString(PRINT_LINE_NUMBERS, "false"));

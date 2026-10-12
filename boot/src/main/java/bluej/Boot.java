@@ -60,7 +60,7 @@ public class Boot
     // The version numbers for BlueJ and Greenfoot are changed in the top-level
     // version.properties file and then the :boot:updateVersionNumber task should be
     // executed to change them here and elsewhere where needed.
-    public static final String BLUEJ_VERSION = "5.6.5-light";
+    public static final String BLUEJ_VERSION = "5.7.0-light";
     public static final String GREENFOOT_VERSION = "3.9.0";
     public static final String GREENFOOT_API_VERSION = "3.1.0";
 
@@ -68,10 +68,10 @@ public class Boot
     
     // The version numbers for Greenfoot are changed in the Greenfoot build.xml
     // and then the update-version target should be executed.
-    private static final String[] bluejUserJars = { "bluejcore.jar", "javafx-*.jar", "junit-*.jar", "hamcrest-*.jar", "opentest4j-*.jar", "lang-stride.jar" };
+    private static final String[] bluejUserJars = { "bluejcore.jar", "javafx-*.jar", "junit-*.jar", "hamcrest-*.jar", "opentest4j-*.jar" };
     private static final String JLAYER_MP3_JAR = "jl1.0.1.jar";
     // Jars that should be included with exported scenarios
-    public static final String[] GREENFOOT_EXPORT_JARS = {JLAYER_MP3_JAR, "lang-stride.jar"};
+    public static final String[] GREENFOOT_EXPORT_JARS = {JLAYER_MP3_JAR};
     private static final String[] greenfootRuntimeAndUserJars = { "greenfoot.jar",
         "bluejcore.jar",
         "javafx-*.jar",
@@ -79,7 +79,6 @@ public class Boot
         "classgraph-*.jar",
         "diffutils-*.jar", "commons-logging*.jar",
         JLAYER_MP3_JAR, "opencsv-*.jar", "xom-*.jar",
-        "lang-stride.jar",
         "nsmenufx-*.jar", "wellbehavedfx-*.jar",
         "guava-*.jar",
         "failureaccess-*.jar",

@@ -34,8 +34,8 @@ public class CompileInputFile implements Serializable
 
     /**
      *
-     * @param actualJavaFileForCompiler The .java file that the compiler will see, even if the original was Stride
-     * @param sourceFileToRecord The Stride file for Stride (or Java for Java; in this case, both parameters will be identical).
+     * @param actualJavaFileForCompiler The Java source file that the compiler will read.
+     * @param sourceFileToRecord The same Java source file, retained for compiler diagnostics.
      */
     public CompileInputFile(File actualJavaFileForCompiler, File sourceFileToRecord)
     {
@@ -44,7 +44,7 @@ public class CompileInputFile implements Serializable
     }
 
     /**
-     * The .java source file that gets fed to the compiler (even for Stride classes)
+     * The Java source file that gets fed to the compiler.
      */
     public File getJavaCompileInputFile()
     {
@@ -52,7 +52,7 @@ public class CompileInputFile implements Serializable
     }
 
     /**
-     * The original source file as the user sees it, i.e. the Stride file for Stride classes.
+     * The source file being edited by the user.
      */
     public File getUserSourceFile()
     {

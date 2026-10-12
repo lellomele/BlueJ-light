@@ -94,9 +94,9 @@ public class BlueJTheme
     }
     
     @OnThread(Tag.Any)
-    public static String getApplicationIconFileName(String baseName, boolean getStrideEditorIcon)
+    public static String getApplicationIconFileName(String baseName, boolean editorWindowIcon)
     {
-        if (Config.isMacOS() && !getStrideEditorIcon) {
+        if (Config.isMacOS() && !editorWindowIcon) {
             return null;        // don't set window icon on Mac - Mac OS generates dynamic icons
         }
         if (Config.isModernWinOS()) {
@@ -112,13 +112,13 @@ public class BlueJTheme
 
     
     @OnThread(Tag.FX)
-    public static javafx.scene.image.Image getApplicationFxIcon(String baseName, boolean getStrideEditorIcon)
+    public static javafx.scene.image.Image getApplicationFxIcon(String baseName, boolean editorWindowIcon)
     {
-        if (Config.isMacOS() && !getStrideEditorIcon)
+        if (Config.isMacOS() && !editorWindowIcon)
         {
             return null;        // don't set window icon on Mac - Mac OS generates dynamic icons
         }
-        return Config.getFixedImageAsFXImage(getApplicationIconFileName(baseName, getStrideEditorIcon));
+        return Config.getFixedImageAsFXImage(getApplicationIconFileName(baseName, editorWindowIcon));
     }
 
     @OnThread(Tag.Any)

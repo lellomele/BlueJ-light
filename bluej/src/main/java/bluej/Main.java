@@ -197,6 +197,18 @@ public class Main
             }
         });
 
+        java.util.List<bluej.light.SessionRecovery.Entry> recoveredSession = java.util.List.of();
+        if (!oneOpened.get() && "true".equals(Config.getPropString(PrefMgr.AUTO_OPEN_LAST_PROJECTS)))
+        {
+            try
+            {
+                recoveredSession = bluej.light.SessionRecovery.read(bluej.light.SessionRecovery.file());
+                for (var entry : recoveredSession)
+                    oneOpened.set(guiHandler.tryOpen(entry.packageDirectory().toFile(), false) || oneOpened.get());
+            }
+            catch (IOException | RuntimeException ex) { Debug.reportError("Cannot read recovery session", ex); }
+        }
+
         // if we have orphaned packages, these are re-opened
         if (!oneOpened.get()) {
             // check for orphans...
@@ -214,6 +226,8 @@ public class Main
         }
 
         Stage window = guiHandler.initialOpenComplete(oneOpened.get());
+        bluej.light.SessionRecovery.restoreEditors(recoveredSession);
+        bluej.light.SessionRecovery.begin();
         
         Boot.getInstance().disposeSplashWindow();
         ExtensionsManager.getInstance().delegateEvent(new ApplicationEvent(ApplicationEvent.EventType.APP_READY_EVENT));
@@ -321,8 +335,9 @@ public class Main
      */
     @OnThread(Tag.FXPlatform)
     public static void doQuit() {
+        if (!guiHandler.doExitCleanup()) return;
+        bluej.light.SessionRecovery.finish();
         bluej.light.UiStallMonitor.stop();
-        guiHandler.doExitCleanup();
         ExtensionsManager extMgr = ExtensionsManager.getInstance();
         extMgr.unloadExtensions();
         bluej.Main.exit();

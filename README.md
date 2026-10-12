@@ -4,7 +4,7 @@ English | [Italiano](README.it.md)
 
 An independent Java IDE based on BlueJ 5.5.0, with an optimized editor,
 code completion, searchable snippets, automatic class-diagram layout and
-an integrated JDK selector and teaching tools. Current version: **5.6.5-light**.
+an integrated JDK selector and teaching tools. Current version: **5.7.0-light**.
 This is not an official BlueJ release.
 
 ## What Changes In Light
@@ -34,6 +34,10 @@ Package filenames use English: `with-jdk`, `without-jdk` and `portable`.
   Keep `app`, `runtime` and `portable.flag`; preferences are stored in `data`.
 
 The executables are unsigned; Windows may display a warning.
+For packages with the bundled JDK, use an installation/extraction path with ASCII
+characters: this runtime failed to start in a tested path containing a Greek letter.
+The installers can register `.bluej` project files in Open with. Choose BlueJ light
+as the default in Windows; existing defaults are not replaced. Portable does not register file types.
 
 ## Usage
 
@@ -81,8 +85,11 @@ in the application folder (`tools/Exercises/Sum` in the sources).
 | Greenfoot | Excluded from the build: it is a separate teaching environment, not needed by this Java-focused application. |
 | Submitter | The optional email/FTP project-submission extension is outside the editing workflow. It is omitted because this distribution does not provide its matching sources. |
 
-**Stride is not fully removed:** shared internal support remains for compatibility,
-but Stride-specific interface components are created only when a Stride editor opens.
+**Java sources only:** the frame-based language, editor and conversion tools are
+not included. Convert existing Stride classes to Java with the original BlueJ
+before opening the project in BlueJ light. Remove language-runtime imports and
+replace any language-specific helper calls with Java equivalents.
+Unrecognised source files are not deleted.
 Java compilation, debugging, the object bench and JUnit support remain available.
 Official update checks and notices also remain: light is not an entirely network-free application.
 
@@ -94,9 +101,15 @@ Manual diagram changes invalidate automatic routes and layout undo.
 With locked positions, box collisions are avoided but connections use BlueJ's normal routing
 and may cross. New-only layout leaves loaded or manually positioned classes unchanged.
 Local history keeps up to 50 revisions or 20 MiB per file in the preferences folder, and drafts
-up to 5 MiB after 1.5 seconds of inactivity. It is not a backup service; copied/moved files have
-separate histories. Preview text is limited to 200,000 characters; restoration uses the full text.
+up to 5 MiB. Draft checkpoints are requested 1.5 seconds after editing starts, including during
+continuous input; the most recent changes may be lost if a crash occurs before the write completes.
+It is not a backup service; copied/moved files have separate histories. Preview text is limited
+to 200,000 characters; restoration uses the full text.
 History stores source text locally and never uploads it. Normal BlueJ saves/compilation still apply after restoration.
+After an abnormal exit, open projects and Java classes are reopened if automatic reopening is enabled
+in Preferences. The local session register tracks up to 200 packages and 1000 classes per package.
+Missing files are not recreated. Recovery requires writable preferences and does not resume the state
+of a running Java program: objects and execution must be recreated after a JVM restart.
 Exercise tests and compilation each have a 30-second limit and a 256 MiB heap. Reports are not tamper-proof
 grading records; assertion details depend on the JUnit assertion type.
 Error explanations also appear in the code tooltip. The detailed window does not

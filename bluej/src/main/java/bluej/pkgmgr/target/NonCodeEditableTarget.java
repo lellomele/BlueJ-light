@@ -25,12 +25,9 @@ import java.util.Collection;
 import java.util.List;
 
 import bluej.collect.DiagnosticWithShown;
-import bluej.collect.StrideEditReason;
 import bluej.compiler.CompileReason;
 import bluej.compiler.CompileType;
-import bluej.editor.stride.FrameCatalogue;
 import bluej.pkgmgr.Package;
-import bluej.stride.generic.Frame;
 import threadchecker.OnThread;
 import threadchecker.Tag;
 
@@ -63,9 +60,6 @@ public abstract class NonCodeEditableTarget extends EditableTarget
     public void recordJavaEdit(String javaSource, boolean includeOneLineEdits) { }
 
     @Override
-    public void recordStrideEdit(String javaSource, String strideSource, StrideEditReason reason) { }
-
-    @Override
     public void recordClose() { }
 
     @Override
@@ -91,15 +85,6 @@ public abstract class NonCodeEditableTarget extends EditableTarget
 
     @Override
     public void recordCodeCompletionEnded(Integer lineNumber, Integer columnNumber, String xpath, Integer elementOffset, String stem, String replacement, int codeCompletionId) { }
-
-    @Override
-    public void recordUnknownCommandKey(String enclosingFrameXpath, int cursorIndex, char key) { }
-
-    @Override
-    public void recordShowHideFrameCatalogue(String enclosingFrameXpath, int cursorIndex, boolean show, FrameCatalogue.ShowReason reason) { }
-
-    @Override
-    public void recordViewModeChange(String enclosingFrameXpath, int cursorIndex, Frame.View oldView, Frame.View newView, Frame.ViewChangeReason reason) { }
 
     @Override
     public void recordShowErrorIndicators(Collection<Integer> identifiers) { }

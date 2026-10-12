@@ -50,7 +50,11 @@ public final class LocalHistory
         Path directory = folder(source);
         Files.createDirectories(directory);
         List<Revision> previous = list(source);
-        if (!previous.isEmpty() && read(previous.getFirst()).equals(text)) return;
+        if (!previous.isEmpty())
+        {
+            try { if (read(previous.getFirst()).equals(text)) return; }
+            catch (IOException ex) { bluej.utility.Debug.message("Ignoring unreadable previous history entry"); }
+        }
         String id = System.currentTimeMillis() + "-" + UUID.randomUUID();
         atomicWrite(directory.resolve(id + ".txt"), text);
         Properties metadata = new Properties();
@@ -81,12 +85,19 @@ public final class LocalHistory
         {
             for (Path file : files)
             {
-                Properties values = new Properties();
-                try (var reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) { values.load(reader); }
-                Path text = file.resolveSibling(file.getFileName().toString().replace(".properties", ".txt"));
-                if (Files.isRegularFile(text))
-                    try { revisions.add(new Revision(text, Instant.parse(values.getProperty("time")), values.getProperty("kind", "saved"))); }
-                    catch (RuntimeException ignored) { }
+                try
+                {
+                    if (Files.size(file) > 64 * 1024) continue;
+                    Properties values = new Properties();
+                    try (var reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) { values.load(reader); }
+                    Path text = file.resolveSibling(file.getFileName().toString().replace(".properties", ".txt"));
+                    if (Files.isRegularFile(text) && Files.size(text) <= MAX_BYTES)
+                        revisions.add(new Revision(text, Instant.parse(values.getProperty("time")), values.getProperty("kind", "saved")));
+                }
+                catch (IOException | RuntimeException ex)
+                {
+                    bluej.utility.Debug.message("Ignoring invalid local history entry: " + file.getFileName());
+                }
             }
         }
         revisions.sort(Comparator.comparing(Revision::time).reversed());

@@ -60,7 +60,6 @@ import javafx.scene.shape.Rectangle;
 import javafx.stage.Screen;
 import javafx.stage.Window;
 
-import bluej.stride.generic.InteractionManager;
 import bluej.utility.javafx.JavaFXUtil;
 import javafx.stage.WindowEvent;
 import threadchecker.OnThread;
@@ -821,16 +820,6 @@ public final class Config
         // add the defaults (English)
         Properties labels = loadDefs(DEFAULT_LANGUAGE + File.separator + "labels", System.getProperties());
 
-        // Load frame labels
-        String frameLabels = DEFAULT_LANGUAGE + File.separator + "frame-labels";
-        File frameLabelFile = new File(bluejLibDir, frameLabels);
-        try{
-            labels.load(new FileInputStream(frameLabelFile));
-        }
-        catch(Exception e){
-            Debug.reportError("Unable to load greenfoot labels file: " + frameLabelFile);
-        }
-
         // if greenfoot, add specific additional labels
         if(isGreenfoot())
         {
@@ -853,16 +842,6 @@ public final class Config
             }
             catch(Exception e){
                 Debug.reportError("Unable to load definitions file: " + languageFile);
-            }
-
-            // Load frame labels
-            String languageFrameLabels = language + File.separator + "frame-labels";
-            File languageFrameLabelFile = new File(bluejLibDir, languageFrameLabels);
-            try{
-                labels.load(new FileInputStream(languageFrameLabelFile));
-            }
-            catch(Exception e){
-                Debug.reportError("Unable to load frame labels file: " + languageFrameLabelFile);
             }
 
             if(isGreenfoot()) {
@@ -1674,16 +1653,9 @@ public final class Config
     public static void addEditorStylesheets(Scene scene)
     {
         String[] stylesheetStems = new String[] {
-                "frame-style",
-                "editor-banners",
-                "editor-catalogue",
-                "editor-error-bar",
+                "editor-common",
                 "editor-error-fix",
-                "editor-expression",
-                "editor-help",
                 "editor-menu",
-                "editor-selection",
-                "editor-slot-choice",
                 "editor-suggestions",
                 "editor-tabs",
                 "flow",
@@ -1876,16 +1848,6 @@ public final class Config
         }
     }
 
-    public static KeyCode getKeyCodeForYesNo(InteractionManager.ShortcutKey keyPurpose)
-    {
-        switch (keyPurpose)
-        {
-            case YES_ANYWHERE: return KeyCode.F2;
-            case NO_ANYWHERE: return KeyCode.F3;
-        }
-        return null;
-    }
-
     public static boolean isGreenfootStartupProject(File projectDir)
     {
         return getGreenfootStartupProjectPath().equals(projectDir.getAbsolutePath());
@@ -1963,7 +1925,6 @@ public final class Config
      */
     public enum SourceType
     {
-        Java,
-        Stride
+        Java
     }
 }

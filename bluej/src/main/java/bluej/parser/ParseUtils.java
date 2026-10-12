@@ -40,7 +40,6 @@ import bluej.parser.nodes.VariableDeclaration;
 import bluej.parser.symtab.ClassInfo;
 import bluej.pkgmgr.Package;
 import bluej.pkgmgr.target.role.Kind;
-import bluej.stride.framedjava.frames.LocalCompletion;
 import bluej.utility.Debug;
 import threadchecker.OnThread;
 import threadchecker.Tag;

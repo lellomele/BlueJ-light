@@ -39,7 +39,7 @@ import java.util.List;
 import java.util.function.Supplier;
 
 /**
- *  This class is shared and to be utilised by Java and Stride editors
+ *  This class manages Java editor quick-fix displays
  *  to manage fix display (basic UI elements) and fix execution.
  *  Each editors can wrap around this class and add more UI elemnts etc if required.
  */

@@ -137,8 +137,6 @@ public abstract class ClassRole
         else {
             translations.put("PKGLINE", "package " + pkg.getQualifiedName() + ";" + Config.nl + Config.nl);
         }
-        // For Stride, we just put the package name:
-        translations.put("PKGNAME", pkg.getQualifiedName());
 
         try {
             // Check for existing file. Normally this won't happen (the check for duplicate
@@ -306,14 +304,6 @@ public abstract class ClassRole
         
         return rlist;
     }
-
-    /**
-     * True if this can be converted to Stride (assuming Java source is available;
-     * this method does not need to check for that).  Returns false for unsupported
-     * class types, like enums or unit tests.
-     */
-    @OnThread(Tag.Any)
-    public abstract boolean canConvertToStride();
 
     private static class ExecuteMethodAction extends ClassTargetOperation
     {

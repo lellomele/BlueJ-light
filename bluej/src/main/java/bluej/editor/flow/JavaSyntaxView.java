@@ -31,6 +31,8 @@ import bluej.editor.flow.MultilineStringTracker.TextBlockRelation;
 import bluej.parser.Token;
 import bluej.parser.Token.TokenType;
 import bluej.parser.entity.EntityResolver;
+import bluej.parser.lexer.JavaLexer;
+import bluej.parser.lexer.JavaTokenTypes;
 import bluej.parser.nodes.NodeStructureListener;
 import bluej.parser.nodes.NodeTree;
 import bluej.parser.nodes.NodeTree.NodeAndPosition;
@@ -60,6 +62,7 @@ import threadchecker.OnThread;
 import threadchecker.Tag;
 
 import java.io.Reader;
+import java.io.StringReader;
 import java.util.*;
 import java.util.Map.Entry;
 
@@ -337,7 +340,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     /**
      * Creates a new JavaSyntaxView
      * @param document The document with the Java content
-     * @param display The display for calculating scope background positions (can be null if not using scopes, e.g. from Stride)
+     * @param display The display for calculating scope background positions (can be null when scope backgrounds are not required)
      * @param scopeColors The item for fetching the scope background colours
      * @param parentResolver The resolver to pass to the parser
      * @param syntaxHighlighting
@@ -562,10 +565,30 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
         int end = 0;
         for (StyledSegment segment : getTokenStylesFor(line, document.getLines().get(line), true))
         {
+            int segmentStart = end;
             end += segment.getText().length();
             if (column < end)
-                return segment.getStyleClasses().stream().noneMatch(style -> style.contains("comment")
-                    || style.contains("string-literal") || style.contains("char-literal") || style.contains("number"));
+            {
+                if (segment.getStyleClasses().stream().anyMatch(style -> style.contains("comment")
+                    || style.contains("string-literal") || style.contains("char-literal") || style.contains("number")
+                    || style.contains("invalid"))) return false;
+                // Incomplete declarations may be painted as plain text. Classify the
+                // current segment lexically as well, without scanning the whole file.
+                JavaLexer lexer = new JavaLexer(new StringReader(segment.getText()));
+                int relative = column - segmentStart;
+                for (var token = lexer.nextToken(); token.getType() != JavaTokenTypes.EOF; token = lexer.nextToken())
+                {
+                    if (relative < token.getPosition()) return true;
+                    if (relative < token.getPosition() + token.getLength())
+                        return switch (token.getType()) {
+                            case JavaTokenTypes.INVALID, JavaTokenTypes.STRING_LITERAL, JavaTokenTypes.CHAR_LITERAL,
+                                JavaTokenTypes.STRING_LITERAL_MULTILINE, JavaTokenTypes.SL_COMMENT, JavaTokenTypes.ML_COMMENT,
+                                JavaTokenTypes.NUM_INT, JavaTokenTypes.NUM_LONG, JavaTokenTypes.NUM_FLOAT, JavaTokenTypes.NUM_DOUBLE -> false;
+                            default -> true;
+                        };
+                }
+                return true;
+            }
         }
         return true;
     }
@@ -632,7 +655,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     {
         if (scopeRefreshPending && !isPrinting())
             return;
-        // display is null during testing or when used from Stride -- just skip updating the scopes in that case:
+        // When no display is attached, skip scope updates:
         if (display == null)
             return;
         if (!isPrinting())

@@ -21,7 +21,6 @@
  */
 package bluej.extensions2.editor;
 
-import bluej.editor.stride.FrameEditor;
 import bluej.extensions2.BClass;
 import bluej.extensions2.SourceType;
 import bluej.pkgmgr.target.ClassTarget;
@@ -70,33 +69,6 @@ public class EditorBridge
         return new JavaEditor(bClass, bjEditor.assumeText());
     }
 
-    /**
-     * Returns a new StrideEditor for the given ClassTarget.
-     *
-     * @param  aTarget  Bluej Class Target to retrieve the editor from
-     * @return          Proxy editor object or null if it cannot be created
-     */
-    public static StrideEditor newStrideEditor(BClass bClass, ClassTarget aTarget)
-    {
-        if (aTarget == null || aTarget.getSourceType() != SourceType.Stride)
-            return null;
-
-        bluej.editor.Editor bjEditor = aTarget.getEditor();
-        if (bjEditor == null || (!(bjEditor instanceof FrameEditor)))
-            return null;
-        return new StrideEditor(bClass, (FrameEditor)bjEditor);
-    }
-
-    public static StrideEditor newStrideEditorIfOpen(BClass bClass, ClassTarget aTarget)
-    {
-        if (aTarget == null || aTarget.getSourceType() != SourceType.Stride)
-            return null;
-
-        bluej.editor.Editor bjEditor = aTarget.getEditorIfOpen();
-        if (bjEditor == null || (!(bjEditor instanceof FrameEditor)))
-            return null;
-        return new StrideEditor(bClass, (FrameEditor)bjEditor);
-    }
     
     public static bluej.editor.Editor getJavaEditor(JavaEditor editor)
     {

@@ -100,7 +100,7 @@ public class MenuGenerator
 
     /**
      * Returns the list of MenuItem to be added to the context menu in the Java editor.
-     * @param bClass The class being edited (which will be a Java class, at least when this method is called -- users can convert classes to Stride if they want, but the context menu will no longer show in the editor in that case).
+     * @param bClass The Java class being edited.
      * @return A list of 0, 1, or more MenuItem to be added to the context menu.  If you have many items, it may be better interface design to use a sub-menu (i.e. an instance of Menu).
      * @since Extensions API 3.4 (BlueJ 5.2.1)
      */

@@ -1,22 +1,22 @@
 /*
- This file is part of the BlueJ program. 
+ This file is part of the BlueJ program.
  Copyright (C) 1999-2009,2010,2012,2013,2014,2015,2016,2019,2021  Michael Kolling and John Rosenberg
- 
- This program is free software; you can redistribute it and/or 
- modify it under the terms of the GNU General Public License 
- as published by the Free Software Foundation; either version 2 
- of the License, or (at your option) any later version. 
- 
- This program is distributed in the hope that it will be useful, 
- but WITHOUT ANY WARRANTY; without even the implied warranty of 
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the 
- GNU General Public License for more details. 
- 
- You should have received a copy of the GNU General Public License 
- along with this program; if not, write to the Free Software 
- Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA. 
- 
- This file is subject to the Classpath exception as provided in the  
+
+ This program is free software; you can redistribute it and/or
+ modify it under the terms of the GNU General Public License
+ as published by the Free Software Foundation; either version 2
+ of the License, or (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License
+ along with this program; if not, write to the Free Software
+ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+ This file is subject to the Classpath exception as provided in the
  LICENSE.txt file that accompanied this code.
  */
 package bluej.extensions2;
@@ -26,7 +26,6 @@ import bluej.compiler.CompileType;
 import bluej.compiler.JobQueue;
 import bluej.extensions2.editor.JavaEditor;
 import bluej.extensions2.editor.EditorBridge;
-import bluej.extensions2.editor.StrideEditor;
 import bluej.parser.symtab.ClassInfo;
 import bluej.pkgmgr.Package;
 import bluej.pkgmgr.Project;
@@ -46,7 +45,7 @@ import java.util.WeakHashMap;
 /**
  * A wrapper for a class. This is used to represent both classes which have a representation
  * within the BlueJ project, and those that don't.
- * 
+ *
  * <p>From an instance of this class, an extension can create BlueJ objects and call their methods.
  * Behaviour is similar to the Java reflection API.
  *
@@ -68,7 +67,7 @@ public class BClass
     {
         classId = thisClassId;
     }
-    
+
     /**
      * Gets a BClass for some class identifier. To be used for classes which don't have a
      * representation (ClassTarget) in BlueJ.
@@ -85,7 +84,7 @@ public class BClass
         }
         return r;
     }
-    
+
 
     /**
      * Notification that the name of the class has changed.
@@ -104,7 +103,7 @@ public class BClass
 
     /**
      * Returns the name of this BClass.
-     * 
+     *
      * @return The fully qualified name of the wrapped BlueJ class.
      */
     public final String getName()
@@ -131,46 +130,10 @@ public class BClass
     }
 
     /**
-     * Converts a Stride class to Java, by removing the Stride file and retaining the generated Java.
-     *
-     * @throws ProjectNotOpenException
-     * @throws PackageNotFoundException
-     * @throws ClassNotFoundException
-     */
-    public void convertStrideToJava()
-            throws ProjectNotOpenException, PackageNotFoundException, ClassNotFoundException
-    {
-        ClassTarget bluejClass = classId.getClassTarget();
-        if (bluejClass == null) {
-            throw new ClassNotFoundException("Can't find class: " + classId.getClassName());
-        }
-        bluejClass.convertStrideToJava();
-    }
-
-    /**
-     * Converts a Java class to Stride.
-     *
-     * @throws ProjectNotOpenException
-     * @throws PackageNotFoundException
-     * @throws ClassNotFoundException
-     */
-    public void convertJavaToStride()
-        throws ProjectNotOpenException, PackageNotFoundException, ClassNotFoundException
-    {
-        ClassTarget bluejClass = classId.getClassTarget();
-        if (bluejClass == null) {
-            throw new ClassNotFoundException("Can't find class: " + classId.getClassName());
-        }
-
-        bluejClass.promptAndConvertJavaToStride(null);
-    }
-
-
-    /**
      * Returns the Java Class object being wrapped by this BClass.
      * An extension uses this method when more information about the class than
      * is provided by the BClass interface is needed. E.g.:
-     * 
+     *
      * <ul>
      * <li>What is the real class being hidden?
      * <li>Is it an array?
@@ -207,7 +170,7 @@ public class BClass
     /**
      * Returns a proxy object that provide an interface to the <b>Java</b> editor for this BClass.
      * If an editor already exists, a proxy for it is returned. Otherwise, an editor is created but not made visible.
-     * If the class is not a Java class (e.g. Stride) the method returns <code>null</code>.
+     * If the class is not a Java class the method returns <code>null</code>.
      *
      * @return                            A proxy {@link JavaEditor} object or null if it cannot be created or if the class is not of type Java
      * @throws  ProjectNotOpenException   if the project to which this class belongs has been closed by the user.
@@ -220,14 +183,14 @@ public class BClass
         {
             return null;
         }
-        
+
         return EditorBridge.newJavaEditor(this, aTarget);
     }
 
     /**
      * Returns a proxy object that provide an interface to the <b>Java</b> editor for this BClass.
      * If the editor is open, a proxy for it is returned. Otherwise, null is returned.
-     * If the class is not a Java class (e.g. Stride) the method returns <code>null</code>.
+     * If the class is not a Java class the method returns <code>null</code>.
      *
      * @since Extension API 3.2 (BlueJ 5.0.2)
      * @return                            A proxy {@link JavaEditor} object or null if it cannot be created or if the class is not of type Java or the editor is not opened.
@@ -245,51 +208,13 @@ public class BClass
         return EditorBridge.newJavaEditorIfOpen(this, aTarget);
     }
 
-    /**
-     * Returns a proxy object that provide an interface to the <b>Stride</b> editor for this BClass.
-     * If an editor already exists, a proxy for it is returned. Otherwise, an editor is created but not made visible.
-     * If the class is not a Stride class the method returns <code>null</code>.
-     *
-     * @return                            A proxy {@link JavaEditor} object or null if it cannot be created or if the class is not of type Java
-     * @throws  ProjectNotOpenException   if the project to which this class belongs has been closed by the user.
-     * @throws  PackageNotFoundException  if the package to which this class belongs has been deleted by the user.
-     */
-    public StrideEditor getStrideEditor() throws ProjectNotOpenException, PackageNotFoundException
-    {
-        ClassTarget aTarget = classId.getClassTarget();
-        if (aTarget == null || aTarget.getSourceType() != SourceType.Stride)
-        {
-            return null;
-        }
 
-        return EditorBridge.newStrideEditor(this, aTarget);
-    }    
-    
-    /**
-     * Returns a proxy object that provide an interface to the <b>Stride</b> editor for this BClass.
-     * If the editor is open, a proxy for it is returned. Otherwise, null is returned.
-     * If the class is not a Stride class the method returns <code>null</code>.
-     *
-     * @since Extension API 3.2 (BlueJ 5.0.2)
-     * @return                            A proxy {@link JavaEditor} object or null if it cannot be created or if the class is not of type Java or the editor is not opened.
-     * @throws  ProjectNotOpenException   if the project to which this class belongs has been closed by the user.
-     * @throws  PackageNotFoundException  if the package to which this class belongs has been deleted by the user.
-     */
-    public StrideEditor getStrideEditorIfOpen() throws PackageNotFoundException, ProjectNotOpenException
-    {
-        ClassTarget aTarget = classId.getClassTarget();
-        if (aTarget == null || aTarget.getSourceType() != SourceType.Stride)
-        {
-            return null;
-        }
 
-        return EditorBridge.newStrideEditorIfOpen(this, aTarget);
-    }
-    
+
     /**
-     * Finds out whether this class has source code available, and whether it's Java or Stride
+     * Finds out whether this class has source code available, and whether Java source is available
      *
-     * @return Either {@link SourceType#Java} or {@link SourceType#Stride} if the type can be found out, otherwise <code>null</code>.
+     * @return {@link SourceType#Java} if the type can be found out, otherwise <code>null</code>.
      */
     public SourceType getSourceType() throws ProjectNotOpenException, PackageNotFoundException
     {
@@ -318,12 +243,12 @@ public class BClass
 
     /**
      * Compiles this class, and any dependents.
-     * 
+     *
      * <p>After the compilation has finished the method isCompiled() can be used to determined the class
      * status.
-     * 
+     *
      * <p>A single CompileEvent will be generated with all dependent files listed.
-     * 
+     *
      * <p>A call to this method is equivalent to: <code>compile(waitCompileEnd, false)</code>.
      *
      * @param  waitCompileEnd                   <code>true</code> waits for the compilation to be finished.
@@ -339,10 +264,10 @@ public class BClass
 
     /**
      * Compiles this class, and any dependents, optionally without showing compilation errors to the user.
-     * 
+     *
      * <p>After the compilation has finished the method isCompiled() can be used to determined the class
      * status.
-     * 
+     *
      * <p>A single CompileEvent with all dependent files listed will be generated.
      *
      * @param  waitCompileEnd                   <code>true</code> waits for the compilation to be finished.
@@ -412,7 +337,7 @@ public class BClass
              throws ProjectNotOpenException, PackageNotFoundException, ClassNotFoundException
     {
         Project bluejPrj = classId.getBluejProject();
-        
+
         ClassTarget ct = classId.getClassTarget();
         if (ct != null && ! ct.isCompiled()) {
             // Class is not compiled: we can still know the superclass!
@@ -428,13 +353,13 @@ public class BClass
                         return ((ClassTarget) sct).getBClass();
                     }
                 }
-                
+
                 // Superclass isn't in the project?
                 Identifier sid = new Identifier(bluejPrj, null, superClass);
                 return BClass.getBClass(sid);
             }
-            
-            return null; 
+
+            return null;
         }
 
         View bluejView = classId.getBluejView();
@@ -550,7 +475,7 @@ public class BClass
      * Similar to reflection API.
      *
      * @param  methodName                The name of the method.
-     * @param  params                    The parameters of the method. Pass a zero length array if the method takes no arguments. 
+     * @param  params                    The parameters of the method. Pass a zero length array if the method takes no arguments.
      * @return                           The {@link BMethod} object wrapping the matching method or <code>null</code> if the method is not found.
      * @throws  ProjectNotOpenException  if the project to which this class belongs has been closed by the user.
      * @throws ClassNotFoundException   if the class has been deleted by the user.
@@ -571,9 +496,9 @@ public class BClass
         return null;
     }
 
-    
+
     /**
-     * Returns all methods of this class, those declared and those inherited from all ancestors. 
+     * Returns all methods of this class, those declared and those inherited from all ancestors.
      * Similar to reflection API, except that all methods, declared and inherited, are returned, and not only the public ones.
      * That is, it returns all public, private, protected, and package-access methods, inherited or declared.
      * The elements in the array returned are not sorted and are not in any particular order.
@@ -597,7 +522,7 @@ public class BClass
         return methods;
     }
 
-    
+
     /**
      * Returns the method of this class with the given signature.
      * Similar to reflection API, except that all methods, declared and inherited, are searched, and not only the public ones.
@@ -605,7 +530,7 @@ public class BClass
      * If the searched method has been redefined, the returned method is chosen arbitrarily from the list of inherited and declared methods.
      *
      * @param  methodName                The name of the method
-     * @param  params                    The parameters of the method. Pass a zero length array if the method takes no arguments. 
+     * @param  params                    The parameters of the method. Pass a zero length array if the method takes no arguments.
      * @return                           The {@link BMethod} object wrapping the matching method or <code>null</code> if the method is not found.
      * @throws ProjectNotOpenException  if the project to which this class belongs has been closed by the user
      * @throws ClassNotFoundException   if the class has been deleted by the user
@@ -615,7 +540,7 @@ public class BClass
     {
         View bluejView = classId.getBluejView();
         MethodView[] methodView = bluejView.getAllMethods();
- 
+
         for (int index = 0; index < methodView.length; index++) {
             BMethod aResul = new BMethod(classId, methodView[index]);
             if (aResul.matches(methodName, params)) {

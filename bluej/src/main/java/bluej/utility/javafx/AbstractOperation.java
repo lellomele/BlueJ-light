@@ -301,7 +301,6 @@ public abstract class AbstractOperation<ITEM extends AbstractOperation.Contextua
         REMOVE(110),
         SET_IMAGE(110),
         DUPLICATE(110),
-        CONVERT_TO_STRIDE(110),
         CONVERT_TO_JAVA(110),
         MAKE_TEST_CASE(130),
         BENCH_TO_FIXTURE(130),

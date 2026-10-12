@@ -9,7 +9,6 @@ dependencies {
     annotationProcessor project(':threadchecker')
     compileOnly project(':threadchecker')
     implementation project(':boot')
-    implementation project(':lang-stride')
 
     implementation 'com.google.guava:guava:33.3.1-jre'
     implementation 'com.google.guava:failureaccess:1.0.2'
@@ -95,15 +94,24 @@ javafx {
     modules = ['javafx.base', 'javafx.controls', 'javafx.graphics', 'javafx.fxml', 'javafx.media', 'javafx.swing', 'javafx.web']
 }
 
-task recordCommitID(type: Exec) {
-    // Make a default file in case Git fails:
-    doFirst {
-        new File("${projectDir}/lib/buildid.txt").text = "Unknown"
+task recordCommitID {
+    doLast {
+        String buildId = "Source archive"
+        if (rootProject.file('.git').exists()) {
+            def output = new ByteArrayOutputStream()
+            try {
+                def result = project.exec {
+                    commandLine 'git', 'describe', '--always', '--dirty', '--abbrev=8'
+                    ignoreExitValue true
+                    standardOutput = output
+                    errorOutput = new ByteArrayOutputStream()
+                }
+                if (result.exitValue == 0) buildId = output.toString('UTF-8').trim()
+            }
+            catch (GradleException ignored) { }
+        }
+        file('lib/buildid.txt').setText(buildId + '\n', 'UTF-8')
     }
-    commandLine "git", "rev-parse", "--short=8", "HEAD"
-    // Don't fail if we don't have a Git repository (e.g. building from source zip):
-    ignoreExitValue true
-    standardOutput new FileOutputStream("${projectDir}/lib/buildid.txt")
 }
 
 task copyLibToTestBuild(type: Copy) {

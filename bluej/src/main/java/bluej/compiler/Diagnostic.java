@@ -40,7 +40,7 @@ public class Diagnostic implements Serializable
 
     public static enum DiagnosticOrigin
     {
-        JAVAC("javac"), STRIDE_EARLY("stride_early"), STRIDE_LATE("stride_late"), UNKNOWN("unknown");
+        JAVAC("javac"), UNKNOWN("unknown");
 
         private String serverOrigin;
 
@@ -99,7 +99,7 @@ public class Diagnostic implements Serializable
      *                    {@code startLine} is greater than 0
      * @param endColumn  The column where the error/problem ends; must be valid if
      *                    {@code startLine} is greater than 0. Tab stops are every 8 spaces.
-     * @param origin     The origin of the error message, e.g. "javac" or "stride_late".
+     * @param origin     The origin of the error message, e.g. "javac".
      * @param identifier The identifier of the diagnostic.  Used to match up with later events
      *                   about the same diagnostic, such as shown_error_message events.
      */

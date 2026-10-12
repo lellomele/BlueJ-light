@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-12. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2010,2011,2014,2019,2020,2021,2022  Michael Kolling and John Rosenberg
@@ -483,18 +484,12 @@ public abstract class ParsedNode extends RBTreeNode<ParsedNode>
 
         // We don't need to go too deep in the tree: retrieve a node that is at deepest a method node.
         // So we get back to the last named node parent to this leaf.
-        if (this.parentNode == null)
-            return null;
-        
-        ParsedNode parentNode = this.parentNode;
-        while (parentNode.getName() == null || (parentNode.getNodeType() != NODETYPE_METHODDEF && parentNode.getNodeType() != NODETYPE_TYPEDEF))
+        for (ParsedNode parentNode = this.parentNode; parentNode != null; parentNode = parentNode.parentNode)
         {
-            if (parentNode.parentNode != null)
-            {
-                parentNode = parentNode.parentNode;
-            }
+            if (parentNode.getName() != null && (parentNode.getNodeType() == NODETYPE_METHODDEF || parentNode.getNodeType() == NODETYPE_TYPEDEF))
+                return parentNode;
         }
-        return parentNode;
+        return null;
     }
 
     /**
@@ -514,24 +509,18 @@ public abstract class ParsedNode extends RBTreeNode<ParsedNode>
             return child.getNode().isCurrentlyInControlStatement(pos - child.getPosition());
 
         // Now roll up the parents until we find a control statement OR reached a method/type definition
-        if (this.parentNode == null)
-            return false;
-
-        ParsedNode parentNode = this.parentNode;
         // We loop to get parents of that noode until:
         // - we find a method or class (in that case we've passed the scope of the current location node anyway so it's good to stop
         // or
         // - we find a parent that is an inner node : that would mean that we are either INSIDE the control statement OR there is no
         //   control statement for the current position at all
-        while ((parentNode.getNodeType() != NODETYPE_METHODDEF && parentNode.getNodeType() != NODETYPE_TYPEDEF && !(parentNode instanceof  InnerNode)))
+        for (ParsedNode parentNode = this.parentNode; parentNode != null; parentNode = parentNode.parentNode)
         {
+            if (parentNode.getNodeType() == NODETYPE_METHODDEF || parentNode.getNodeType() == NODETYPE_TYPEDEF || parentNode instanceof InnerNode)
+                break;
             if(parentNode.getNodeType() == NODETYPE_SELECTION || parentNode.getNodeType() == NODETYPE_ITERATION)
             {
                 return true;
-            }
-            if (parentNode.parentNode != null)
-            {
-                parentNode = parentNode.parentNode;
             }
         }
         return false;

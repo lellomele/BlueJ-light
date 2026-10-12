@@ -380,8 +380,6 @@ pkgmgr.classmenu.edit=Otev\u0159\u00edt v editoru
 pkgmgr.classmenu.compile=P\u0159elo\u017eit
 pkgmgr.classmenu.inspect=Prohl\u00ed\u017eet
 pkgmgr.classmenu.remove=Odstranit
-pkgmgr.classmenu.convertToJava=P\u0159ev\u00e9st do jazyka Java
-pkgmgr.classmenu.convertToStride=P\u0159ev\u00e9st do jazyka Stride
 pkgmgr.classmenu.createTest=Vytvo\u0159it testovac\u00ed t\u0159\u00eddu
 pkgmgr.classmenu.launchFX=Spustit aplikaci typu JavaFX
 
@@ -895,3 +893,10 @@ newProject.error.nameEmpty=N\u00e1zev nesm\u00ed b\u00fdt pr\u00e1zdn\u00fd
 newProject.error.compoundExist=Cesta ji\u017e existuje
 newProject.error.pathInvalid=Cesta je neplatn\u00e1
 
+# Java editor tabs and documentation
+editor.tab.close=Zav\u0159\u00edt
+editor.tab.move=P\u0159esu\u0148 z\u00e1lo\u017eku...
+editor.tab.move.new=Do nov\u00e9ho okna
+editor.tab.move.existing=Okno
+editor.documentation.title=Dokumentace
+editor.documentation.open.external=Otev\u0159\u00edt v extern\u00edm prohl\u00ed\u017ee\u010di

@@ -26,6 +26,7 @@
 *.class
 /classes
 /output
+/bench/
 
 *.args
 test-support/openjfx-23.0.2-upstream.zip
@@ -35,6 +36,5 @@ test-support/openjfx-23.0.2-upstream.zip
 bluej/build/
 anns-threadchecker/build
 boot/build
-lang-stride/build
 threadchecker/build
 greenfoot/build

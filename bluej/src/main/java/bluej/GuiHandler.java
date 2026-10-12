@@ -72,5 +72,5 @@ public interface GuiHandler
     /**
      * Perform any cleanup/save prior to application exit. The exit cannot be cancelled at this point.
      */
-    void doExitCleanup();
+    boolean doExitCleanup();
 }

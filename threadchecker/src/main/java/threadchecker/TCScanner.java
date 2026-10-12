@@ -146,8 +146,6 @@ class TCScanner extends TreePathScanner<Void, Void>
                            .stream().map(e -> e.getSimpleName().toString()).collect(Collectors.toList());
         
         // Temporary:
-        //this.ignorePackages.addAll(Arrays.asList("bluej.editor.stride"));
-        //this.ignorePackages.addAll(Arrays.asList("bluej.stride"));
         
         // Now we have all the business logic for the Java standard libraries:
         

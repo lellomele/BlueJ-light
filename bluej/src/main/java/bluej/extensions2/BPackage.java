@@ -138,9 +138,9 @@ public class BPackage
 
     /**
      * Creates a new class with the given name for the given type.
-     * The class name must not be a fully qualified name, and the .java or .stride file must already exist.
+     * The class name must not be a fully qualified name, and the .java file must already exist.
      * @param className the fully qualified name of the class to create.
-     * @param sourceType the {@link SourceType} objecet describing the type of the class, either {@link SourceType#Java} or {@link SourceType#Stride}.
+     * @param sourceType the {@link SourceType} objecet describing the type of the class, {@link SourceType#Java}.
      * @return A {@link BClass} object wrapping the created class.
      * @throws ProjectNotOpenException if the project this package is part of has been closed by the user.
      * @throws PackageNotFoundException if the package has been deleted by the user.

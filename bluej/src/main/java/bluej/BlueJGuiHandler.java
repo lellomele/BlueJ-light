@@ -107,9 +107,13 @@ public class BlueJGuiHandler implements GuiHandler
     }
     
     @Override
-    public void doExitCleanup()
+    public boolean doExitCleanup()
     {
         PkgMgrFrame[] pkgFrames = PkgMgrFrame.getAllFrames();
+
+        // Validate all projects before closing any window or unloading extensions.
+        for (PkgMgrFrame frame : pkgFrames)
+            if (!frame.prepareClose() || !frame.doSave()) return false;
 
         // handle open packages so they are re-opened on startup
         handleOrphanPackages(pkgFrames);
@@ -120,10 +124,10 @@ public class BlueJGuiHandler implements GuiHandler
         while (i >= 0)
         {
             PkgMgrFrame aFrame = pkgFrames[i--];
-            aFrame.doSave();
-            aFrame.closePackage();
+            if (!aFrame.closePackage()) return false;
             PkgMgrFrame.closeFrame(aFrame);
         }
+        return true;
     }
 
     /**

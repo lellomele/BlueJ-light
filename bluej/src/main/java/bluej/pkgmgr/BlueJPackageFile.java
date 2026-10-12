@@ -181,8 +181,7 @@ public class BlueJPackageFile
             saveToFile(props, oldPkgFile);
         }
 
-        pkgFile.createNewFile();
-        if (!pkgFile.canWrite()) {
+        if (pkgFile.exists() && !pkgFile.canWrite()) {
                 throw new IOException("BlueJ package file not writable: " + pkgFile);
         }
         else {
@@ -193,19 +192,15 @@ public class BlueJPackageFile
     private void saveToFile(Properties props, File file)
         throws IOException
     {
-        FileOutputStream output = null;
         try {
-            output = new FileOutputStream(file);
-            String header = "BlueJ package file";
-            props.store(output, header);
+            java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+            props.store(output, "BlueJ package file");
+            bluej.light.AtomicSourceSave.save(file.toPath(),
+                output.toString(java.nio.charset.StandardCharsets.ISO_8859_1),
+                java.nio.charset.StandardCharsets.ISO_8859_1, ".backup");
         }
         catch (IOException e) {
-            throw new IOException("Error when storing properties to BlueJ package file: " + file);
-        }
-        finally {
-            if (output != null) {
-                output.close();
-            }
+            throw new IOException("Error when storing properties to BlueJ package file: " + file, e);
         }
     }
 

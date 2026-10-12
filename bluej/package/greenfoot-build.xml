@@ -142,7 +142,6 @@
             <fileset dir="${greenfoot_home}">
                 <patternset>
                     <include name="common/*.java" />
-                    <include name="common/*.stride" />
                     <!-- <include name="common/${common.class}.class" /> -->
                     <include name="common/*.html" />
                     <include name="common/*.png" />
@@ -656,7 +655,6 @@
             <fileset dir="install_tmp/lib/greenfoot">
                 <patternset>
                     <include name="common/*.java" />
-                    <include name="common/*.stride" />
                     <!-- <include name="common/${common.class}.class" /> -->
                     <include name="common/*.html" />
                     <include name="common/*.png" />

@@ -6,8 +6,7 @@ Poznámky k verzii prekladu 1.5 zo dňa 2. 12. 2016
 -------------------------------------------------
 
 Táto verzia bola spracovaná v čase vývoja štvrtej hlavnej verzie BlueJa. Obsahuje
-mnoho drobných zmien a opráv nepresností. Tiež obsahuje prvú verziu prekladu pre
-nový editor kódu v BlueJi nazvaný Stride.
+mnoho drobných zmien a opráv nepresností.
 
 S jazykovou korektúrou mi pri tejto verzii pomohla Klaudia Kanyicsková, za čo jej
 touto cestou ďakujem.

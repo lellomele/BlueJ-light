@@ -279,13 +279,13 @@ editor.addjavadoc.parameter=Parameter
 editor.addjavadoc.returnValue=N\u00e1vratov\u00e1 hodnota
 
 # Messages shown as a result of a search with replace all
-editor.replaceAll.replaced=Nahraden\u00fdch 
-editor.replaceAll.intancesOf=in\u0161tanci\u00ed 
-editor.replaceAll.string=Re\u0165azec 
+editor.replaceAll.replaced=Nahraden\u00fdch
+editor.replaceAll.intancesOf=in\u0161tanci\u00ed
+editor.replaceAll.string=Re\u0165azec
 editor.replaceAll.notFoundNothingReplaced=nebol n\u00e1jden\u00fd. Ni\u010d nebolo nahraden\u00e9.
 
 # Messages shown as a result of a search with highlight all
-editor.highlight.found=N\u00e1jden\u00fdch 
+editor.highlight.found=N\u00e1jden\u00fdch
 editor.highlight.notFound=nen\u00e1jden\u00fd.
 
 # Message shown in code completion pane when nothing is found
@@ -340,7 +340,7 @@ utility.packageChooser.previewPane2=\u0161trukt\u00fary bal\u00ed\u010dka
 pkgmgr.title=BlueJ:
 
 pkgmgr.newPkg.title=Nov\u00fd projekt
-pkgmgr.newMEpkg.title=Nov\u00fd projekt ME 
+pkgmgr.newMEpkg.title=Nov\u00fd projekt ME
 pkgmgr.newPkg.buttonLabel=Vytvori\u0165
 pkgmgr.openPkg.title=Otvori\u0165 projekt
 pkgmgr.openPkg.buttonLabel=Otvori\u0165
@@ -376,8 +376,6 @@ pkgmgr.classmenu.edit=Otvori\u0165 v\u00a0editore
 pkgmgr.classmenu.compile=Prelo\u017ei\u0165
 pkgmgr.classmenu.inspect=Prehliada\u0165
 pkgmgr.classmenu.remove=Vymaza\u0165
-pkgmgr.classmenu.convertToJava=Previes\u0165 do Javy
-pkgmgr.classmenu.convertToStride=Previes\u0165 do Stridu
 pkgmgr.classmenu.createTest=Vytvori\u0165 testovaciu triedu
 pkgmgr.classmenu.launchFX=Spusti\u0165 aplik\u00e1ciu JavaFX
 
@@ -489,7 +487,7 @@ pkgmgr.versionDlg.newVersion=Posledn\u00e1 zn\u00e1ma verzia BlueJa je
 pkgmgr.printDialog.title=BlueJ:  Vytla\u010di\u0165 projekt
 pkgmgr.printDialog.printDiagram=Vytla\u010di\u0165 UML diagram tried
 pkgmgr.printDialog.printSource=Vytla\u010di\u0165 zdrojov\u00fd k\u00f3d
-pkgmgr.printDialog.printReadme=Vytla\u010di\u0165 \u201ereadme\u201c s\u00fabor projektu 
+pkgmgr.printDialog.printReadme=Vytla\u010di\u0165 \u201ereadme\u201c s\u00fabor projektu
 
 # method call dialog
 pkgmgr.methodCall.titleCreate=Vytvori\u0165 objekt
@@ -825,7 +823,7 @@ about.java.version=Verzia Javy
 about.vm=Java VM:
 about.runningOn=Opera\u010dn\u00fd syst\u00e9m:
 about.logfile=V\u00fdpis chybov\u00fdch hl\u00e1sen\u00ed:
-about.moreInformation=Viac inform\u00e1ci\u00ed z\u00edskate na 
+about.moreInformation=Viac inform\u00e1ci\u00ed z\u00edskate na
 about.theTeam=Slovensk\u00e1 lokaliz\u00e1cia:\n\u00a0     Roman Horv\u00e1th, Klaudia Kanyicskov\u00e1, Andrea Hrn\u010diarikov\u00e1\n\u00a0\n\u00a0\nAutori prostredia $APPNAME:
 about.openFolder=Otvori\u0165 prie\u010dinok
 
@@ -834,8 +832,8 @@ workIndicator.resetMachine=Re\u0161tartova\u0165 _Java VM@^R
 
 # Not a package
 notAProject.bluej.title=Toto nie je projekt BlueJa
-notAProject.bluej.message=Zvolen\u00fd prie\u010dinok neobsahuje projekt BlueJa: 
-notAProject.bluej.subDirs=Niektor\u00e9 podprie\u010dinky obsahuj\u00fa projekty BlueJa. Mali ste na mysli: 
+notAProject.bluej.message=Zvolen\u00fd prie\u010dinok neobsahuje projekt BlueJa:
+notAProject.bluej.subDirs=Niektor\u00e9 podprie\u010dinky obsahuj\u00fa projekty BlueJa. Mali ste na mysli:
 notAProject.bluej.subDirButton=Otvori\u0165 zvolen\u00e9
 notAProject.bluej.button=Vybra\u0165 in\u00e9\u2026
 
@@ -848,3 +846,11 @@ newProject.error.parentNotExist=Umiestnenie nejestvuje
 newProject.error.nameEmpty=N\u00e1zov nesmie by\u0165 pr\u00e1zdny
 newProject.error.compoundExist=Cesta u\u017e jestvuje
 newProject.error.pathInvalid=Cesta je neplatn\u00e1
+
+# Java editor tabs and documentation
+editor.tab.close=Zavrie\u0165
+editor.tab.move=Presun\u00fa\u0165 kartu\u2026
+editor.tab.move.new=Do nov\u00e9ho okna
+editor.tab.move.existing=Okno
+editor.documentation.title=Dokument\u00e1cia
+editor.documentation.open.external=Otvori\u0165 v\u00a0externom prehliada\u010di

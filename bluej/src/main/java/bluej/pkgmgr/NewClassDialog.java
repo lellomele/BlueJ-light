@@ -46,7 +46,6 @@ import bluej.Config;
 import bluej.extensions2.SourceType;
 import bluej.utility.DialogManager;
 import bluej.utility.JavaNames;
-import bluej.utility.javafx.HorizontalRadio;
 import bluej.utility.javafx.JavaFXUtil;
 import bluej.utility.javafx.dialog.DialogPaneAnimateError;
 import javafx.util.StringConverter;
@@ -67,9 +66,6 @@ class NewClassDialog extends Dialog<NewClassDialog.NewClassInfo>
     /** Which radio button is associated with which template */
     private final Map<RadioButton, TemplateInfo> templates = new IdentityHashMap<>();
     
-    /** The buttons for the source language (Java/Stride) */
-    private final HorizontalRadio<SourceType> language;
-
     private final ComboBox<ClassContent> classContent;
 
     /** stores restricted windows class filenames */
@@ -127,16 +123,6 @@ class NewClassDialog extends Dialog<NewClassDialog.NewClassInfo>
 
         mainPanel.getChildren().add(nameBox);
 
-        language = new HorizontalRadio(Arrays.asList(SourceType.Java, SourceType.Stride));
-        language.select(defaultSourceType);
-        
-        HBox langBox = new HBox();
-        JavaFXUtil.addStyleClass(langBox, "new-class-dialog-hbox");
-        langBox.getChildren().add(new Label(Config.getString("pkgmgr.newClass.lang")));
-        langBox.getChildren().addAll(language.getButtons());
-        langBox.setAlignment(Pos.BASELINE_LEFT);
-        mainPanel.getChildren().add(langBox);
-        
         mainPanel.getChildren().add(new Label(Config.getString("pkgmgr.newClass.classType")));
 
         templateButtons = new ToggleGroup();
@@ -172,11 +158,6 @@ class NewClassDialog extends Dialog<NewClassDialog.NewClassInfo>
             updateOKButton(false);
         });
 
-        JavaFXUtil.addChangeListenerPlatform(language.selectedProperty(), language -> {
-            hideError();
-            updateOKButton(false);
-        });
-        
         getDialogPane().setContent(mainPanel);
         setResultConverter(buttonType -> {
             if (buttonType == ButtonType.OK)
@@ -184,7 +165,7 @@ class NewClassDialog extends Dialog<NewClassDialog.NewClassInfo>
                 // Save the classContent preference:
                 PrefMgr.setFlag(PrefMgr.NEW_CLASS_FULL_CONTENT, classContent.getSelectionModel().getSelectedItem() == ClassContent.FULL);
 
-                return new NewClassInfo(nameField.getText().trim(), templates.get(templateButtons.getSelectedToggle()).name, language.selectedProperty().get(), classContent.getSelectionModel().getSelectedItem());
+                return new NewClassInfo(nameField.getText().trim(), templates.get(templateButtons.getSelectedToggle()).name, SourceType.Java, classContent.getSelectionModel().getSelectedItem());
             }
             else {
                 return null;
@@ -253,7 +234,6 @@ class NewClassDialog extends Dialog<NewClassDialog.NewClassInfo>
         // first, get templates out of defined templates from bluej.defs
         // (we do this rather than using the directory only to be able to force an order on the templates.)
         addDEFsTemplates(templates, SourceType.Java);
-        addDEFsTemplates(templates, SourceType.Stride);
 
         // next, get templates from files in template directory and merge them in
         addDirectoryTemplates(templates, SourceType.Java, parent);
@@ -317,7 +297,7 @@ class NewClassDialog extends Dialog<NewClassDialog.NewClassInfo>
         TemplateInfo info = this.templates.get(selectedToggle);
         boolean enable = false;
 
-        SourceType sourceType = language.selectedProperty().get();
+        SourceType sourceType = SourceType.Java;
         Properties localProperties = new Properties();
         localProperties.put("LANGUAGE", sourceType.toString());
 
@@ -341,7 +321,7 @@ class NewClassDialog extends Dialog<NewClassDialog.NewClassInfo>
             enable = true;
         }
 
-        templates.forEach((radio, templateInfo) -> radio.setVisible(templateInfo.sourceTypes.contains(language.selectedProperty().get())));
+        templates.forEach((radio, templateInfo) -> radio.setVisible(templateInfo.sourceTypes.contains(SourceType.Java)));
         setOKEnabled(enable);
     }
     

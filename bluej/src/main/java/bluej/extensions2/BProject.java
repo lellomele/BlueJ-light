@@ -22,7 +22,7 @@
  */
 package bluej.extensions2;
 
-import bluej.editor.stride.FXTabbedEditor;
+import bluej.editor.tabbed.FXTabbedEditor;
 import bluej.pkgmgr.Package;
 import bluej.pkgmgr.PkgMgrFrame;
 import bluej.pkgmgr.Project;

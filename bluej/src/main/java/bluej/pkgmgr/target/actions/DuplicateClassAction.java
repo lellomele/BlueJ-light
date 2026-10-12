@@ -29,7 +29,7 @@ import threadchecker.Tag;
 
 /**
  * A menu item to invoke a class duplication. This is valid for
- * Java and Stride classes.
+ * Java classes.
  */
 @OnThread(Tag.FXPlatform)
 public class DuplicateClassAction extends ClassTargetOperation

@@ -31,7 +31,7 @@ import bluej.compiler.Diagnostic;
  * - Whether the message was shown to the user (previously, only the first message was shown;
  *   now it is all the messages unless there is an internal problem showing it)
  *
- * - What the original file name was (.stride file for Stride)
+ * - The Java source file name
  */
 // package-visible
 public class DiagnosticWithShown
@@ -40,7 +40,7 @@ public class DiagnosticWithShown
     private final Diagnostic diagnostic;
     // Was the error shown to the user already?
     private final boolean shownToUser;
-    // File name of original file (.stride file for Stride, .java file for Java)
+    // Java source file name
     private final File userFileName;
 
     /**

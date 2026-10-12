@@ -8,7 +8,7 @@ main.invalidPackage=Paket konnte nicht gefunden werden.
 compileException=Exception w\u00e4hrend der \u00dcbersetzung
 compiler.thread.title=BlueJ Compiler Thread
 compiler.warningDialog.title=BlueJ:  Compiler Warnungen
-compiler.warningDialog.label=Warnungen der letzten \u00dcbersetzung 
+compiler.warningDialog.label=Warnungen der letzten \u00dcbersetzung
 compiler.warningDialog.noWarnings=Keine Warnungen
 
 debugger.assert.assertThatResIs=Sichere zu, dass: Ergebnis ist
@@ -246,14 +246,14 @@ editor.functions.customisation=Einstellungen
 editor.functions.help=Hilfe
 editor.functions.misc=Diverses
 editor.functions.defaults=Defaultwerte
-editor.functions.categories=Kategorien: 
+editor.functions.categories=Kategorien:
 editor.functions.keys=Tastenzuordnungen
 editor.functions.addkey=Taste hinzuf\u00fcgen
 editor.functions.delkey=Taste l\u00f6schen
 
 editor.find.title=Suchen
-editor.find.find.label=Suchen:  
-editor.find.replace.label=Ersetzen:  
+editor.find.find.label=Suchen:
+editor.find.replace.label=Ersetzen:
 editor.find.findNext=N\u00e4chstes suchen
 editor.find.replace=Ersetzen
 editor.find.replaceAll=Alle ersetzen
@@ -287,8 +287,8 @@ editor.addjavadoc.returnValue=Der R\u00fcckgabewert
 
 # Messages shown as a result of a search with replace all
 editor.replaceAll.replaced=Ersetzt
-editor.replaceAll.intancesOf=Instanzen von 
-editor.replaceAll.string=String 
+editor.replaceAll.intancesOf=Instanzen von
+editor.replaceAll.string=String
 editor.replaceAll.notFoundNothingReplaced=nicht gefunden. Nicht ersetzt.
 
 # Messages shown as a result of a search with highlight all
@@ -324,7 +324,7 @@ editor.info.generatingDoc=Dokumentation der Klasse erzeugen...
 editor.info.loadingDoc=Dokumentation der Klasse laden...
 editor.info.docLoaded=Dokumentation der Klasse laden... Fertig.
 editor.info.docAborted=Problem beim Erzeugen der javadoc-Dokumentation.\nAbgebrochen.
-editor.info.docDisappeared=Kann die HTML-Datei nicht finden: 
+editor.info.docDisappeared=Kann die HTML-Datei nicht finden:
 editor.info.docNoFrames=Frame-Anzeige in Editor-Vorschau nicht m\u00f6glich.
 editor.info.tabsExpanded=Alle TABs in Leerzeichen umgewandelt. (Sie arbeiten\n mitweichen TABs, die Datei enthielt harte TABs.)
 editor.info.perfectIndent=Einr\u00fcckung war bereits korrekt
@@ -344,7 +344,7 @@ utility.packageChooser.previewPane1=Ansicht der m\u00f6glichen
 utility.packageChooser.previewPane2=Paketstruktur
 
 # dialog titles and texts
-pkgmgr.title=BlueJ:  
+pkgmgr.title=BlueJ:
 
 pkgmgr.newPkg.title=Neues Projekt
 pkgmgr.newMEpkg.title=Neues ME Projekt
@@ -433,7 +433,7 @@ pkgmgr.newPackage.newPackage=Paket
 
 # "Use Library Class" dialog
 callLibraryDialog.title=BlueJ:  Klasse aus Bibliothek verwenden
-callLibraryDialog.classLabel=Klasse: 
+callLibraryDialog.classLabel=Klasse:
 callLibraryDialog.docButton=Dokumentation
 callLibraryDialog.listHeading=Konstruktoren und statische Methoden
 callLibraryDialog.clickHere1=Geben Sie den vollen Klassen-Namen ein und dr\u00fccken Sie
@@ -461,14 +461,14 @@ pkgmgr.importmismatch.helpLine3=angegeben ist. Beim \u00d6ffnen dieses Verzeichn
 pkgmgr.importmismatch.helpLine4=Deklarationen in den folgenden Quelltexten des Projekts ge\u00e4ndert.
 pkgmgr.importmismatch.helpLine5=H\u00f6chstwahrscheinlich sollten Sie das n\u00e4chsth\u00f6here Verzeichnis \u00f6ffnen,
 pkgmgr.importmismatch.helpLine6=Um z.B. ein Java-Projekt zu \u00f6ffnen, das das Paket "org.bluej" enth\u00e4lt,
-pkgmgr.importmismatch.helpLine7=m\u00fcssen Sie das Verzeichnis ausw\u00e4hlen, das "org" _enth\u00e4lt_, nicht das 
+pkgmgr.importmismatch.helpLine7=m\u00fcssen Sie das Verzeichnis ausw\u00e4hlen, das "org" _enth\u00e4lt_, nicht das
 pkgmgr.importmismatch.helpLine8="org"- oder "bluej"-Verzeichnis selbst.
 pkgmgr.importmismatch.helpLine9=Wollen Sie das \u00d6ffnen fortsetzen und die "package"-Deklarationen \u00e4ndern?
 
 # "import" failure dialog
 pkgmgr.importfailed.title=BlueJ:  Import-Status
 pkgmgr.importfailed.helpLine1=Beim Importieren konnten die folgenden Dateien nicht kopiert
-pkgmgr.importfailed.helpLine2=werden, h\u00f6chstwahrscheinlich deswegen, weil es diese Dateien 
+pkgmgr.importfailed.helpLine2=werden, h\u00f6chstwahrscheinlich deswegen, weil es diese Dateien
 pkgmgr.importfailed.helpLine3=im Zielprojekt bereits gibt.
 
 # "version check" dialog
@@ -501,12 +501,12 @@ pkgmgr.runApplet.htmlExportedComment=<\!-- Automatisch von der BlueJ-Entwicklung
 pkgmgr.printDialog.title=BlueJ:  Projekt drucken
 pkgmgr.printDialog.printDiagram=Klassendiagramm drucken
 pkgmgr.printDialog.printSource=Quelltext drucken
-pkgmgr.printDialog.printReadme=README drucken 
+pkgmgr.printDialog.printReadme=README drucken
 
 # method call dialog
 pkgmgr.methodCall.titleCreate=Objekt erzeugen
 pkgmgr.methodCall.titleCall=Methodenaufruf
-pkgmgr.methodCall.namePrompt=Instanzname: 
+pkgmgr.methodCall.namePrompt=Instanzname:
 pkgmgr.methodCall.typeParametersPrompt=Typ-Parameter:
 pkgmgr.methodCall.typeParameterPrompt=Typ-Parameter:
 error.methodCall.emptyField=Fehler: Leeres Parameterfeld.
@@ -571,7 +571,7 @@ pkgmgr.docuGenerated=Dokumentation wird erzeugt... Fertig.
 pkgmgr.docuAborted=Dokumentation wird erzeugt... Abgebrochen.
 pkgmgr.webBrowserMsg=Web-Browser wurde gestartet.
 pkgmgr.webBrowserError=Web-Browser konnte nicht gestartet werden.
-pkgmgr.usesArrowMsg="Verwendet"-Abh\u00e4ngigkeit deklariert, aber nie benutzt: 
+pkgmgr.usesArrowMsg="Verwendet"-Abh\u00e4ngigkeit deklariert, aber nie benutzt:
 pkgmgr.breakpointMsg=Klasse muss \u00fcbersetzt werden, um Haltepunkte zu setzen.
 pkgmgr.appletInViewer=Applet wird im Applet-Viewer ausgef\u00fchrt
 pkgmgr.appletInBrowser=Applet wird im Web-Browser ausgef\u00fchrt
@@ -787,7 +787,7 @@ graph.tooltip.classBroken=Diese Klasse kann momentan nicht analysiert werden
 # Copyright
 
 menu.help.copyright.title=BlueJ-Copyright, Lizensierung und Weiterverbreitung
-menu.help.copyright.line1=BlueJ ist unter der "GNU General Public License version 2 
+menu.help.copyright.line1=BlueJ ist unter der "GNU General Public License version 2
 menu.help.copyright.line2=mit Classpath exception" verf\u00fcgbar.
 menu.help.copyright.line3=F\u00fcr mehr Informationen, siehe Dateien "LICENSE.txt"
 menu.help.copyright.line4=und "THIRDPARTYLICENSE.txt".
@@ -829,3 +829,12 @@ about.theTeam=Das $APPNAME-Team:
 
 # Work Indicator
 workIndicator.resetMachine=Java Virtuelle Maschine zur\u00fccksetzen@^R
+
+# Java editor tabs and documentation
+editor.tab.close=Schlie\u00dfen
+editor.tab.move=Tab verschieben...
+editor.tab.move.new=In neues Fenster
+editor.tab.move.existing=Fenster
+editor.tab.compile=Kompilieren
+editor.documentation.title=Dokumentation
+editor.documentation.open.external=Im Web-Browser \u00dfffnen...

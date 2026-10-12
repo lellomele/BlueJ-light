@@ -29,10 +29,7 @@ import bluej.compiler.Diagnostic;
 import bluej.debugger.DebuggerThread;
 import bluej.editor.fixes.EditorFixesManager;
 import bluej.prefmgr.PrefMgr.PrintSize;
-import bluej.editor.stride.FrameEditor;
 import bluej.parser.symtab.ClassInfo;
-import bluej.stride.framedjava.elements.CallElement;
-import bluej.stride.framedjava.elements.NormalMethodElement;
 import bluej.utility.javafx.FXPlatformConsumer;
 import bluej.utility.javafx.FXRunnable;
 import javafx.geometry.Rectangle2D;
@@ -153,7 +150,7 @@ public interface Editor
      * 
      * @param title        new window title
      * @param filename     new file name
-     * @param javaFilename If Java source, same as filename.  If Stride source, target Java file.
+     * @param javaFilename Same Java source path as filename.
      * @param docFileName  new documentation file name
      */
     void changeName(String title, String filename, String javaFilename, String docFileName);
@@ -279,28 +276,6 @@ public interface Editor
      */
     TextEditor assumeText();
     
-    /**
-     * Obtain the FrameEditor implementation of this editor, if it has one. May return null if no
-     * FrameEditor implementation is available.
-     */
-    FrameEditor assumeFrame();
-    
-    /**
-     * Create a new method, or appending the contents if the method already exists
-     *
-     * @param method element
-     * @param after will be passed true if the method did not exist already and was inserted, false otherwise (will always be run)
-     */
-    void insertAppendMethod(NormalMethodElement method, FXPlatformConsumer<Boolean> after);
-
-    /**
-     * Insert a method call in constructor, if it does not already exists
-     * 
-     * @param methodCall element 
-     * @param after will be passed true if the call did not exist already and was inserted
-     */
-    void insertMethodCallInConstructor(String className, CallElement methodCall, FXPlatformConsumer<Boolean> after);
-
     /**
      * Focuses the method of the given name in the editor.  If the paramTypes are non-null
      * then it uses them to distinguish between overloaded methods.  If paramTypes is null,

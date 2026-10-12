@@ -68,7 +68,6 @@ import bluej.parser.symtab.ClassInfo;
 import bluej.pkgmgr.target.*;
 import bluej.prefmgr.PrefMgr;
 import bluej.utility.*;
-import bluej.utility.filefilter.FrameSourceFilter;
 import bluej.utility.filefilter.JavaClassFilter;
 import bluej.utility.filefilter.JavaSourceFilter;
 import bluej.utility.filefilter.SubPackageFilter;
@@ -646,7 +645,6 @@ public final class Package
     private Set<String> findTargets(File path)
     {
         File javaSrcFiles[] = path.listFiles(new JavaSourceFilter());
-        File frameSrcFiles[] = path.listFiles(new FrameSourceFilter());
         File classFiles[] = path.listFiles(new JavaClassFilter());
 
         Set<String> interestingSet = new HashSet<String>();
@@ -669,17 +667,6 @@ public final class Package
             if (javaFileName.indexOf('$') == -1)
                 interestingSet.add(javaFileName);
         }
-
-        for (int i = 0; i < frameSrcFiles.length; i++) {
-            String frameFileName = JavaNames.stripSuffix(frameSrcFiles[i].getName(), "." + SourceType.Stride.toString().toLowerCase());
-
-            // check if the name would be a valid java name
-            if (!JavaNames.isIdentifier(frameFileName))
-                continue;
-
-            interestingSet.add(frameFileName);
-        }
-
 
         // process all *.class files
         for (int i = 0; i < classFiles.length; i++) {
@@ -1026,8 +1013,7 @@ public final class Package
                     else {
                         ct.analyseSource();
                         try {
-                            if ( !ct.getSourceType().equals(SourceType.Stride))
-                                ct.enforcePackage(getQualifiedName());
+                            ct.enforcePackage(getQualifiedName());
                         }
                         catch (IOException ioe) {
                             Debug.message("Error enforcing class package: " + ioe.getLocalizedMessage());
@@ -1269,14 +1255,14 @@ public final class Package
      * file.
      */
     @OnThread(Tag.FXPlatform)
-    public synchronized void save(Properties frameProperties)
+    public synchronized boolean save(Properties frameProperties)
     {
         /* create the directory if it doesn't exist */
         File dir = getPath();
         if (!dir.exists()) {
             if (!dir.mkdir()) {
                 Debug.reportError("Error creating directory " + dir);
-                return;
+                return false;
             }
         }
 
@@ -1316,9 +1302,10 @@ public final class Package
         }
         catch (IOException e) {
             Debug.reportError("Exception when saving package file : " + e);
-            return;
+            return false;
         }
         lastSavedProps = props;
+        return true;
     }
 
     /**
@@ -1338,8 +1325,6 @@ public final class Package
         String className;
         if (fileName.endsWith("." + SourceType.Java.getExtension())) // it's a Java source file
             className = fileName.substring(0, fileName.length() - SourceType.Java.getExtension().length() - 1);
-        else if (fileName.endsWith("." + SourceType.Stride.getExtension())) // it's a Stride source file
-            className = fileName.substring(0, fileName.length() - SourceType.Stride.getExtension().length() - 1);
         else
             return ILLEGAL_FORMAT;
 
@@ -1706,18 +1691,22 @@ public final class Package
         // Because we call editor.save() on targets, which can result in
         // a renamed class target, we need to iterate through a copy of
         // the collection - hence the new ArrayList call here:
-        List<ClassTarget> classTargets;
+        List<EditableTarget> editableTargets;
         synchronized (this)
         {
-            classTargets = new ArrayList<>(getClassTargets());
+            editableTargets = new ArrayList<>();
+            for (Target target : targets)
+                if (target instanceof EditableTarget editable) editableTargets.add(editable);
         }
-        for (ClassTarget ct : classTargets) {
-            Editor ed = ct.getEditor();
-            // Editor can be null eg. class file and no src file
-            if(ed != null) {
-                ed.save();
+        IOException failure = null;
+        for (EditableTarget target : editableTargets) {
+            try { target.ensureSaved(); }
+            catch (IOException ex) {
+                if (failure == null) failure = ex;
+                else failure.addSuppressed(ex);
             }
         }
+        if (failure != null) throw failure;
     }
 
     /**
@@ -3151,8 +3140,10 @@ public final class Package
      * closeAllEditors - closes all currently open editors within package Should
      * be run whenever a package is removed from PkgFrame.
      */
-    public void closeAllEditors()
+    public boolean closeAllEditors()
     {
+        try { saveFilesInEditors(); }
+        catch (IOException ex) { Debug.reportError("Cannot close unsaved editors", ex); return false; }
         // We take a copy here to avoid
         // ConcurrentModificationException which happened on closing
         // BlueJ main frame after renaming a class without compile.
@@ -3167,10 +3158,13 @@ public final class Package
             if (target instanceof EditableTarget) {
                 EditableTarget et = (EditableTarget) target;
                 if (et.editorOpen()) {
-                    et.getEditor().close();
+                    Editor openEditor = et.getEditor();
+                    openEditor.close();
+                    if (openEditor.isOpen() || openEditor.isModified()) return false;
                 }
             }
         }
+        return true;
     }
 
     /**
@@ -3193,12 +3187,7 @@ public final class Package
 
     public SourceType getDefaultSourceType()
     {
-        // Our heuristic is: if the package contains any Stride files, the default is Stride,
-        // otherwise it's Java
-        if (getClassTargets().stream().anyMatch(c -> c.getSourceType() == SourceType.Stride))
-            return SourceType.Stride;
-        else
-            return SourceType.Java;
+        return SourceType.Java;
     }
 
 

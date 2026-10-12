@@ -25,7 +25,6 @@ package bluej.pkgmgr.target;
 
 import bluej.Config;
 import bluej.collect.DiagnosticWithShown;
-import bluej.collect.StrideEditReason;
 import bluej.compiler.CompileInputFile;
 import bluej.compiler.CompileReason;
 import bluej.compiler.CompileType;
@@ -36,8 +35,6 @@ import bluej.debugmgr.objectbench.InvokeListener;
 import bluej.editor.Editor;
 import bluej.editor.TextEditor;
 import bluej.editor.flow.FlowEditor;
-import bluej.editor.stride.FrameCatalogue;
-import bluej.editor.stride.FrameEditor;
 import bluej.extensions2.*;
 import bluej.extensions2.event.ClassEvent;
 import bluej.extmgr.ExtensionMenu;
@@ -67,13 +64,6 @@ import bluej.pkgmgr.target.role.StdClassRole;
 import bluej.pkgmgr.target.role.UnitTestClassRole;
 import bluej.pkgmgr.target.role.UnitTestClassRole.UnitTestFramework;
 import bluej.prefmgr.PrefMgr;
-import bluej.stride.framedjava.ast.Loader;
-import bluej.stride.framedjava.ast.Parser;
-import bluej.stride.framedjava.convert.ConversionWarning;
-import bluej.stride.framedjava.convert.ConvertResultDialog;
-import bluej.stride.framedjava.elements.CodeElement;
-import bluej.stride.framedjava.elements.TopLevelCodeElement;
-import bluej.stride.generic.Frame;
 import bluej.utility.*;
 import bluej.utility.javafx.*;
 import bluej.views.ConstructorView;
@@ -128,8 +118,6 @@ public class ClassTarget extends DependentTarget
     final static int MIN_HEIGHT = 30;
     public final static String compileStr = Config.getString("pkgmgr.classmenu.compile");
     public final static String inspectStr = Config.getString("pkgmgr.classmenu.inspect");
-    public final static String convertToJavaStr = Config.getString("pkgmgr.classmenu.convertToJava");
-    public final static String convertToStrideStr = Config.getString("pkgmgr.classmenu.convertToStride");
     public final static String duplicateClassStr = Config.getString("pkgmgr.classmenu.duplicate");
     public final static String createTestStr = Config.getString("pkgmgr.classmenu.createTest");
     private final static String launchFXStr = Config.getString("pkgmgr.classmenu.launchFX");
@@ -310,12 +298,7 @@ public class ClassTarget extends DependentTarget
      */
     private void calcSourceAvailable()
     {
-        if (getFrameSourceFile().canRead())
-        {
-            sourceAvailable = SourceType.Stride;
-            noSourceLabel.setText("");
-        }
-        else if (getJavaSourceFile().canRead())
+        if (getJavaSourceFile().canRead())
         {
             sourceAvailable = SourceType.Java;
             noSourceLabel.setText("");
@@ -500,10 +483,6 @@ public class ClassTarget extends DependentTarget
             setState(State.NEEDS_COMPILE);
         }
 
-        if (getSourceType() == SourceType.Stride)
-        {
-            getEditor(); // Create editor if necessary
-        }
         if (editor != null)
         {
             if (editor.compileStarted(compilationSequence))
@@ -882,15 +861,7 @@ public class ClassTarget extends DependentTarget
         
         props.put(prefix + ".showInterface", Boolean.valueOf(intf).toString());
 
-        List<Integer> breakpoints;
-        if (editor != null && editor instanceof FrameEditor)
-        {
-            breakpoints = ((FrameEditor)editor).getBreakpoints();
-        }
-        else
-        {
-            breakpoints = cachedBreakpoints;
-        }
+        List<Integer> breakpoints = cachedBreakpoints;
         for (int i = 0; i < breakpoints.size(); i++)
         {
             props.put(prefix + ".breakpoint." + i, breakpoints.get(i).toString());
@@ -1075,8 +1046,7 @@ public class ClassTarget extends DependentTarget
     }
 
     /**
-     * @return the name of the Java file this target corresponds to. In the case of a Stride target this is
-     *          the file generated during compilation.
+     * @return the Java source file for this class.
      */
     public File getJavaSourceFile() {
         if (null == getPackage())
@@ -1089,20 +1059,6 @@ public class ClassTarget extends DependentTarget
         }
     }
     
-    /**
-     * @return the name of the Stride file this target corresponds to. This is only valid for Stride targets.
-     */
-    public File getFrameSourceFile()
-    {
-        if (null == getPackage())
-        {
-            return null;
-        }
-        else
-        {
-            return new File(getPackage().getPath(), getBaseName() + "." + SourceType.Stride.toString().toLowerCase());
-        }
-    }
     
     @SuppressWarnings("incomplete-switch")
     @Override
@@ -1111,7 +1067,6 @@ public class ClassTarget extends DependentTarget
         switch (sourceAvailable)
         {
             case Java: return getJavaSourceFile();
-            case Stride: return getFrameSourceFile();
         }
         return null;
     }
@@ -1177,14 +1132,10 @@ public class ClassTarget extends DependentTarget
 
     /**
      * If this is a Java class, returns the .java source file only.
-     * If this is a Stride class, returns the .stride and .java source files, *in that order*.
      */
     public Collection<SourceFileInfo> getAllSourceFilesJavaLast()
     {
         List<SourceFileInfo> list = new ArrayList<>();
-        if (sourceAvailable.equals(SourceType.Stride)) {
-            list.add(new SourceFileInfo(getFrameSourceFile(), SourceType.Stride));
-        }
         list.add(new SourceFileInfo(getJavaSourceFile(), SourceType.Java));
         return list;
     }
@@ -1324,13 +1275,6 @@ public class ClassTarget extends DependentTarget
                 }, getBaseName(), this, resolver, project.getJavadocResolver(), openCallback, PrefMgr.flagProperty(PrefMgr.HIGHLIGHTING), true);
                 ((TextEditor)editor).showFile(filename, project.getProjectCharset(), isCompiled(), docFilename);
             }
-            else if (sourceAvailable == SourceType.Stride) {
-                File frameSourceFile = getFrameSourceFile();
-                File javaSourceFile = getJavaSourceFile();
-                JavadocResolver javadocResolver = project.getJavadocResolver();
-                Package pkg = getPackage();
-                editor = new FrameEditor(frameSourceFile, javaSourceFile, this, resolver, javadocResolver, pkg, openCallback);
-            }
             
             // editor may be null if source has been deleted
             // for example.
@@ -1339,26 +1283,6 @@ public class ClassTarget extends DependentTarget
             }
         }
         return editor;
-    }
-
-    /**
-     * Ensure that the source file of this class is up-to-date (i.e.
-     * that any possible unsaved changes in an open editor window are
-     * saved).
-     *
-     * <p>This can cause saveEvent() to be generated, which might move
-     * the class to a new package (if the package line has been changed).
-     */
-    @Override
-    public void ensureSaved() throws IOException
-    {
-        // When creating a Stride class, we need to load the editor
-        // in order to save and generate the Java code (or at least,
-        // that's an easy way to do it).  Not necessary for Java classes:
-        if(editor == null && sourceAvailable == SourceType.Stride) {
-            getEditor();
-        }
-        super.ensureSaved();
     }
 
     // --- end of EditableTarget interface ---
@@ -1464,19 +1388,6 @@ public class ClassTarget extends DependentTarget
         if (editor != null && isCompiled()) {
             editor.reInitBreakpoints();
         }
-        else if (isCompiled() && sourceAvailable == SourceType.Stride)
-        {
-            // In Stride, breakpoints persist with the saved source,
-            // and we should set them even if the editor is not open.
-            // So we cache them as properties and use that here if
-            // the editor has not been opened yet:
-            List<Integer> breakpoints;
-            breakpoints = new ArrayList<>(this.cachedBreakpoints);
-            for (Integer line : breakpoints)
-            {
-                breakpointToggleEvent(line, true);
-            }
-        }
     }
     
     /**
@@ -1549,11 +1460,6 @@ public class ClassTarget extends DependentTarget
             switch (sourceType) {
                 case Java:
                     success = role.generateSkeleton(template, getPackage(), getBaseName(), getJavaSourceFile().getPath(), includeFullContent);
-                    break;
-                case Stride:
-                    addStride(Loader.buildTopLevelElement(template, getPackage().getProject().getEntityResolver(),
-                            getBaseName(), getPackage().getBaseName(), includeFullContent));
-                    success = true;
                     break;
                 default:
                     success = false;
@@ -1948,20 +1854,8 @@ public class ClassTarget extends DependentTarget
         File newJavaSourceFile = new File(getPackage().getPath(), newName + "." + SourceType.Java.toString().toLowerCase());
 
         try {
-            String filename;
-            File oldFrameSourceFile = null;
-            File newFrameSourceFile = null;
+            String filename = newJavaSourceFile.getAbsolutePath();
             getPackage().updateTargetIdentifier(this, getIdentifierName(), newName);
-
-            if (getSourceType().equals(SourceType.Stride)) {
-                newFrameSourceFile = new File(getPackage().getPath(), newName + "." + SourceType.Stride.toString().toLowerCase());
-                oldFrameSourceFile = getFrameSourceFile();
-                FileUtility.copyFile(oldFrameSourceFile, newFrameSourceFile);
-                filename = newFrameSourceFile.getAbsolutePath();
-            }
-            else {
-                filename = newJavaSourceFile.getAbsolutePath();
-            }
 
             // Also copy the Java file across, in all cases:
             FileUtility.copyFile(oldJavaSourceFile, newJavaSourceFile);
@@ -2026,9 +1920,6 @@ public class ClassTarget extends DependentTarget
      */
     private void deleteSourceFiles()
     {
-        if (getSourceType().equals(SourceType.Stride)) {
-            getJavaSourceFile().delete();
-        }
         getSourceFile().delete();
     }
 
@@ -2164,11 +2055,6 @@ public class ClassTarget extends DependentTarget
         ops.add(new RemoveClassAction());
         if (sourceAvailable != SourceType.NONE)
             ops.add(new DuplicateClassAction());
-        Window parentWindow = pane.getScene().getWindow();
-        if (sourceAvailable == SourceType.Stride)
-            ops.add(new ConvertToJavaAction(parentWindow));
-        else if (sourceAvailable == SourceType.Java && role.canConvertToStride())
-            ops.add(new ConvertToStrideAction(parentWindow));
 
         return ops;
     }
@@ -2193,47 +2079,6 @@ public class ClassTarget extends DependentTarget
                 });
             }
         });
-    }
-
-    /**
-     * Converts this Java ClassTarget to Stride, as long as the user
-     * says yes to the dialog that this method shows.
-     *
-     * If warnings (e.g. package-private access converted to protected)
-     * are encountered during the conversion, a dialog is shown to the user
-     * explaining them.  Most conversion issues (e.g. unconvertable items)
-     * are warnings not errors.  Errors, which stop the process, mainly arise
-     * from unparseable Java source code.
-     */
-    public void promptAndConvertJavaToStride(Window window)
-    {
-        File javaSourceFile = getJavaSourceFile();
-        Charset projectCharset = getPackage().getProject().getProjectCharset();
-        if (JavaFXUtil.confirmDialog("convert.to.stride.title", "convert.to.stride.message", window, true))
-        {
-            try
-            {
-                Parser.ConversionResult javaConvertResult = Parser.javaToStride(Files.readAllLines(javaSourceFile.toPath(), projectCharset).stream().collect(Collectors.joining("\n")), Parser.JavaContext.TOP_LEVEL, false);
-                if (!javaConvertResult.getWarnings().isEmpty())
-                {
-                    new ConvertResultDialog(javaConvertResult.getWarnings().stream().map(ConversionWarning::getMessage).collect(Collectors.toList())).showAndWait();
-                }
-                List<CodeElement> elements = javaConvertResult.getElements();
-
-                if (elements.size() != 1 || !(elements.get(0) instanceof TopLevelCodeElement))
-                {
-                    JavaFXUtil.errorDialog("convert.to.stride.error.title", "convert.to.stride.error.message");
-                    return; // Abort
-                }
-                addStride((TopLevelCodeElement)elements.get(0));
-            }
-            catch (IOException | ParseFailure pf)
-            {
-                Debug.reportError(pf);
-                new ConvertResultDialog(pf.getMessage()).showAndWait();
-                // Abort the conversion
-            }
-        }
     }
 
     /**
@@ -2390,7 +2235,6 @@ public class ClassTarget extends DependentTarget
     @Override
     public void remove()
     {
-        File frameSourceFile = getSourceType().equals(SourceType.Stride) ? getFrameSourceFile() : null;
         File javaSourceFile = getJavaSourceFile();
         prepareForRemoval();
         Package pkg = getPackage();
@@ -2411,40 +2255,6 @@ public class ClassTarget extends DependentTarget
     }
 
     /**
-     * Converts this ClassTarget from Stride to Java, by simply
-     * deleting the Stride file and keeping the Java file which we've
-     * always been generating from Stride for compilation purposes.
-     *
-     * This method shows no confirmation dialog/prompt; the caller is expected
-     * to have taken care of that.
-     *
-     * Throws an exception if this is not a Stride ClassTarget.
-     */
-    public void convertStrideToJava()
-    {
-        if (sourceAvailable != SourceType.Stride)
-            throw new IllegalStateException("Cannot convert non-Stride from Stride to Java");
-
-        if(editor != null) {
-            editor.close();
-            try {
-                editor.saveJavaWithoutWarning();
-            } catch (IOException e) {
-                Debug.reportError(e);
-            }
-            editor = null;
-        }
-
-        File srcFile = getSourceFile();
-        if (srcFile.exists()) {
-            srcFile.delete();
-        }
-        sourceAvailable = SourceType.Java;
-
-        // getSourceFile() will now return the Java file:
-    }
-
-    /**
      * Duplicates the class which is represented by this class target
      */
     public void duplicate()
@@ -2456,34 +2266,6 @@ public class ClassTarget extends DependentTarget
         DuplicateClassDialog dialog = new DuplicateClassDialog(pmf.getWindow(), "CopyOf" + originalClassName, sourceType);
         Optional<String> duplicateClassName = dialog.showAndWait();
         duplicateClassName.ifPresent(name -> pmf.duplicateClass(originalClassName, name, getSourceFile(), sourceType));
-    }
-
-    /**
-     * Adds the given stride code element as a Stride file for this
-     * class target, as part of a conversion from Java into Stride, or part
-     * of generating a new class from a template.
-     *
-     * @param element The source code content to put in the new .stride file.
-     */
-    private void addStride(TopLevelCodeElement element)
-    {
-        if (editor != null)
-        {
-            editor.close();
-            editor = null;
-        }
-        File strideFile = getFrameSourceFile();
-        try
-        {
-            Files.write(strideFile.toPath(), Arrays.asList(Utility.splitLines(Utility.serialiseCodeToString(element.toXML()))), Charset.forName("UTF-8"));
-        }
-        catch (IOException e)
-        {
-            Debug.reportError(e);
-            JavaFXUtil.errorDialog(Config.getString("convert.to.stride.title"), e.getMessage());
-            return;
-        }
-        sourceAvailable = SourceType.Stride;
     }
 
     /**
@@ -2554,11 +2336,6 @@ public class ClassTarget extends DependentTarget
     
     @Override
     public void recordJavaEdit(String latest, boolean includeOneLineEdits)
-    {
-    }
-
-    @Override
-    public void recordStrideEdit(String latestJava, String latestStride, StrideEditReason reason)
     {
     }
 
@@ -2660,21 +2437,6 @@ public class ClassTarget extends DependentTarget
 
     @Override
     public void recordCodeCompletionEnded(Integer lineNumber, Integer columnNumber, String xpath, Integer elementOffset, String stem, String replacement, int codeCompletionId)
-    {
-    }
-
-    @Override
-    public void recordUnknownCommandKey(String enclosingFrameXpath, int cursorIndex, char key)
-    {
-    }
-
-    @Override
-    public void recordShowHideFrameCatalogue(String enclosingFrameXpath, int cursorIndex, boolean show, FrameCatalogue.ShowReason reason)
-    {
-    }
-
-    @Override
-    public void recordViewModeChange(String enclosingFrameXpath, int cursorIndex, Frame.View oldView, Frame.View newView, Frame.ViewChangeReason reason)
     {
     }
 

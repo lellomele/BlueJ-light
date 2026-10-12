@@ -52,10 +52,4 @@ public class InterfaceClassRole extends ClassRole
         return "interface";
     }
 
-    @Override
-    @OnThread(Tag.Any)
-    public boolean canConvertToStride()
-    {
-        return true; // interfaces are supported
-    }
 }

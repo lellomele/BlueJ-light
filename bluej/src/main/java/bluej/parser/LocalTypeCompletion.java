@@ -26,7 +26,7 @@ import java.util.List;
 import threadchecker.OnThread;
 import threadchecker.Tag;
 import bluej.pkgmgr.target.ClassTarget;
-import bluej.stride.framedjava.ast.Parser;
+import javax.lang.model.SourceVersion;
 
 @OnThread(Tag.FXPlatform)
 public class LocalTypeCompletion extends AssistContent
@@ -41,7 +41,8 @@ public class LocalTypeCompletion extends AssistContent
     // If it's an invalid name, null is returned
     public static AssistContent getCompletion(ClassTarget ct)
     {
-        if (Parser.parseableAsNameDef(ct.getIdentifierName()))  {
+        String name = ct.getIdentifierName();
+        if (name != null && SourceVersion.isIdentifier(name) && !SourceVersion.isKeyword(name))  {
             // Valid type name, fine to complete:
             return new LocalTypeCompletion(ct);
         }
