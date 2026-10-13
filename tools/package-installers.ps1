@@ -37,5 +37,5 @@ foreach($variant in @('with-jdk','without-jdk')) {
     & $compiler '/Q' "/DImagePath=$image" "/DOutputPath=$output" "/DVariant=$variant" (Join-Path $PSScriptRoot 'windows/setup.iss')
     if($LASTEXITCODE -ne 0){throw "Cannot compile $variant installer."}
 }
-Get-ChildItem -LiteralPath $output -Filter 'BlueJ-light-5.7.1-win64-*.exe' | Select-Object Name,Length
+Get-ChildItem -LiteralPath $output -Filter 'BlueJ-light-5.7.2-win64-*.exe' | Select-Object Name,Length
 Write-Output "WITHOUT_JDK_IMAGE $external"

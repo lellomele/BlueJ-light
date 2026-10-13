@@ -4,7 +4,7 @@
 
 Ambiente Java indipendente basato su BlueJ 5.5.0, con editor ottimizzato,
 completamento automatico, snippet ricercabili, riordino del diagramma delle
-classi, selettore JDK integrato e strumenti didattici. Versione attuale: **5.7.1-light**.
+classi, selettore JDK integrato e strumenti didattici. Versione attuale: **5.7.2-light**.
 Non è una release ufficiale di BlueJ.
 
 ## Cosa Cambia In Light
@@ -108,7 +108,9 @@ della compilazione. I buffer aperti prevalgono sui vecchi file class; con codice
 incompleto possono essere disponibili solo le dichiarazioni già riconosciute.
 I tipi di altri package mostrano il package e, quando necessario, sono inseriti
 con il nome qualificato, senza aggiungere import. L'indice leggero legge le intestazioni
-in background e riusa i dati dei file invariati. Sono mostrati al massimo 256 tipi per
+in background e riusa i dati dei file invariati. Un indice disponibile viene usato
+subito durante il refresh; le dichiarazioni aperte e non salvate mantengono la precedenza.
+I nuovi file scoperti su disco compaiono al termine del refresh. Sono mostrati al massimo 256 tipi per
 richiesta; un prefisso restringe l'elenco nei progetti grandi. Il completamento non
 forza salvataggi o compilazioni; restano attivi i normali controlli automatici.
 Le modifiche manuali invalidano i percorsi automatici e l'annullamento del riordino.

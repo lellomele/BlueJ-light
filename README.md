@@ -4,7 +4,7 @@ English | [Italiano](README.it.md)
 
 An independent Java IDE based on BlueJ 5.5.0, with an optimized editor,
 code completion, searchable snippets, automatic class-diagram layout and
-an integrated JDK selector and teaching tools. Current version: **5.7.1-light**.
+an integrated JDK selector and teaching tools. Current version: **5.7.2-light**.
 This is not an official BlueJ release.
 
 ## What Changes In Light
@@ -106,6 +106,8 @@ Open buffers take precedence over older class files; incomplete code may yield o
 the declarations already recognised. Types from other packages show their package
 and are inserted with a qualified name when needed, without adding imports.
 The lightweight name index reads headers in the background and caches unchanged files.
+An available index is used immediately during refresh; open, unsaved declarations
+still take precedence. Newly discovered disk files appear after the refresh completes.
 At most 256 type suggestions are shown per request; type a prefix to narrow large projects.
 Completion itself does not force a save or compilation; normal automatic checks remain active.
 Manual diagram changes invalidate automatic routes and layout undo.
