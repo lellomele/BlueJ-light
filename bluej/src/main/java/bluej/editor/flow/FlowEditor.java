@@ -58,6 +58,7 @@ import bluej.editor.tabbed.FlowFXTab;
 import bluej.extensions2.editor.DocumentListener;
 import bluej.parser.*;
 import bluej.parser.AssistContent.ParamInfo;
+import bluej.debugger.gentype.GenTypeClass;
 import bluej.parser.ImportsCollection.LocatableImport;
 import bluej.parser.entity.EntityResolver;
 import bluej.parser.entity.JavaEntity;
@@ -216,7 +217,17 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public javafx.collections.ObservableList<Diagnostic> getLightDiagnosticsObservable()
     { return FXCollections.unmodifiableObservableList(lightDiagnostics); }
     public long getContentRevision() { return contentRevision; }
+    SourceTypeCompletion.Cached completionTypeSnapshot;
+    private long completionSourceRevision = -1;
+    private ClassLoader completionSourceLoader;
     public void whenParsed(FXPlatformRunnable callback) { javaSyntaxView.whenParsed(callback); }
+    public ParsedCUNode peekCompletionParser() { return javaSyntaxView.isParsedForCompletion() ? javaSyntaxView.getParser() : null; }
+    String completionPackageName() { return watcher != null && watcher.getPackage() != null ? watcher.getPackage().getQualifiedName() : ""; }
+    String completionFileBaseName() {
+        if (filename == null || !filename.endsWith(".java")) return "";
+        String base = java.nio.file.Path.of(filename).getFileName().toString();
+        return base.substring(0, base.length()-5);
+    }
     private long diagnosticsRevision = -1;
 
     public void navigateToOffset(int offset)
@@ -3598,7 +3609,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         long request = ++completionRequest;
         long revision = contentRevision;
         int position = flowEditorPane.getCaretPosition();
-        javaSyntaxView.whenParsed(() -> {
+        whenCompletionSourcesReady(() -> javaSyntaxView.whenParsed(() -> {
             Scene completionScene = flowEditorPane.getScene();
             if (completionScene == null) return;
             flowEditorPane.requestLayout();
@@ -3611,19 +3622,60 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 && (activeCompletion == null || !activeCompletion.isShowing()))
                 showContentAssist(automatic);
             });
-        });
+        }));
+    }
+
+    private void whenCompletionSourcesReady(FXPlatformRunnable callback)
+    {
+        Project project = getProject();
+        if (project == null) { callback.run(); return; }
+        FXPlatformRunnable prepareEditors = () -> {
+            List<FlowEditor> others = new ArrayList<>();
+            for (var pkg : List.copyOf(project.getProjectPackages()))
+                for (var target : pkg.getClassTargets())
+                    if (target.getEditorIfOpen() instanceof FlowEditor editor && editor != this && editor.isModified()
+                        && editor.peekCompletionParser() == null) others.add(editor);
+            boolean[] delivered = {false};
+            FXPlatformRunnable once = () -> { if (!delivered[0]) { delivered[0] = true; callback.run(); } };
+            FXPlatformRunnable cancel = JavaFXUtil.runAfter(javafx.util.Duration.millis(150), once);
+            waitForCompletionEditors(others, 0, () -> { cancel.run(); once.run(); });
+        };
+        if (isPlainCompletionPosition()) project.getCompletionTypeIndex().whenReady(prepareEditors);
+        else prepareEditors.run();
+    }
+
+    private boolean isPlainCompletionPosition()
+    {
+        int start = flowEditorPane.getCaretPosition();
+        while (start > 0 && Character.isJavaIdentifierPart(document.getContent(start-1,start).charAt(0))) start--;
+        while (start > 0 && Character.isWhitespace(document.getContent(start-1,start).charAt(0))) start--;
+        return start == 0 || (document.getContent(start-1,start).charAt(0) != '.'
+            && !(start >= 2 && document.getContent(start-2,start).toString().equals("::")));
+    }
+
+    private static void waitForCompletionEditors(List<FlowEditor> editors, int index, FXPlatformRunnable callback)
+    {
+        if (index == editors.size()) { callback.run(); return; }
+        editors.get(index).whenParsed(() -> waitForCompletionEditors(editors, index+1, callback));
     }
 
     private void showContentAssist(boolean automatic)
     {
         ParsedCUNode parser = javaSyntaxView.getParser();
-        if (parser == null || !javaSyntaxView.isCodePosition(flowEditorPane.getCaretPosition())) return;
+        if (!javaSyntaxView.isCodePosition(flowEditorPane.getCaretPosition())) return;
+        Project project = getProject();
+        if (parser != null && project != null
+            && (completionSourceRevision != project.getCompletionSourceRevision() || completionSourceLoader != project.getClassLoader())) {
+            parser.clearCompletionEntityCaches();
+            completionSourceRevision = project.getCompletionSourceRevision();
+            completionSourceLoader = project.getClassLoader();
+        }
         int identifierStart = flowEditorPane.getCaretPosition();
         while (identifierStart > 0 && Character.isJavaIdentifierPart(document.getContent(identifierStart - 1, identifierStart).charAt(0)))
             identifierStart--;
         int preceding = identifierStart;
         while (preceding > 0 && Character.isWhitespace(document.getContent(preceding - 1, preceding).charAt(0))) preceding--;
-        boolean plain = preceding == 0 || document.getContent(preceding - 1, preceding).charAt(0) != '.';
+        boolean plain = isPlainCompletionPosition();
         ExpressionTypeInfo suggests = parser == null ? null : parser.getExpressionType(flowEditorPane.getCaretPosition(),
                 javaSyntaxView);
         if (suggests != null || plain)
@@ -3646,12 +3698,24 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 completionCandidates.addAll(Arrays.asList(possibleCompletions));
             }
             if (plain)
+            {
+                completionCandidates.addAll(SourceTypeCompletion.candidates(this, parser));
                 completionCandidates.addAll(snippetCatalog.completions(
-                    parser.getContainingMethodOrClassNode(flowEditorPane.getCaretPosition()) instanceof MethodNode));
+                    parser != null && parser.getContainingMethodOrClassNode(flowEditorPane.getCaretPosition()) instanceof MethodNode));
+                java.util.Set<String> primitiveNames = completionCandidates.stream()
+                    .filter(ac -> ac instanceof bluej.parser.PrimitiveTypeCompletion)
+                    .map(AssistContent::getName).collect(Collectors.toSet());
+                completionCandidates.addAll(JavaKeywordCompletion.all().stream()
+                    .filter(ac -> !primitiveNames.contains(ac.getName())).toList());
+            }
             if (completionCandidates.isEmpty()) return;
+            GenTypeClass receiver = suggests == null || suggests.getSuggestionType() == null
+                ? null : suggests.getSuggestionType().asClass();
+            String memberClass = receiver == null ? null : receiver.getReflective().getSimpleName();
             completionCandidates.sort(Comparator.comparingInt((AssistContent ac) ->
-                ac.getKind() == AssistContent.CompletionKind.LOCAL_VAR || ac.getKind() == AssistContent.CompletionKind.FORMAL_PARAM ? 0 :
-                "Object".equals(ac.getDeclaringClass()) ? 3 : 1).thenComparing(AssistContent::getName));
+                completionPriority(ac, memberClass))
+                .thenComparingInt(ac -> ac instanceof SourceTypeCompletion type ? type.locality() : 3)
+                .thenComparing(AssistContent::getName));
             
             // Create suggestions from all the candidates
             completionDisplayCache.setContext(contentRevision, getProject() == null ? null : getProject().getClassLoader());
@@ -3661,7 +3725,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                         return new SuggestionList.SuggestionDetailsWithDeferredDoc(snapshot.getName(),
                             ac instanceof SnippetCompletion snippet ? "  " + snippet.getDescription() :
                                 completionDisplayCache.parameters(snapshot),
-                            ac instanceof SnippetCompletion ? "snippet" : snapshot.getType(),
+                            ac instanceof SnippetCompletion ? "snippet" :
+                                ac instanceof JavaKeywordCompletion ? "keyword" : snapshot.getType(),
                             SuggestionShown.COMMON, () -> completionDocumentation(ac, parser));
                     })
                     .collect(Collectors.toList());
@@ -3822,9 +3887,24 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         }
     }
 
-    /**
-     * codeComplete prints the selected text in the editor
-     */
+    static int completionPriority(AssistContent candidate, String memberClass)
+    {
+        if (candidate instanceof SnippetCompletion) return 5;
+        if (candidate instanceof JavaKeywordCompletion) return 4;
+        String owner = candidate.getDeclaringClass();
+        if ((candidate.getKind() == AssistContent.CompletionKind.FIELD
+                || candidate.getKind() == AssistContent.CompletionKind.METHOD)
+            && memberClass != null && owner != null
+            && (owner.equals(memberClass) || owner.endsWith("." + memberClass))) return 0;
+        if (candidate.getKind() == AssistContent.CompletionKind.LOCAL_VAR
+            || candidate.getKind() == AssistContent.CompletionKind.FORMAL_PARAM) return 1;
+        if ("Object".equals(owner) || "java.lang.Object".equals(owner)) return 6;
+        if (candidate.getKind() == AssistContent.CompletionKind.FIELD
+            || candidate.getKind() == AssistContent.CompletionKind.METHOD) return 2;
+        return 3;
+    }
+
+    /** Insert the selected completion as one undoable operation. */
     private void codeComplete(AssistContent selected, int prefixBegin, int prefixEnd, SuggestionList suggestionList)
     {
         if (selected instanceof SnippetCompletion snippet)
@@ -3832,7 +3912,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             insertSnippet(snippet.getTemplate(), prefixBegin, prefixEnd);
             return;
         }
-        String start = selected.getName();
+        String start = selected instanceof SourceTypeCompletion type ? type.insertion() : selected.getName();
         List<ParamInfo> params = selected instanceof bluej.parser.MethodCompletion method ? method.getParams(false) : selected.getParams();
         String prefix = document.getContent(prefixBegin, prefixEnd).toString();
         String inserted;

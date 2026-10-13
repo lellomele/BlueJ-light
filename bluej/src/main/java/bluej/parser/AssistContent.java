@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Raffaele Mele. Modified 2026-10-13. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2014,2015,2017,2019,2020  Michael Kolling and John Rosenberg
@@ -51,7 +52,7 @@ public abstract class AssistContent
     @OnThread(Tag.Any)
     public static enum CompletionKind
     {
-        METHOD, CONSTRUCTOR, FIELD, LOCAL_VAR, FORMAL_PARAM, TYPE;
+        METHOD, CONSTRUCTOR, FIELD, LOCAL_VAR, FORMAL_PARAM, TYPE, KEYWORD;
         
         public static Set<CompletionKind> allMembers()
         {

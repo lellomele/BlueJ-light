@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Raffaele Mele. Modified 2026-10-13. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2010,2014  Michael Kolling and John Rosenberg 
@@ -81,8 +82,12 @@ public class ProjectEntityResolver implements EntityResolver
                 if (ref != null) {
                     return new TypeEntity(ref);
                 }
+                if (ct.getEditorIfOpen() != null && ct.getEditorIfOpen().isModified()) return null;
             }
         }
+
+        TypeEntity live = bluej.editor.flow.SourceTypeCompletion.resolveOpen(project, name);
+        if (live != null) return live;
 
         // Try as a class which might be external to the project 
         Class<?> cl = project.loadClass(name);

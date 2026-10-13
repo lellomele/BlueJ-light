@@ -371,6 +371,14 @@ public class ClassTarget extends DependentTarget
      */
     public Reflective getTypeReflective()
     {
+        // Unsaved source takes precedence over a possibly stale class file.
+        if (editor instanceof FlowEditor textEditor && editor.isModified())
+        {
+            ParsedCUNode node = textEditor.peekCompletionParser();
+            if (node != null && node.getTypeNode(getBaseName()) instanceof ParsedTypeNode type)
+                return new ParsedReflective(type);
+            return null;
+        }
         // If compiled, return a reflective based on actual reflection
         if (isCompiled())
         {
@@ -1318,6 +1326,7 @@ public class ClassTarget extends DependentTarget
     @Override
     public void modificationEvent(Editor editor)
     {
+        getPackage().getProject().completionSourcesChanged();
         invalidate();
                 
         removeBreakpoints();

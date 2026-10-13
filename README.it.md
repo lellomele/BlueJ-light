@@ -99,8 +99,18 @@ completamente priva di comunicazioni di rete.
 
 ## Limiti
 
-Il completamento non usa un language server esterno. File molto grandi possono
-richiedere tempo all'apertura; diagrammi complessi possono conservare incroci.
+Il completamento non usa un language server esterno. Le keyword Java sono disponibili
+fuori dagli accessi ai membri; i membri dichiarati nella classe precedono variabili
+locali, membri ereditati, tipi e snippet. File molto grandi possono richiedere tempo
+all'apertura; diagrammi complessi possono conservare incroci.
+Il completamento propone anche tipi del file corrente e classi del progetto prima
+della compilazione. I buffer aperti prevalgono sui vecchi file class; con codice
+incompleto possono essere disponibili solo le dichiarazioni già riconosciute.
+I tipi di altri package mostrano il package e, quando necessario, sono inseriti
+con il nome qualificato, senza aggiungere import. L'indice leggero legge le intestazioni
+in background e riusa i dati dei file invariati. Sono mostrati al massimo 256 tipi per
+richiesta; un prefisso restringe l'elenco nei progetti grandi. Il completamento non
+forza salvataggi o compilazioni; restano attivi i normali controlli automatici.
 Le modifiche manuali invalidano i percorsi automatici e l'annullamento del riordino.
 Con posizioni bloccate si evitano collisioni tra box, ma i collegamenti usano i percorsi
 standard BlueJ e possono incrociarsi. Il riordino delle classi nuove conserva quelle

@@ -2165,12 +2165,14 @@ public final class Package
             throw new IllegalArgumentException();
 
         targets.add(t.getIdentifierName(), t);
+        getProject().completionSourcesChanged();
         fireChangedEvent();
     }
 
     public synchronized void removeTarget(Target t)
     {
         targets.remove(t.getIdentifierName());
+        getProject().completionSourcesChanged();
         t.setRemoved();
         fireChangedEvent();
     }
@@ -2188,6 +2190,7 @@ public final class Package
         }
         targets.remove(oldIdentifier);
         targets.add(newIdentifier, t);
+        getProject().completionSourcesChanged();
     }
 
     /**

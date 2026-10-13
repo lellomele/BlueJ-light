@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Raffaele Mele. Modified 2026-10-13. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2011,2012,2014,2016,2017,2019,2021,2022,2023,2024  Michael Kolling and John Rosenberg
@@ -64,6 +65,21 @@ import threadchecker.Tag;
 public abstract class JavaParentNode extends ParentParsedNode
     implements EntityResolver
 {
+    /** Clear resolved entities after another source buffer changes, without reparsing text. */
+    public void clearCompletionEntityCaches()
+    {
+        java.util.ArrayDeque<ParsedNode> pending = new java.util.ArrayDeque<>();
+        pending.add(this);
+        while (!pending.isEmpty()) {
+            ParsedNode node = pending.removeLast();
+            if (node instanceof JavaParentNode parent) {
+                parent.valueEntityCache.clear();
+                parent.pocEntityCache.clear();
+            }
+            var children = node.getChildren(0);
+            while (children.hasNext()) pending.add(children.next().getNode());
+        }
+    }
     protected GeneralCache<String,JavaEntity> valueEntityCache =
         new GeneralCache<String,JavaEntity>(10);
     protected GeneralCache<String,PackageOrClass> pocEntityCache =

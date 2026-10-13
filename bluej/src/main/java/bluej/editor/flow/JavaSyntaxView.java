@@ -468,6 +468,11 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
         }
     }
 
+    public boolean isParsedForCompletion()
+    {
+        return rootNode != null && (reparseRecordTree == null || reparseRecordTree.findNodeAtOrAfter(0) == null);
+    }
+
     private void notifyParsed()
     {
         List<FXPlatformRunnable> callbacks = new ArrayList<>(parsedCallbacks);

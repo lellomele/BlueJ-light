@@ -1,0 +1,6 @@
+#BlueJ package file
+package.numTargets=2
+target1.name=b1
+target1.type=ClassTarget
+target2.name=Internal
+target2.type=ClassTarget

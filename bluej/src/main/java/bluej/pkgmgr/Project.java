@@ -118,6 +118,18 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
     // instance fields
     /** the path of the project directory. */
     private final File projectDir;
+    private bluej.editor.flow.ProjectTypeIndex completionTypeIndex;
+    private long completionSourceRevision;
+    public void completionSourcesChanged() { completionSourceRevision++; }
+    public long getCompletionSourceRevision() { return completionSourceRevision; }
+
+    @OnThread(Tag.FXPlatform)
+    public bluej.editor.flow.ProjectTypeIndex getCompletionTypeIndex()
+    {
+        if (completionTypeIndex == null)
+            completionTypeIndex = new bluej.editor.flow.ProjectTypeIndex(projectDir.toPath(), getProjectCharset());
+        return completionTypeIndex;
+    }
     /** reference to the unnamed package */
     @OnThread(Tag.Any) private final Package unnamedPackage;
     /** Resolve javadoc for this project */
@@ -559,6 +571,7 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
      */
     public static void cleanUp(Project project)
     {
+        if (project.completionTypeIndex != null) project.completionTypeIndex.close();
         project.closing = true;
         if (project.compilerTimer != null) project.compilerTimer.stop();
         project.scheduledPkgs.clear();

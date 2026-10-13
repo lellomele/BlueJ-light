@@ -97,8 +97,17 @@ Official update checks and notices also remain: light is not an entirely network
 
 ## Limits
 
-Completion does not use an external language server. Very large files
-may still take time to open; complex diagrams can retain crossing connections.
+Completion does not use an external language server. Java keywords are offered outside
+member access; declared members of the receiver class precede local variables,
+inherited members, types and templates. Very large files may still take time to open;
+complex diagrams can retain crossing connections.
+Completion also offers current-file types and project classes before compilation.
+Open buffers take precedence over older class files; incomplete code may yield only
+the declarations already recognised. Types from other packages show their package
+and are inserted with a qualified name when needed, without adding imports.
+The lightweight name index reads headers in the background and caches unchanged files.
+At most 256 type suggestions are shown per request; type a prefix to narrow large projects.
+Completion itself does not force a save or compilation; normal automatic checks remain active.
 Manual diagram changes invalidate automatic routes and layout undo.
 With locked positions, box collisions are avoided but connections use BlueJ's normal routing
 and may cross. New-only layout leaves loaded or manually positioned classes unchanged.

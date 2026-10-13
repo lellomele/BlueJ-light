@@ -1,0 +1,8 @@
+#BlueJ package file
+package.numTargets=3
+target1.name=a1
+target1.type=ClassTarget
+target2.name=b1
+target2.type=ClassTarget
+target3.name=Unused
+target3.type=ClassTarget

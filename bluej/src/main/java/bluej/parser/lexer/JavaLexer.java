@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Raffaele Mele. Modified 2026-10-13. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2009,2010,2011,2012,2014,2016,2022,2024  Michael Kolling and John Rosenberg
@@ -32,6 +33,8 @@ import java.util.stream.IntStream;
 
 import bluej.parser.EscapedUnicodeReader;
 import bluej.parser.TokenStream;
+import threadchecker.OnThread;
+import threadchecker.Tag;
 
 
 /**
@@ -39,6 +42,7 @@ import bluej.parser.TokenStream;
  * 
  * @author Marion Zalk
  */
+@OnThread(value=Tag.Any, ignoreParent=true)
 public final class JavaLexer implements TokenStream
 {
     private StringBuffer textBuffer = new StringBuffer(); // text of current token
