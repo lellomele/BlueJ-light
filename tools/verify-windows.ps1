@@ -5,7 +5,7 @@ param(
     [string]$FixturePath,
     [switch]$PortablePreferences,
     [switch]$OpenProjectFile,
-    [ValidateSet('BootSmoke','CompilationRaceSmoke','CompilationQueuePathsSmoke','RecoverySmoke','JvmRecoverySmoke','SnippetContextSmoke')][string]$HarnessClass='BootSmoke',
+    [ValidatePattern('^[A-Za-z][A-Za-z0-9]*Smoke$')][string]$HarnessClass='BootSmoke',
     [ValidateSet('all','manual','automatic')][string]$RaceMode='all',
     [ValidateSet('all','global','idle','failure','mixed')][string]$QueueMode='all',
     [string]$WorkName='windows-verification'
@@ -60,7 +60,7 @@ try {
         throw "Packaged application exited with code $($process.ExitCode). Log: $log"
     }
     $result = Get-Content -LiteralPath $log -Raw
-    $successMarker = switch ($HarnessClass) { 'CompilationRaceSmoke' { 'COMPILATION_RACE_OK' } 'CompilationQueuePathsSmoke' { 'COMPILATION_PATHS_OK' } 'RecoverySmoke' { 'RECOVERY_OK' } 'JvmRecoverySmoke' { 'JVM_RECOVERY_OK' } 'SnippetContextSmoke' { 'SNIPPET_CONTEXT_OK' } default { 'SMOKE_OK' } }
+    $successMarker = switch ($HarnessClass) { 'CompilationRaceSmoke' { 'COMPILATION_RACE_OK' } 'CompilationQueuePathsSmoke' { 'COMPILATION_PATHS_OK' } 'RecoverySmoke' { 'RECOVERY_OK' } 'JvmRecoverySmoke' { 'JVM_RECOVERY_OK' } 'SnippetContextSmoke' { 'SNIPPET_CONTEXT_OK' } 'BootSmoke' { 'SMOKE_OK' } default { ([regex]::Replace(($HarnessClass -replace 'Smoke$',''), '([a-z0-9])([A-Z])', '$1_$2')).ToUpperInvariant() + '_OK' } }
     if (!$result.Contains($successMarker) -or $result.Contains('IllegalAccessError')) {
         throw "Packaged workflow failed. Log: $log"
     }

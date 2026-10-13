@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-09. GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-13. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2010,2011,2012,2013,2014,2015,2016,2018,2025  Michael Kolling and John Rosenberg
@@ -203,10 +203,9 @@ public class CompilerAPICompiler extends Compiler
             }
         };
         
-        try
-        {  
+        try (StandardJavaFileManager sjfm = jc.getStandardFileManager(diagListener, null, fileCharset))
+        {
             //setup the filemanager
-            StandardJavaFileManager sjfm = jc.getStandardFileManager(diagListener, null, fileCharset);
             List<File> pathList = new ArrayList<File>();
             List<File> outputList = new ArrayList<File>();
             outputList.add(getDestDir());
@@ -250,7 +249,6 @@ public class CompilerAPICompiler extends Compiler
             
             //compile
             result = jc.getTask(null, sjfm, diagListener, optionsList, null, compilationUnits1).call();
-            sjfm.close();
             if (tempDir != null)
                 tempDir.delete();
         }

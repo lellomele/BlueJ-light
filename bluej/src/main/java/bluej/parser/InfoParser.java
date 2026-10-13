@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Raffaele Mele. Modified 2026-10-13. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2010,2011,2013,2014,2016,2023  Michael Kolling and John Rosenberg 
@@ -156,12 +157,10 @@ public class InfoParser extends EditorParser
     public static ClassInfo parse(File f, EntityResolver resolver) throws FileNotFoundException
     {
         FileInputStream fis = new FileInputStream(f);
-        ClassInfo info = parse(new BufferedReader(new InputStreamReader(fis)), resolver, null);
         try {
-            fis.close();
+            return parse(new BufferedReader(new InputStreamReader(fis)), resolver, null);
         }
-        catch (IOException ioe) {}
-        return info;
+        finally { try { fis.close(); } catch (IOException ioe) { } }
     }
     
     /**
@@ -172,16 +171,13 @@ public class InfoParser extends EditorParser
     public static ClassInfo parseWithPkg(File f, Package pkg) throws FileNotFoundException
     {
         FileInputStream fis = new FileInputStream(f);
-        EntityResolver resolver = new PackageResolver(pkg.getProject().getEntityResolver(),
-                pkg.getQualifiedName());
-        Reader reader = new InputStreamReader(fis, pkg.getProject().getProjectCharset());
-        reader = new BufferedReader(reader);
-        ClassInfo info = parse(reader, resolver, pkg.getQualifiedName());
         try {
-            fis.close();
+            EntityResolver resolver = new PackageResolver(pkg.getProject().getEntityResolver(),
+                pkg.getQualifiedName());
+            Reader reader = new BufferedReader(new InputStreamReader(fis, pkg.getProject().getProjectCharset()));
+            return parse(reader, resolver, pkg.getQualifiedName());
         }
-        catch (IOException ioe) {}
-        return info;
+        finally { try { fis.close(); } catch (IOException ioe) { } }
     }
 
     /**

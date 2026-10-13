@@ -56,6 +56,7 @@ Open a BlueJ project and double-click a class to edit it.
 | Method outline | Editor Tools > Methods; `Ctrl+Shift+O` |
 | Navigate back / forward | Editor Tools > Previous / Next Location; `Alt+Left` / `Alt+Right` |
 | Saved versions | Editor Tools > Local History; restore into the buffer, then save or undo |
+| Save failure while closing | Keep editing, or save a verified UTF-8 recovery copy and close; its path is displayed |
 | Explained errors | Compile, then Editor Tools > Explain Compiler Errors |
 | Diagram filters and locks | Diagram context menu: arrange new classes, lock selected positions, selected-class connections |
 | Exercises | Project Tools > Exercises: import, instructions/test feedback, create/export |
@@ -107,6 +108,9 @@ continuous input; the most recent changes may be lost if a crash occurs before t
 It is not a backup service; copied/moved files have separate histories. Preview text is limited
 to 200,000 characters; restoration uses the full text.
 History stores source text locally and never uploads it. Normal BlueJ saves/compilation still apply after restoration.
+After a failed close-time save, a verified copy can be kept in `recovered-sources`
+inside the preferences folder. This is a separate UTF-8 file, not a successful save
+of the original; compilation still requires saving the original file.
 After an abnormal exit, open projects and Java classes are reopened if automatic reopening is enabled
 in Preferences. The local session register tracks up to 200 packages and 1000 classes per package.
 Missing files are not recreated. Recovery requires writable preferences and does not resume the state

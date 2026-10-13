@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Raffaele Mele. Modified 2026-10-13. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2010,2011,2014,2015,2016,2017,2019  Michael Kolling and John Rosenberg
@@ -326,27 +327,15 @@ public class ProjectJavadocResolver implements JavadocResolver
                 }
                 
                 File srcFile = new File(base, entNameFs);
-                FileInputStream fis = null;
                 try {
                     if (srcFile.canRead()) {
-                        fis = new FileInputStream(srcFile);
-                        Reader r = new InputStreamReader(fis, project.getProjectCharset());
-                        ClassInfo info = JavadocParser.parse(r, resolver, null);
-                        r.close();
-                        if (info == null) {
-                            return null;
+                        try (Reader r = new InputStreamReader(new FileInputStream(srcFile), project.getProjectCharset())) {
+                            ClassInfo info = JavadocParser.parse(r, resolver, null);
+                            return info;
                         }
-                        return info;
                     }
                 }
-                catch (IOException ioe) {
-                    if (fis != null) {
-                        try {
-                            fis.close();
-                        }
-                        catch (IOException e) {}
-                    }
-                }
+                catch (IOException ioe) { }
             }
         }
         
@@ -355,8 +344,7 @@ public class ProjectJavadocResolver implements JavadocResolver
         String targetName = target.replace('.', '/') + "." + SourceType.Java.toString().toLowerCase();
         URL srcUrl = project.getClassLoader().findResource(targetName);
         if (srcUrl != null) {
-            try {
-                Reader r = new InputStreamReader(srcUrl.openStream(), project.getProjectCharset());
+            try (Reader r = new InputStreamReader(srcUrl.openStream(), project.getProjectCharset())) {
                 ClassInfo info = JavadocParser.parse(r, resolver, null);
                 if (info != null) {
                     return info;
@@ -459,27 +447,15 @@ public class ProjectJavadocResolver implements JavadocResolver
                 }
                 
                 File srcFile = new File(base, entNameFs);
-                FileInputStream fis = null;
                 try {
                     if (srcFile.canRead()) {
-                        fis = new FileInputStream(srcFile);
-                        Reader r = new InputStreamReader(fis, project.getProjectCharset());
-                        ClassInfo info = JavadocParser.parse(r, resolver, null);
-                        r.close();
-                        if (info == null) {
-                            return null;
+                        try (Reader r = new InputStreamReader(new FileInputStream(srcFile), project.getProjectCharset())) {
+                            ClassInfo info = JavadocParser.parse(r, resolver, null);
+                            return info == null ? null : info.getComments();
                         }
-                        return info.getComments();
                     }
                 }
-                catch (IOException ioe) {
-                    if (fis != null) {
-                        try {
-                            fis.close();
-                        }
-                        catch (IOException e) {}
-                    }
-                }
+                catch (IOException ioe) { }
             }
         }
         
@@ -488,8 +464,7 @@ public class ProjectJavadocResolver implements JavadocResolver
         String targetName = target.replace('.', '/') + ".java";
         URL srcUrl = project.getClassLoader().findResource(targetName);
         if (srcUrl != null) {
-            try {
-                Reader r = new InputStreamReader(srcUrl.openStream(), project.getProjectCharset());
+            try (Reader r = new InputStreamReader(srcUrl.openStream(), project.getProjectCharset())) {
                 ClassInfo info = JavadocParser.parse(r, resolver, null);
                 if (info != null) {
                     return info.getComments();

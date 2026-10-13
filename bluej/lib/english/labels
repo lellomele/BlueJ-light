@@ -1063,6 +1063,12 @@ jdk.restart=Changes take effect after restarting BlueJ light.
 jdk.saveError=Cannot save the JDK selection.
 
 # Java editor tabs and documentation
+light.save.copyClose=Save recovery copy and close
+light.save.keepEditing=Keep editing
+light.save.closeFailure=The original file could not be saved. It may be open in another program or access may be denied. You can keep editing, or close after saving a verified UTF-8 copy in the preferences folder. The original file will not be overwritten.
+light.save.recoveryTitle=Source recovery
+light.save.copySaved=Recovery copy saved to:
+light.save.copyFailed=The recovery copy could not be saved. The editor remains open.
 editor.tab.close=Close
 editor.tab.move=Move tab...
 editor.tab.move.new=To new window

@@ -31,6 +31,9 @@ public class TestEditorSaveRecovery extends FXTest
     private static final class FaultyEditor extends FlowEditor
     {
         boolean rejectSave = true;
+        boolean recoverForClose;
+        boolean rejectRecovery;
+        Path recoveryCopy;
         FaultyEditor(EditorWatcher watcher)
         {
             super(window -> null, "Example", watcher, null, null, null,
@@ -40,6 +43,17 @@ public class TestEditorSaveRecovery extends FXTest
         {
             if (rejectSave) throw new IOException("simulated save failure");
             super.save();
+        }
+        @Override protected boolean offerRecoveryForClose(IOException failure)
+        {
+            if (!recoverForClose) return false;
+            try { recoveryCopy = writeRecoveryCopyForClose(); return true; }
+            catch (IOException ex) { return false; }
+        }
+        @Override protected Path writeRecoveryCopyForClose() throws IOException
+        {
+            if (rejectRecovery) throw new IOException("simulated recovery failure");
+            return super.writeRecoveryCopyForClose();
         }
     }
 
@@ -79,6 +93,66 @@ public class TestEditorSaveRecovery extends FXTest
             assertEquals(1, closed.get());
         });
         assertEquals(changed, Files.readString(source));
+    }
+
+    @Test public void recoveryCopyAllowsCloseButNeverBypassesOrdinarySave() throws Exception
+    {
+        String changed = "class Example { int recovered; }\n";
+        fx_(() -> {
+            var document = editor.getSourcePane().getDocument();
+            document.replaceText(0, document.getLength(), changed);
+            editor.recoverForClose = true;
+            assertTrue(editor.saveForClose());
+            try { editor.save(); fail("Compilation must not use the stale original"); }
+            catch (IOException expected) { }
+            editor.close();
+            assertEquals(1, closed.get());
+        });
+        assertEquals(changed, Files.readString(editor.recoveryCopy));
+        assertEquals("class Example {}\n", Files.readString(source));
+        Files.delete(editor.recoveryCopy);
+    }
+
+    @Test public void unavailableRecoveryStorageDoesNotAuthorizeClose() throws Exception
+    {
+        fx_(() -> {
+            var document = editor.getSourcePane().getDocument();
+            document.replaceText(document.getLength(), document.getLength(), "// unsaved\n");
+            String changed = document.getFullContent();
+            editor.recoverForClose = true;
+            editor.rejectRecovery = true;
+            assertFalse(editor.saveForClose());
+            editor.close();
+            assertEquals(0, closed.get());
+            assertEquals(changed, document.getFullContent());
+        });
+    }
+
+    @Test public void deletedRecoveryCopyDoesNotAuthorizeClose() throws Exception
+    {
+        fx_(() -> {
+            var document = editor.getSourcePane().getDocument();
+            document.replaceText(document.getLength(), document.getLength(), "// recovered\n");
+            editor.recoverForClose = true;
+            assertTrue(editor.saveForClose());
+            editor.recoverForClose = false;
+            try { Files.delete(editor.recoveryCopy); } catch (IOException ex) { throw new AssertionError(ex); }
+            assertFalse(editor.saveForClose());
+        });
+    }
+
+    @Test public void furtherEditingInvalidatesTheCloseRecoveryCopy() throws Exception
+    {
+        fx_(() -> {
+            var document = editor.getSourcePane().getDocument();
+            document.replaceText(document.getLength(), document.getLength(), "// recovered\n");
+            editor.recoverForClose = true;
+            assertTrue(editor.saveForClose());
+            editor.recoverForClose = false;
+            document.replaceText(document.getLength(), document.getLength(), "// newer\n");
+            assertFalse(editor.saveForClose());
+        });
+        Files.delete(editor.recoveryCopy);
     }
 
     @Test public void failedSaveRetainsUndoAndRedo() throws Exception
@@ -190,7 +264,7 @@ public class TestEditorSaveRecovery extends FXTest
                 var field = FlowEditor.class.getDeclaredField("showingChangedOnDiskDialog");
                 field.setAccessible(true);
                 field.setBoolean(editor, true);
-                try { assertFalse(checkDisk(true)); }
+                try { assertFalse(checkDisk(true)); assertFalse(editor.saveForClose()); }
                 finally { field.setBoolean(editor, false); }
             }
             catch (ReflectiveOperationException ex) { throw new AssertionError(ex); }

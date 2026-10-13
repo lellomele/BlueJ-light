@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-13. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2023,2024,2025 Michael Kolling and John Rosenberg
@@ -3136,14 +3136,25 @@ public final class Package
 
     // ---- end of bluej.compiler.CompileObserver interfaces ----
 
-    /**
-     * closeAllEditors - closes all currently open editors within package Should
-     * be run whenever a package is removed from PkgFrame.
-     */
+    /** Preserve modified buffers before any editor in this package closes. */
+    public boolean prepareEditorsForClose()
+    {
+        List<EditableTarget> editors;
+        synchronized (this)
+        {
+            editors = new ArrayList<>();
+            for (Target target : targets)
+                if (target instanceof EditableTarget editable && editable.editorOpen()) editors.add(editable);
+        }
+        for (EditableTarget target : editors)
+            if (!target.getEditor().saveForClose()) return false;
+        return true;
+    }
+
+    /** Close open editors only after every buffer has a safe close decision. */
     public boolean closeAllEditors()
     {
-        try { saveFilesInEditors(); }
-        catch (IOException ex) { Debug.reportError("Cannot close unsaved editors", ex); return false; }
+        if (!prepareEditorsForClose()) return false;
         // We take a copy here to avoid
         // ConcurrentModificationException which happened on closing
         // BlueJ main frame after renaming a class without compile.
@@ -3160,7 +3171,7 @@ public final class Package
                 if (et.editorOpen()) {
                     Editor openEditor = et.getEditor();
                     openEditor.close();
-                    if (openEditor.isOpen() || openEditor.isModified()) return false;
+                    if (openEditor.isOpen()) return false;
                 }
             }
         }

@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-12. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-13. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024,2025  Michael Kolling and John Rosenberg
@@ -1104,16 +1104,7 @@ public class PkgMgrFrame
     public boolean prepareClose()
     {
         if (isEmptyFrame()) return true;
-        try
-        {
-            getProject().saveAllEditors();
-            return true;
-        }
-        catch (IOException ex)
-        {
-            setStatus(Config.getString("editor.info.errorSaving") + " - " + ex.getLocalizedMessage());
-            return false;
-        }
+        return getProject().prepareEditorsForClose();
     }
 
     /**

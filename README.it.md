@@ -112,6 +112,10 @@ Non sostituisce un backup; file copiati o spostati hanno cronologie distinte.
 Le anteprime sono limitate a 200.000 caratteri,
 ma il ripristino usa il testo completo. I sorgenti rimangono solo sul computer,
 senza invii; dopo il ripristino restano attivi i normali salvataggi BlueJ.
+Se un salvataggio fallisce durante la chiusura, puoi continuare a modificare oppure
+salvare una copia UTF-8 verificata in `recovered-sources`, nella cartella delle
+preferenze, e chiudere. Il percorso viene mostrato. La copia non sostituisce il file
+originale; per compilare occorre comunque salvare il sorgente originale.
 Dopo una chiusura anomala, progetti e classi Java aperte vengono riaperti se il relativo automatismo
 è attivo nelle Preferenze. Il registro locale conserva fino a 200 package e 1000 classi per package.
 I file mancanti non vengono ricreati. Il recupero richiede preferenze scrivibili e non riprende lo stato

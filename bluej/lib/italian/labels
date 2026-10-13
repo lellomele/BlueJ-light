@@ -919,3 +919,9 @@ jdk.restart=La modifica richiede il riavvio di BlueJ light.
 jdk.saveError=Impossibile salvare la scelta del JDK.
 
 # Java editor tabs and documentation
+light.save.copyClose=Salva copia di recupero e chiudi
+light.save.keepEditing=Continua a modificare
+light.save.closeFailure=Non \u00e8 stato possibile salvare il file originale. Potrebbe essere aperto in un altro programma o l'accesso potrebbe essere negato. Puoi continuare a modificare, oppure chiudere dopo aver salvato una copia UTF-8 verificata nella cartella delle preferenze. Il file originale non viene sovrascritto.
+light.save.recoveryTitle=Recupero sorgente
+light.save.copySaved=Copia di recupero salvata in:
+light.save.copyFailed=Impossibile salvare la copia di recupero. L'editor rimane aperto.

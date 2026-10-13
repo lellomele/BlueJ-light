@@ -1,0 +1,10 @@
+#BlueJ package file
+package.numTargets=2
+target1.name=a1
+target1.type=ClassTarget
+target1.x=40
+target1.y=40
+target2.name=b1
+target2.type=ClassTarget
+target2.x=200
+target2.y=40

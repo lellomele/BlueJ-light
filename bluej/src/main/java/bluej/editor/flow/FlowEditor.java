@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-13. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2019,2020,2021,2022,2023,2024,2025  Michael Kolling and John Rosenberg
@@ -684,6 +684,10 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     // package-visible:
     final UndoManager undoManager;
     private long contentRevision;
+    private long recoveryCloseRevision = -1;
+    private String recoveryCloseFilename;
+    private java.nio.file.Path recoveryCloseFile;
+    private boolean offeringRecoveryClose;
     private long completionRequest;
     private SuggestionList activeCompletion;
     private SuggestionList reusableCompletion;
@@ -1946,6 +1950,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 });
 
                 // Do this last, as it may trigger further actions in the watcher:
+                recoveryCloseRevision = -1;
                 setSaved();
             }
             catch (IOException ex)
@@ -1995,8 +2000,11 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     }
 
     /** Saves before a tab/window closes; failures must retain the editable buffer. */
+    @Override
     public boolean saveForClose()
     {
+        if (offeringRecoveryClose || showingChangedOnDiskDialog) return false;
+        if (hasVerifiedCloseCopy()) return true;
         try
         {
             save();
@@ -2005,8 +2013,66 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         catch (IOException ex)
         {
             info.messageImportant(Config.getString("editor.info.errorSaving") + " - " + ex.getLocalizedMessage());
+            return offerRecoveryForClose(ex);
+        }
+    }
+
+    protected boolean offerRecoveryForClose(IOException failure)
+    {
+        offeringRecoveryClose = true;
+        try
+        {
+            ButtonType copyAndClose = new ButtonType(Config.getString("light.save.copyClose"));
+            ButtonType keepEditing = new ButtonType(Config.getString("light.save.keepEditing"),
+                javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
+            Alert alert = new Alert(Alert.AlertType.WARNING,
+                Config.getString("light.save.closeFailure") + "\n\n" + filename + "\n" + failure.getLocalizedMessage(),
+                keepEditing, copyAndClose);
+            alert.initOwner(getWindow());
+            alert.setTitle(Config.getString("light.save.recoveryTitle"));
+            ((javafx.scene.control.Button)alert.getDialogPane().lookupButton(copyAndClose)).setDefaultButton(false);
+            ((javafx.scene.control.Button)alert.getDialogPane().lookupButton(keepEditing)).setDefaultButton(true);
+            if (alert.showAndWait().orElse(keepEditing) != copyAndClose) return false;
+            java.nio.file.Path copy = writeRecoveryCopyForClose();
+            info.messageImportant(Config.getString("light.save.copySaved") + " " + copy);
+            Debug.message("Unsaved source preserved for close in: " + copy);
+            Alert saved = new Alert(Alert.AlertType.INFORMATION,
+                Config.getString("light.save.copySaved") + "\n" + copy, ButtonType.OK);
+            saved.initOwner(getWindow());
+            saved.setTitle(Config.getString("light.save.recoveryTitle"));
+            saved.showAndWait();
+            return hasVerifiedCloseCopy();
+        }
+        catch (IOException ex)
+        {
+            info.messageImportant(Config.getString("light.save.copyFailed") + " - " + ex.getLocalizedMessage());
+            Debug.reportError("Cannot preserve source for close", ex);
             return false;
         }
+        finally { offeringRecoveryClose = false; }
+    }
+
+    protected java.nio.file.Path writeRecoveryCopyForClose() throws IOException
+    {
+        java.nio.file.Path directory = Config.getUserConfigDir().toPath().resolve("recovered-sources");
+        Files.createDirectories(directory);
+        String name = filename == null ? "Recovered.java" : java.nio.file.Path.of(filename).getFileName().toString();
+        java.nio.file.Path copy = directory.resolve(System.currentTimeMillis() + "-" + java.util.UUID.randomUUID() + "-" + name);
+        String text = document.getFullContent();
+        bluej.light.AtomicSourceSave.save(copy, text, java.nio.charset.StandardCharsets.UTF_8, CRASHFILE_SUFFIX);
+        if (!Files.readString(copy, java.nio.charset.StandardCharsets.UTF_8).equals(text))
+            throw new IOException("Recovery copy verification failed: " + copy);
+        recoveryCloseRevision = contentRevision;
+        recoveryCloseFilename = filename;
+        recoveryCloseFile = copy;
+        return copy;
+    }
+
+    private boolean hasVerifiedCloseCopy()
+    {
+        return recoveryCloseRevision == contentRevision
+            && java.util.Objects.equals(recoveryCloseFilename, filename)
+            && recoveryCloseFile != null && Files.isRegularFile(recoveryCloseFile);
     }
 
     /**

@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Raffaele Mele. Modified 2026-10-13. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2011,2013,2014,2015,2016,2017,2018,2019,2020,2021  Michael Kolling and John Rosenberg
@@ -78,6 +79,13 @@ public interface Editor
      * re-writing the file to disk.
      */
     void save() throws IOException;
+
+    /** A close-only save decision; must not bypass compilation saves. */
+    default boolean saveForClose()
+    {
+        try { save(); return true; }
+        catch (IOException ex) { return false; }
+    }
 
     default void saveJavaWithoutWarning() throws IOException
     {
