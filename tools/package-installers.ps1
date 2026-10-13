@@ -1,4 +1,4 @@
-# BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained.
+# BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-13. GNU GPLv2 with Classpath Exception; original notices retained.
 param(
     [Parameter(Mandatory=$true)][string]$FullImagePath,
     [Parameter(Mandatory=$true)][string]$CompilerPath,
@@ -37,5 +37,5 @@ foreach($variant in @('with-jdk','without-jdk')) {
     & $compiler '/Q' "/DImagePath=$image" "/DOutputPath=$output" "/DVariant=$variant" (Join-Path $PSScriptRoot 'windows/setup.iss')
     if($LASTEXITCODE -ne 0){throw "Cannot compile $variant installer."}
 }
-Get-ChildItem -LiteralPath $output -Filter 'BlueJ-light-5.7.0-win64-*.exe' | Select-Object Name,Length
+Get-ChildItem -LiteralPath $output -Filter 'BlueJ-light-5.7.1-win64-*.exe' | Select-Object Name,Length
 Write-Output "WITHOUT_JDK_IMAGE $external"

@@ -1,4 +1,4 @@
-# Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-12. GPLv2 with Classpath Exception.
+# Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-13. GPLv2 with Classpath Exception.
 param(
     [Parameter(Mandatory=$true)][string]$InstallerDirectory,
     [string]$ExternalJdkPath,
@@ -22,7 +22,7 @@ function Value([string]$path,[string]$name){
     try { return $key.GetValue($name,$null) } finally { $key.Dispose() }
 }
 function Install([string]$variant,[string]$destination,[bool]$register){
-    $installer=Join-Path $installers "BlueJ-light-5.7.0-win64-$variant.exe"
+    $installer=Join-Path $installers "BlueJ-light-5.7.1-win64-$variant.exe"
     $tasks=if($register){'registerbluej'}else{'!registerbluej'}
     $process=Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/verify=1',"/TASKS=$tasks", "/DIR=`"$destination`"", "/LOG=`"$work/$variant-$register.log`"") -WindowStyle Hidden -PassThru
     if(!$process.WaitForExit(180000)){$process.Kill($true);throw 'Installer timed out'}
