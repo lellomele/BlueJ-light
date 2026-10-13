@@ -64,6 +64,7 @@ public class ProjectCompletionSmoke extends BootSmoke
                     require(popupNames(ae,"public class a1 { void test() { Renamed r=null; r.| } }\n").contains("renamedField"),"Renamed sibling resolution failed");
                     replace(be,fresh); parsed(be);
                     for(int i=0;i<20;i++) require(popupNames(ae,"public class a1 { void test() { b1 value = new b1(); value.n| } }\n").contains("newMethod"),"Warm suggestions stale");
+                    verifyCachedRefresh(ae,be,fresh);
                     require(Files.readString(folder.resolve("a1.java")).equals(originalA),"Current source saved by completion");
                     require(Files.readString(folder.resolve("b1.java")).equals(originalB),"Sibling source saved by completion");
                     require(Arrays.equals(binaryB,Files.readAllBytes(folder.resolve("b1.class"))),"Completion recompiled sibling");
@@ -81,6 +82,40 @@ public class ProjectCompletionSmoke extends BootSmoke
         Boot.main(new String[]{"-bluej.userHome="+args[1],args[0]});
     }
     static void require(boolean condition,String message) { if(!condition) throw new AssertionError(message); }
+    static void verifyCachedRefresh(Object ae,Object be,String fresh) throws Exception {
+        Object index=fx(() -> call(call(pkg,"getProject"),"getCompletionTypeIndex"));
+        var pending=index.getClass().getDeclaredField("pending"); pending.setAccessible(true);
+        var lastScan=index.getClass().getDeclaredField("lastScan"); lastScan.setAccessible(true);
+        var waiting=index.getClass().getDeclaredField("waiting"); waiting.setAccessible(true);
+        var workerField=index.getClass().getDeclaredField("WORKER"); workerField.setAccessible(true);
+        long deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+        while(fx(() -> pending.get(index)!=null)) {
+            require(System.nanoTime()<deadline,"Index did not become ready"); Thread.sleep(10);
+        }
+        require(!((List<?>)fx(() -> call(index,"snapshot"))).isEmpty(),"Index not primed");
+        var started=new java.util.concurrent.CountDownLatch(1);
+        var release=new java.util.concurrent.CountDownLatch(1);
+        var worker=(java.util.concurrent.ExecutorService)workerField.get(null);
+        var task=worker.submit(() -> {
+            started.countDown();
+            try { release.await(30,java.util.concurrent.TimeUnit.SECONDS); }
+            catch(InterruptedException ex) { Thread.currentThread().interrupt(); }
+        });
+        try {
+            require(started.await(5,java.util.concurrent.TimeUnit.SECONDS),"Index worker did not block");
+            fx(() -> { lastScan.setLong(index,0); return null; });
+            replace(be,"public class Renamed { public int renamedField; }\n"); parsed(be);
+            List<String> names=popupNames(ae,"public class a1 { void test() { new Ren| } }\n");
+            require(names.contains("Renamed") && !lastTagged.contains("b1#class"),"Cached refresh lost unsaved rename");
+            require(popupNames(ae,"class a1 { void test() { Renamed r=null; r.| }\n").contains("renamedField"),"Cached refresh lost incomplete/live members");
+            undo(be); parsed(be);
+            require(popupNames(ae,"class a1 { void test() { new b| }\n").contains("b1") && !lastTagged.contains("Renamed#class"),"Cached refresh undo stale");
+            redo(be); parsed(be);
+            require(popupNames(ae,"class a1 { void test() { new Ren| }\n").contains("Renamed") && !lastTagged.contains("b1#class"),"Cached refresh redo stale");
+            require(fx(() -> pending.get(index)!=null && ((List<?>)waiting.get(index)).isEmpty()),"Completion waited for cached refresh");
+            System.out.println("CACHED_REFRESH_OK pending=true noWait=true unsavedRename=true incomplete=true undoRedo=true");
+        } finally { release.countDown(); task.get(5,java.util.concurrent.TimeUnit.SECONDS); replace(be,fresh); parsed(be); }
+    }
     static void verifyKeywords(Object sourceEditor) throws Exception {
         Object pane = fx(() -> call(sourceEditor, "getSourcePane"));
         Object document = fx(() -> call(pane, "getDocument"));

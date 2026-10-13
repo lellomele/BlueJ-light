@@ -36,6 +36,7 @@ public final class ProjectTypeIndex
     private CompletableFuture<List<Type>> pending;
     private final List<FXPlatformRunnable> waiting = new ArrayList<>();
     private long lastScan;
+    private boolean snapshotReady;
 
     public ProjectTypeIndex(Path root, Charset charset) { this.root = root; this.charset = charset; }
     public List<Type> snapshot() { return types; }
@@ -49,12 +50,16 @@ public final class ProjectTypeIndex
             pending = CompletableFuture.supplyAsync(this::scan, WORKER);
             CompletableFuture<List<Type>> scan = pending;
             scan.whenComplete((result, failure) -> JavaFXUtil.runNowOrLater(() -> {
-                if (!closed && failure == null) types = result;
+                if (!closed && failure == null) {
+                    types = result;
+                    snapshotReady = true;
+                }
                 if (pending == scan) pending = null;
                 for (FXPlatformRunnable listener : List.copyOf(waiting)) listener.run();
             }));
         }
-        if (pending == null) { callback.run(); return; }
+        // A refresh must not delay completion when a previous snapshot is usable.
+        if (pending == null || snapshotReady) { callback.run(); return; }
         boolean[] delivered = {false};
         FXPlatformRunnable[] once = {null}, cancelTimeout = {() -> { }};
         once[0] = () -> {
