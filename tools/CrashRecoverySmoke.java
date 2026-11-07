@@ -43,8 +43,6 @@ public class CrashRecoverySmoke extends AdvancedSmoke
                 if (args[2].equals("checkpoint"))
                 {
                     Thread.sleep(2000);
-                    String original = Files.readString(file);
-                    Files.writeString(originalFile, original);
                     Path preferences = ((java.io.File)fx(() -> loader.loadClass("bluej.Config")
                         .getMethod("getUserConfigDir").invoke(null))).toPath();
                     Class<?> historyClass = loader.loadClass("bluej.light.LocalHistory");
@@ -52,26 +50,33 @@ public class CrashRecoverySmoke extends AdvancedSmoke
                     for (int round = 0; round < 200; round++)
                     {
                         final int index = round;
-                        String current = fx(() -> {
+                        fx(() -> {
                             int end = number(document, "getLength");
                             document.getClass().getMethod("replaceText", int.class, int.class, String.class)
                                 .invoke(document, end, end, "// crash-checkpoint-" + index + "\n");
-                            return (String)call(document, "getFullContent");
+                            return null;
                         });
                         Thread.sleep(100);
-                        Optional<?> draft = (Optional<?>)historyClass.getMethod("recover", Path.class, String.class)
-                            .invoke(history, file, original);
-                        if (draft.isPresent() && current.equals(call(draft.get(), "text")))
-                        {
-                            if (!original.equals(Files.readString(file)))
-                                throw new AssertionError("Fixture was saved before crash checkpoint");
+                        // Automatic compilation may legitimately save an earlier revision.
+                        // Capture the current disk baseline and durable draft together on FX,
+                        // so no UI save can race the assertions and the simulated crash.
+                        fx(() -> {
+                            String current = (String)call(document, "getFullContent");
+                            String disk = Files.readString(file);
+                            Optional<?> draft = (Optional<?>)historyClass.getMethod("recover", Path.class, String.class)
+                                .invoke(history, file, disk);
+                            if (draft.isEmpty() || !current.equals(call(draft.get(), "text"))) return null;
+                            if (current.equals(disk)) throw new AssertionError("Crash checkpoint must contain unsaved edits");
+                            if (!(Boolean)call(javaEditor, "isModified")) throw new AssertionError("Checkpoint editor is not modified");
                             String session = Files.readString(preferences.resolve("recovery-session.properties"));
                             if (!session.contains("School")) throw new AssertionError("Open class absent from session journal");
+                            Files.writeString(originalFile, disk);
                             Files.writeString(expectedFile, current);
                             System.out.println("CRASH_CHECKPOINT_OK continuousEditing=true unsaved=true session=true");
                             System.out.flush();
                             Runtime.getRuntime().halt(91);
-                        }
+                            return null;
+                        });
                     }
                     throw new AssertionError("No durable checkpoint during continuous editing");
                 }

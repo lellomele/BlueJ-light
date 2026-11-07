@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-13. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-07. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2019,2020,2021,2022,2023,2024,2025  Michael Kolling and John Rosenberg
@@ -221,6 +221,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private long completionSourceRevision = -1;
     private ClassLoader completionSourceLoader;
     public void whenParsed(FXPlatformRunnable callback) { javaSyntaxView.whenParsed(callback); }
+    public void whenParsedWithStatus(JavaSyntaxView.ParseCallback callback) { javaSyntaxView.whenParsedWithStatus(callback); }
     public ParsedCUNode peekCompletionParser() { return javaSyntaxView.isParsedForCompletion() ? javaSyntaxView.getParser() : null; }
     String completionPackageName() { return watcher != null && watcher.getPackage() != null ? watcher.getPackage().getQualifiedName() : ""; }
     String completionFileBaseName() {
@@ -700,6 +701,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private java.nio.file.Path recoveryCloseFile;
     private boolean offeringRecoveryClose;
     private long completionRequest;
+    private long snippetRequest;
     private SuggestionList activeCompletion;
     private SuggestionList reusableCompletion;
     private final CompletionDisplayCache completionDisplayCache = new CompletionDisplayCache();
@@ -1437,7 +1439,19 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
 
     public void setParent(FXTabbedEditor parent, boolean partOfMove)
     {
-        if (parent == null && !partOfMove) invalidateRecoveryWork();
+        if (parent == null && !partOfMove)
+        {
+            invalidateRecoveryWork();
+            completionRequest++;
+            snippetRequest++;
+            if (cancelAutomaticCompletion != null)
+            {
+                cancelAutomaticCompletion.run();
+                cancelAutomaticCompletion = null;
+            }
+            javaSyntaxView.setParseRequestsActive(false);
+        }
+        else if (parent != null) javaSyntaxView.setParseRequestsActive(true);
         if (watcher != null)
         {
             if (!partOfMove && parent != null)
@@ -3609,7 +3623,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         long request = ++completionRequest;
         long revision = contentRevision;
         int position = flowEditorPane.getCaretPosition();
-        whenCompletionSourcesReady(() -> javaSyntaxView.whenParsed(() -> {
+        whenCompletionSourcesReady(() -> javaSyntaxView.whenParsedWithStatus(status -> {
+            if (status == JavaSyntaxView.ParseStatus.CANCELLED) return;
             Scene completionScene = flowEditorPane.getScene();
             if (completionScene == null) return;
             flowEditorPane.requestLayout();
@@ -3700,8 +3715,9 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             if (plain)
             {
                 completionCandidates.addAll(SourceTypeCompletion.candidates(this, parser));
-                completionCandidates.addAll(snippetCatalog.completions(
-                    parser != null && parser.getContainingMethodOrClassNode(flowEditorPane.getCaretPosition()) instanceof MethodNode));
+                if (parser != null)
+                    completionCandidates.addAll(snippetCatalog.completions(
+                        parser.getContainingMethodOrClassNode(flowEditorPane.getCaretPosition()) instanceof MethodNode));
                 java.util.Set<String> primitiveNames = completionCandidates.stream()
                     .filter(ac -> ac instanceof bluej.parser.PrimitiveTypeCompletion)
                     .map(AssistContent::getName).collect(Collectors.toSet());
@@ -3984,16 +4000,21 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public void browseSnippets()
     {
         if (!sourceIsCode || viewingHTML.get()) return;
+        long request = ++snippetRequest;
         long revision = contentRevision;
-        javaSyntaxView.whenParsed(() -> {
-            if (revision != contentRevision || getWindow() == null) return;
+        // Keep a modal dialog outside the parser's notification/cleanup call stack.
+        javaSyntaxView.whenParsedWithStatus(status -> {
+            if (status == JavaSyntaxView.ParseStatus.CANCELLED) return;
+            JavaFXUtil.runAfterCurrent(() -> {
+            if (request != snippetRequest || revision != contentRevision || !isOpen()
+                || getWindow() == null || !getWindow().isShowing()) return;
             ParsedCUNode parser = javaSyntaxView.getParser();
             int start = flowEditorPane.getSelectionStart(), end = flowEditorPane.getSelectionEnd();
             bluej.parser.nodes.ParsedNode scope = parser == null ? null : parser.getContainingMethodOrClassNode(start);
             boolean inMethod = scope instanceof MethodNode;
             boolean allowed = scope != null && !isReadOnly() && javaSyntaxView.isCodePosition(start);
             new SnippetBrowserDialog(getWindow(), snippetCatalog, inMethod, allowed, false).showAndWait().ifPresent(snippet -> {
-                if (revision != contentRevision) return;
+                if (request != snippetRequest || revision != contentRevision || !isOpen()) return;
                 int replaceStart = start;
                 if (start == end) {
                     while (replaceStart > 0 && Character.isJavaIdentifierPart(document.getContent(replaceStart - 1, replaceStart).charAt(0)))
@@ -4004,6 +4025,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 insertSnippet(snippet.getTemplate(), replaceStart, end);
                 flowEditorPane.requestFocus();
                 scheduleCompilation(CompileReason.MODIFIED, CompileType.ERROR_CHECK_ONLY);
+            });
             });
         });
     }

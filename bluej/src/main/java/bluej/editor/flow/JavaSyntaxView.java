@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-07. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2011,2014,2015,2016,2017,2018,2019,2020,2021,2022,2024  Michael Kolling and John Rosenberg
@@ -33,6 +33,7 @@ import bluej.parser.Token.TokenType;
 import bluej.parser.entity.EntityResolver;
 import bluej.parser.lexer.JavaLexer;
 import bluej.parser.lexer.JavaTokenTypes;
+import bluej.parser.lexer.LocatableToken;
 import bluej.parser.nodes.NodeStructureListener;
 import bluej.parser.nodes.NodeTree;
 import bluej.parser.nodes.NodeTree.NodeAndPosition;
@@ -85,7 +86,15 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
 {
     /** Maximum amount of document to reparse in one hit (advisory) */
     private final static int MAX_PARSE_PIECE = 2000;
-    private final List<FXPlatformRunnable> parsedCallbacks = new ArrayList<>();
+    @OnThread(Tag.Any)
+    public enum ParseStatus { READY, SUSPENDED, CANCELLED }
+
+    @FunctionalInterface
+    @OnThread(Tag.FXPlatform)
+    public interface ParseCallback { void complete(ParseStatus status); }
+
+    private final List<ParseCallback> parsedCallbacks = new ArrayList<>();
+    private boolean parseRequestsActive = true;
     private FXPlatformRunnable cancelResizeScopes;
     
     /** (NaviView) Paint method inner scope? if false, whole method will be highlighted as a single block */
@@ -454,18 +463,44 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
         });
     }
 
+    /**
+     * Notify when parsing finishes, is suspended, or the owner cancels pending requests.
+     * Callers needing a parsed tree must check readiness or use whenParsedWithStatus.
+     */
     public void whenParsed(FXPlatformRunnable callback)
     {
-        if (reparseRecordTree == null || reparseRecordTree.findNodeAtOrAfter(0) == null)
+        whenParsedWithStatus(status -> callback.run());
+    }
+
+    public void whenParsedWithStatus(ParseCallback callback)
+    {
+        if (!parseRequestsActive)
         {
-            refreshPendingScopes();
-            callback.run();
+            deliverParsedCallback(callback, ParseStatus.CANCELLED);
+            return;
+        }
+        parsedCallbacks.add(callback);
+        if (!hasPendingReparse())
+        {
+            parsingFinished(false);
         }
         else
         {
-            parsedCallbacks.add(callback);
             scheduleReparseRunner();
         }
+    }
+
+    /** Closing cancels requests, not the reusable source tree. Late requests also settle. */
+    void setParseRequestsActive(boolean active)
+    {
+        if (parseRequestsActive == active) return;
+        parseRequestsActive = active;
+        if (!active) notifyParsed(ParseStatus.CANCELLED);
+    }
+
+    private boolean hasPendingReparse()
+    {
+        return reparseRecordTree != null && reparseRecordTree.findNodeAtOrAfter(0) != null;
     }
 
     public boolean isParsedForCompletion()
@@ -475,9 +510,38 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
 
     private void notifyParsed()
     {
-        List<FXPlatformRunnable> callbacks = new ArrayList<>(parsedCallbacks);
+        notifyParsed(rootNode == null ? ParseStatus.SUSPENDED : ParseStatus.READY);
+    }
+
+    private void notifyParsed(ParseStatus status)
+    {
+        if (parsedCallbacks.isEmpty()) return;
+        List<ParseCallback> callbacks = new ArrayList<>(parsedCallbacks);
         parsedCallbacks.clear();
-        callbacks.forEach(FXPlatformRunnable::run);
+        for (ParseCallback callback : callbacks) deliverParsedCallback(callback, status);
+    }
+
+    private void deliverParsedCallback(ParseCallback callback, ParseStatus status)
+    {
+        try { callback.complete(status); }
+        catch (RuntimeException failure) { Debug.reportError("Parser completion callback failed", failure); }
+    }
+
+    private void parsingFinished(boolean repaint)
+    {
+        try
+        {
+            refreshPendingScopes();
+            applyPendingScopeBackgrounds();
+            if (repaint && display != null) display.repaint();
+        }
+        catch (RuntimeException failure) { Debug.reportError("Parser display refresh failed", failure); }
+        finally
+        {
+            // A display listener may have edited the document while scopes were applied.
+            if (hasPendingReparse()) scheduleReparseRunner();
+            else notifyParsed();
+        }
     }
 
     private void recalculateAllScopes()
@@ -564,7 +628,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
 
     public boolean isCodePosition(int offset)
     {
-        if (rootNode == null) return false;
+        if (rootNode == null) return isCodePositionWithoutParser(offset);
         int line = document.getLineFromPosition(offset);
         int column = Math.max(0, offset - document.getLineStart(line) - 1);
         int end = 0;
@@ -596,6 +660,40 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
             }
         }
         return true;
+    }
+
+    private boolean isCodePositionWithoutParser(int offset)
+    {
+        // Only the failure path uses this scan. Unknown/large contexts stay conservative.
+        if (offset < 0 || offset > document.getLength() || offset > 65536) return false;
+        int position = Math.max(0, offset - 1);
+        try (bluej.light.ParserBudget.Scope budget = bluej.light.ParserBudget.start(java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(8));
+             Reader source = new java.io.FilterReader(document.makeReader(0, offset)) {
+                 @Override public int read() throws java.io.IOException {
+                     bluej.light.ParserBudget.checkpoint();
+                     return super.read();
+                 }
+                 @Override public int read(char[] chars, int start, int length) throws java.io.IOException {
+                     bluej.light.ParserBudget.checkpoint();
+                     return super.read(chars, start, Math.min(length, 512));
+                 }
+             })
+        {
+            JavaLexer lexer = new JavaLexer(source);
+            for (LocatableToken token = lexer.nextToken(); token.getType() != JavaTokenTypes.EOF; token = lexer.nextToken())
+            {
+                if (position < token.getPosition()) return true;
+                if (position < token.getPosition() + token.getLength())
+                    return switch (token.getType()) {
+                        case JavaTokenTypes.INVALID, JavaTokenTypes.STRING_LITERAL, JavaTokenTypes.CHAR_LITERAL,
+                            JavaTokenTypes.STRING_LITERAL_MULTILINE, JavaTokenTypes.SL_COMMENT, JavaTokenTypes.ML_COMMENT,
+                            JavaTokenTypes.NUM_INT, JavaTokenTypes.NUM_LONG, JavaTokenTypes.NUM_FLOAT, JavaTokenTypes.NUM_DOUBLE -> false;
+                        default -> true;
+                    };
+            }
+            return true;
+        }
+        catch (java.io.IOException | RuntimeException unavailable) { return false; }
     }
 
     private CharSequence asCharSequence(List<StyledSegment> styledSegments)
@@ -2192,8 +2290,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     {
         while (pollReparseQueue(document.getLength())) ;
         // Queue now empty, so flush backgrounds:
-        refreshPendingScopes();
-        applyPendingScopeBackgrounds();
+        parsingFinished(false);
     }
 
     private void refreshPendingScopes()
@@ -2345,10 +2442,15 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
         if (failure == null) Debug.message(reason); else Debug.reportError(reason, failure);
         rootNode = null; reparseRecordTree = null; reparseRunner = null;
         scopeRefreshPending = false;
-        parseProgress.reset(); parsedCallbacks.clear(); styledLines.clear();
+        parseProgress.reset(); styledLines.clear();
         scopeBackgrounds.clear(); nodeIndents.clear(); pendingScopeBackgrounds.clear();
         linesToRecalculateAfterLayout.clear();
-        if (display != null) { display.applyScopeBackgrounds(Map.of()); display.repaint(); }
+        try
+        {
+            if (display != null) { display.applyScopeBackgrounds(Map.of()); display.repaint(); }
+        }
+        catch (RuntimeException displayFailure) { Debug.reportError("Suspended parser display refresh failed", displayFailure); }
+        finally { notifyParsed(ParseStatus.SUSPENDED); }
     }
 
     public ReparseableDocument.Element getDefaultRootElement()
@@ -2755,10 +2857,15 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
         {
             if (reparseRunner != this) return;
             long begin = System.nanoTime();
-            if (document != null && pollReparseQueue()) {
+            boolean parsedSomething = document != null && pollReparseQueue();
+            // Suspension can notify a listener which starts a replacement parser/runner.
+            if (reparseRunner != this) return;
+            if (parsedSomething) {
                 // Continue processing
                 while (System.nanoTime() - begin < this.procTime * 1_000_000L) {
-                    if (! pollReparseQueue()) {
+                    boolean progressed = pollReparseQueue();
+                    if (reparseRunner != this) return;
+                    if (!progressed) {
                         break;
                     }
                 }
@@ -2766,11 +2873,8 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
             }
             else {
                 // Mark that we are no longer scheduled.  Reapply backgrounds and syntax highlighting:
-                refreshPendingScopes();
-                applyPendingScopeBackgrounds();
-                display.repaint();
                 reparseRunner = null;
-                notifyParsed();
+                parsingFinished(true);
             }
         }
     }

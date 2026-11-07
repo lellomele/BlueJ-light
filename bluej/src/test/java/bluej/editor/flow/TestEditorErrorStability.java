@@ -162,6 +162,46 @@ public class TestEditorErrorStability extends FXTest
             assertEquals(source + "\n", editor.getSourcePane().getDocument().getFullContent());
         });
     }
+    @Test public void cancelledAndLateRequestsSettleWithoutDiscardingTheReusableParser()
+    {
+        fx_(() -> {
+            String source = "class Example { int value; }"; code(source);
+            JavaSyntaxView syntax = (JavaSyntaxView)editor.getSourceDocument();
+            var parser = syntax.getParser();
+            List<JavaSyntaxView.ParseStatus> outcomes = new ArrayList<>();
+            syntax.scheduleReparse(0, source.length());
+            syntax.whenParsedWithStatus(outcomes::add);
+            syntax.setParseRequestsActive(false);
+            syntax.whenParsedWithStatus(outcomes::add);
+            assertEquals(List.of(JavaSyntaxView.ParseStatus.CANCELLED, JavaSyntaxView.ParseStatus.CANCELLED), outcomes);
+            assertSame(parser, syntax.getParser());
+            syntax.setParseRequestsActive(true);
+            syntax.whenParsedWithStatus(outcomes::add);
+            syntax.flushReparseQueue();
+            assertEquals(List.of(JavaSyntaxView.ParseStatus.CANCELLED, JavaSyntaxView.ParseStatus.CANCELLED, JavaSyntaxView.ParseStatus.READY), outcomes);
+            assertEquals(source, editor.getSourcePane().getDocument().getFullContent());
+        });
+    }
+
+    @Test public void cancellationIsolatesFailuresAndDoesNotDeliverTheSameRequestTwice()
+    {
+        fx_(() -> {
+            String source = "class Example { int value; }"; code(source);
+            JavaSyntaxView syntax = (JavaSyntaxView)editor.getSourceDocument();
+            List<JavaSyntaxView.ParseStatus> outcomes = new ArrayList<>();
+            syntax.scheduleReparse(0, source.length());
+            syntax.whenParsedWithStatus(status -> { throw new IllegalStateException("Injected cancellation listener failure"); });
+            syntax.whenParsedWithStatus(outcomes::add);
+            syntax.setParseRequestsActive(false);
+            syntax.setParseRequestsActive(false);
+            syntax.flushReparseQueue();
+            assertEquals(List.of(JavaSyntaxView.ParseStatus.CANCELLED), outcomes);
+            syntax.setParseRequestsActive(true);
+            syntax.whenParsedWithStatus(outcomes::add);
+            assertEquals(List.of(JavaSyntaxView.ParseStatus.CANCELLED, JavaSyntaxView.ParseStatus.READY), outcomes);
+        });
+    }
+
     @Test public void paragraphOffsetsRemainCorrectWithoutCopyingTheWholeLineTable()
     {
         fx_(() -> {

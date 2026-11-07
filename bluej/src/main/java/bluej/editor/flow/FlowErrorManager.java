@@ -269,8 +269,9 @@ public class FlowErrorManager implements ErrorQuery
                     ? possibleImports.get().toList() : List.of();
                 Platform.runLater(() -> {
                     if (!isValid()) return;
-                    editor.whenParsed(() -> {
-                        if (isValid() && editor.getSourceDocument().getParser() != null) calculateCorrections(editor, imports.stream());
+                    editor.whenParsedWithStatus(status -> {
+                        if (status == JavaSyntaxView.ParseStatus.READY && isValid()
+                            && editor.getSourceDocument().getParser() != null) calculateCorrections(editor, imports.stream());
                     });
                 });
             });
