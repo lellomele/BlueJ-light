@@ -1787,10 +1787,13 @@ public class PkgMgrFrame
     {
         if (isEmptyFrame()) return java.util.concurrent.CompletableFuture.completedFuture(true);
         Package savePackage = getPackage();
-        return savePackage.saveAsync(captureFrameProperties()).thenApply(saved -> {
+        java.util.concurrent.CompletableFuture<Boolean> writing = savePackage.saveAsync(captureFrameProperties()).thenApply(saved -> {
             if (!saved && getPackage() == savePackage) setStatus(Config.getString("editor.info.errorSaving"));
             return saved;
         });
+        return FrameSaveAttempt.await(writing,
+            expired -> JavaFXUtil.runAfter(javafx.util.Duration.seconds(8), expired),
+            () -> { if (getPackage() == savePackage) setStatus(Config.getString("light.save.projectPending")); });
     }
 
     private Properties captureFrameProperties()

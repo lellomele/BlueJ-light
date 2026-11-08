@@ -347,7 +347,10 @@ public class Main
         cleanup.whenComplete((ready, failure) -> JavaFXUtil.runNowOrLater(() -> {
             if (failure != null) { Debug.reportError("Cannot prepare application exit", failure); quitInProgress = false; }
             else if (!Boolean.TRUE.equals(ready)) quitInProgress = false;
-            else bluej.light.SessionRecovery.finishAsync().whenComplete((ignored, historyFailure) -> JavaFXUtil.runNowOrLater(() -> {
+            // The source/metadata boundary is already confirmed. A stalled optional history writer must not trap exit
+            // after the windows have closed. Time out an observation, never the real accepted checkpoint operation.
+            else bluej.light.SessionRecovery.finishAsync().copy().orTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                .whenComplete((ignored, historyFailure) -> JavaFXUtil.runNowOrLater(() -> {
                 if (historyFailure != null) Debug.reportError("Cannot finish session recovery", historyFailure);
                 bluej.light.UiStallMonitor.stop();
                 ExtensionsManager.getInstance().unloadExtensions();
