@@ -2083,6 +2083,18 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     }
 
     public bluej.light.SourceSaveService.Snapshot getLastSavedSource() { return lastSavedSource; }
+    public bluej.light.LocalHistory getLocalHistory() { return localHistory; }
+
+    /** Apply a committed path change without changing the text or undo history. */
+    public void acceptSourceRelocation(bluej.light.SourceSaveService.Snapshot saved,
+        bluej.light.SourceSaveService.DiskState disk, String title, String documentation) throws IOException
+    {
+        if (lastSavedSource != saved || sourceSaver.owner() != saved.owner()
+            || filename == null || !java.nio.file.Path.of(filename).toAbsolutePath().normalize().toString().equals(saved.source().toString()))
+            throw new IOException("Editor ownership changed while renaming source");
+        changeName(title,disk.source().toString(),disk.source().toString(),documentation);
+        observedDiskText = disk.text(); observedDiskLength = disk.byteLength(); setLastModified(disk.modifiedMillis());
+    }
 
     private boolean updateSourceSaveState(bluej.light.SourceSaveService.Result result)
     {

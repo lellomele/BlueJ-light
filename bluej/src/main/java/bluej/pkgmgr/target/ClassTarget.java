@@ -129,6 +129,7 @@ public class ClassTarget extends DependentTarget
     // temporary file name extension to trick windows if changing case only in
     // class name
     private static String TEMP_FILE_EXTENSION = "-temp";
+    private CompletableFuture<Void> pendingSourceChange;
 
     // the role object represents the changing roles that are class
     // target can have ie changing from applet to an interface etc
@@ -1350,8 +1351,108 @@ public class ClassTarget extends DependentTarget
     @Override
     public CompletableFuture<Void> saveEventAsync(Editor sourceEditor)
     {
-        saveEvent(sourceEditor);
-        return CompletableFuture.completedFuture(null);
+        Package pkg = getPackage();
+        if (pkg == null || sourceEditor != editor) return CompletableFuture.failedFuture(new IOException("Class editor changed"));
+        ClassInfo info = analyseSource();
+        if (info == null) return CompletableFuture.completedFuture(null);
+        if (!(sourceEditor instanceof FlowEditor flow) || !analyseClassName(info))
+        {
+            if (analysePackageName(info)) doPackageNameChange(info.getPackage());
+            return CompletableFuture.completedFuture(null);
+        }
+        var saved = flow.getLastSavedSource();
+        if (saved == null || saved.revision() != flow.getContentRevision())
+            return CompletableFuture.failedFuture(new IOException("Class rename has no current saved source"));
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        renameClassAsync(flow,saved,info.getName()).whenComplete((ignored, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (failure != null) { result.completeExceptionally(failure); return; }
+            if (getPackage() == pkg && analysePackageName(info)) doPackageNameChange(info.getPackage());
+            result.complete(null);
+        }));
+        return result;
+    }
+
+    private CompletableFuture<Void> renameClassAsync(FlowEditor flow, bluej.light.SourceSaveService.Snapshot saved, String newName)
+    {
+        if (pendingSourceChange != null && !pendingSourceChange.isDone()) return pendingSourceChange;
+        Package pkg = getPackage();
+        if (!pkg.reserveTargetName(this,newName))
+            return CompletableFuture.failedFuture(new IOException(Config.getString("editor.info.duplication")));
+        String oldName = getIdentifierName();
+        java.nio.file.Path oldSource = getJavaSourceFile().toPath().toAbsolutePath().normalize();
+        java.nio.file.Path destination = oldSource.resolveSibling(newName + ".java");
+        List<java.nio.file.Path> obsolete = List.of(getClassFile().toPath(),getContextFile().toPath(),getDocumentationFile().toPath());
+        String documentation = pkg.getProject().getDocumentationFile(destination.toString());
+        bluej.light.LocalHistory history = flow.getLocalHistory();
+        bluej.light.SourceSaveService service = pkg.getProject().getSourceSaveService();
+        CompletableFuture<Void> result = new CompletableFuture<>(); pendingSourceChange = result;
+        result.whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            pkg.releaseTargetName(this,newName);
+            if (pendingSourceChange == result) pendingSourceChange = null;
+        }));
+        try
+        {
+            pkg.prepareForSourceFileChange(result).whenComplete((idle, idleFailure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (idleFailure != null) { result.completeExceptionally(idleFailure); return; }
+                if (getPackage() != pkg || editor != flow || flow.getLastSavedSource() != saved)
+                { result.completeExceptionally(new IOException("Class changed before source rename")); return; }
+                service.relocate(saved,destination,history).whenComplete((moved, moveFailure) -> {
+                    if (moveFailure != null)
+                    { bluej.utility.javafx.FXFuture.run(result, () -> result.completeExceptionally(moveFailure)); return; }
+                    service.submit(() -> {
+                        IOException warning = cleanRenamedClassFiles(oldSource,obsolete);
+                        if (warning != null && moved.historyWarning() != null) warning.addSuppressed(moved.historyWarning());
+                        return new bluej.light.SourceSaveService.Relocation(moved.disk(),warning == null ? moved.historyWarning() : warning);
+                    }).whenComplete((cleaned, cleanupFailure) -> JavaFXUtil.runNowOrLater(() -> {
+                        // The move has committed: a cancelled requester must not skip its model acknowledgement.
+                        try
+                        {
+                            pkg.commitTargetName(this,oldName,newName);
+                            flow.acceptSourceRelocation(saved,moved.disk(),newName,documentation);
+                            updateDisplayName(); setState(State.NEEDS_COMPILE);
+                            notifyClassRenamed(pkg,oldName,newName);
+                            if (cleanupFailure != null) Debug.reportError("Cannot clean old class metadata",cleanupFailure);
+                            if (cleaned != null && cleaned.historyWarning() != null) Debug.reportError("Source renamed with metadata warning",cleaned.historyWarning());
+                            result.complete(null);
+                        }
+                        catch (Throwable failure)
+                        {
+                            Debug.reportError("Cannot acknowledge source rename to " + destination,failure);
+                            result.completeExceptionally(failure);
+                            if (failure instanceof Error fatal) throw fatal;
+                        }
+                    }));
+                });
+            }));
+        }
+        catch (RuntimeException | LinkageError | AssertionError failure) { result.completeExceptionally(failure); }
+        return result;
+    }
+
+    @OnThread(Tag.Any)
+    private static IOException cleanRenamedClassFiles(java.nio.file.Path source, List<java.nio.file.Path> obsolete)
+    {
+        IOException warning = null;
+        List<java.nio.file.Path> files = new ArrayList<>(obsolete);
+        String base = source.getFileName().toString().substring(0,source.getFileName().toString().length() - 5);
+        try (var nested = Files.newDirectoryStream(source.getParent(),base + "$*.class"))
+        { nested.forEach(files::add); }
+        catch (IOException unavailable) { warning = unavailable; }
+        for (java.nio.file.Path file : files)
+            try { Files.deleteIfExists(file); }
+            catch (IOException unavailable) { if (warning == null) warning = unavailable; else warning.addSuppressed(unavailable); }
+        return warning;
+    }
+
+    private void notifyClassRenamed(Package pkg, String oldName, String newName)
+    {
+        try { ExtensionBridge.ChangeBClassName(getBClass(),getQualifiedName()); }
+        catch (RuntimeException | LinkageError | AssertionError failure) { Debug.reportError("Class extension rename listener failed",failure); }
+        for (TargetListener listener : List.copyOf(stateListeners))
+            try { listener.renamed(newName); }
+            catch (RuntimeException | LinkageError | AssertionError failure) { Debug.reportError("Class rename listener failed",failure); }
+        try { ExtensionsManager.getInstance().delegateEvent(new ClassEvent(pkg,getBClass(),oldName)); }
+        catch (RuntimeException | LinkageError | AssertionError failure) { Debug.reportError("Class rename notification failed",failure); }
     }
 
     @Override

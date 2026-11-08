@@ -68,6 +68,7 @@ import bluej.parser.symtab.ClassInfo;
 import bluej.pkgmgr.target.*;
 import bluej.prefmgr.PrefMgr;
 import bluej.utility.*;
+import java.util.concurrent.CompletableFuture;
 import bluej.utility.filefilter.JavaClassFilter;
 import bluej.utility.filefilter.JavaSourceFilter;
 import bluej.utility.filefilter.SubPackageFilter;
@@ -226,6 +227,8 @@ public final class Package
     private CompilationRetry preparingRetry;
     private final Map<ClassTarget, Long> activeCompilationJobs = new IdentityHashMap<>();
     private final Map<ClassTarget, Long> checkedRevisions = new IdentityHashMap<>();
+    private final SourceFileGate sourceFiles = new SourceFileGate(() -> currentlyCompiling || !activeCompilationJobs.isEmpty());
+    private final Map<String, Target> reservedTargetNames = new HashMap<>();
     private long nextCompilationJob;
     private long activePackageJob = -1;
     private long nextMetadataSave, appliedMetadataSave;
@@ -1358,7 +1361,7 @@ public final class Package
             return ILLEGAL_FORMAT;
 
         // check whether name is already used
-        if (getTarget(className) != null)
+        if (isTargetNameInUse(className))
             return CLASS_EXISTS;
 
         // copy class source into package
@@ -1933,13 +1936,13 @@ public final class Package
             .flatMap(target -> compilationEditors(target).stream()).distinct().toList();
         try
         {
-            if (!bluej.editor.EditorSaveBatch.needsSave(scope))
+            if (!sourceFiles.pending() && !bluej.editor.EditorSaveBatch.needsSave(scope))
             {
                 doCompile(retry.targets, retry.observer, CompileReason.USER, CompileType.EXPLICIT_USER_COMPILE, retry.wholePackage);
                 return;
             }
             preparingRetry = retry;
-            bluej.editor.EditorSaveBatch.save(scope, CompileType.EXPLICIT_USER_COMPILE).whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            saveCompilationInputs(scope, CompileType.EXPLICIT_USER_COMPILE).whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() -> {
                 if (preparingRetry != retry) return;
                 preparingRetry = null;
                 if (failure == null && !project.isClosing()) compilationRetries.addFirst(retry);
@@ -1960,7 +1963,7 @@ public final class Package
         Map<Editor, Long> revisions = new IdentityHashMap<>();
         try
         {
-            if (!bluej.editor.EditorSaveBatch.needsSave(scope)) return true;
+            if (!sourceFiles.pending() && !bluej.editor.EditorSaveBatch.needsSave(scope)) return true;
             if (!preparingSources)
                 for (Editor sourceEditor : scope.get()) revisions.put(sourceEditor, editorVersion(sourceEditor));
         }
@@ -1975,7 +1978,7 @@ public final class Package
         if (preparingSources) return false;
         preparingSources = true;
         long generation = ++sourcePreparationGeneration;
-        bluej.editor.EditorSaveBatch.save(scope, type).whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() -> {
+        saveCompilationInputs(scope, type).whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() -> {
             if (generation != sourcePreparationGeneration) return;
             // Detach before callbacks: a failed observer may enqueue a replacement preparation.
             Map<ClassTarget, PendingCompilation> waiting = new OrderedIdentityMap<>(preparingCompilations);
@@ -2010,6 +2013,18 @@ public final class Package
             }
         }));
         return false;
+    }
+
+    private CompletableFuture<Void> saveCompilationInputs(bluej.editor.EditorSaveBatch.Editors scope, CompileType type)
+    {
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        bluej.editor.EditorSaveBatch.save(scope,type).whenComplete((ignored, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (failure != null) { result.completeExceptionally(failure); return; }
+            sourceFiles.settled().whenComplete((settled, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (error == null) result.complete(null); else result.completeExceptionally(error);
+            }));
+        }));
+        return result;
     }
 
     private void cancelPreparation(Collection<ClassTarget> preparedTargets)
@@ -2099,6 +2114,7 @@ public final class Package
         checkedRevisions.clear();
         currentlyCompiling = false;
         activePackageJob = -1;
+        sourceFiles.compilationChanged();
         // Reset the old generation before notifying clients: callbacks may start a new job.
         for (ClassTarget target : cancelled) target.cancelCompilation();
         for (CompilationRetry retry : retries) failRetry(retry);
@@ -2182,6 +2198,7 @@ public final class Package
                         if (target.isQueued()) target.cancelCompilation();
                     }
                     if (activePackageJob == job) { activePackageJob = -1; currentlyCompiling = false; }
+                    sourceFiles.compilationChanged();
                     drainPendingCompilations();
                 }
             }
@@ -2194,6 +2211,7 @@ public final class Package
             for (ClassTarget target : submitted)
                 if (Objects.equals(activeCompilationJobs.get(target), job)) { activeCompilationJobs.remove(target); target.cancelCompilation(); }
             if (activePackageJob == job) { activePackageJob = -1; currentlyCompiling = false; }
+            sourceFiles.compilationChanged();
             notifyCompilerObservers(List.of(edtObserver), observer -> observer.endCompile(new CompileInputFile[0], false, type, -1));
             Debug.reportError("Unable to queue compilation", failure);
             drainPendingCompilations();
@@ -2397,6 +2415,47 @@ public final class Package
         targets.add(newIdentifier, t);
         getProject().completionSourcesChanged();
     }
+
+    private static String targetNameKey(String name)
+    { return File.separatorChar == '\\' ? name.toLowerCase(Locale.ROOT) : name; }
+
+    public synchronized boolean isTargetNameInUse(String name)
+    {
+        String key = targetNameKey(name);
+        return reservedTargetNames.containsKey(key) || getVertices().stream().anyMatch(target -> targetNameKey(target.getIdentifierName()).equals(key));
+    }
+
+    public synchronized boolean reserveTargetName(Target target, String name)
+    {
+        String key = targetNameKey(name);
+        Target reserved = reservedTargetNames.get(key);
+        if (reserved != null && reserved != target) return false;
+        if (getVertices().stream().anyMatch(other -> other != target && targetNameKey(other.getIdentifierName()).equals(key))) return false;
+        reservedTargetNames.put(key,target); return true;
+    }
+
+    public synchronized void releaseTargetName(Target target, String name)
+    {
+        String key = targetNameKey(name);
+        if (reservedTargetNames.get(key) == target) reservedTargetNames.remove(key);
+    }
+
+    public synchronized void commitTargetName(Target target, String oldName, String newName) throws IOException
+    {
+        if (getTarget(oldName) != target || reservedTargetNames.get(targetNameKey(newName)) != target)
+            throw new IOException("Class ownership changed while renaming");
+        Target occupied = getTarget(newName);
+        if (occupied != null && occupied != target) throw new IOException("Class name is already in use");
+        targets.remove(oldName); target.setIdentifierName(newName); targets.add(newName,target);
+        if (target instanceof ClassTarget ct) checkedRevisions.remove(ct);
+        project.completionSourcesChanged();
+    }
+
+    /** Register before starting file I/O; completion includes the UI model acknowledgement. */
+    public CompletableFuture<Void> prepareForSourceFileChange(CompletableFuture<Void> operation)
+    { return sourceFiles.begin(operation); }
+
+    public CompletableFuture<Void> sourceFileChangesSettled() { return sourceFiles.settled(); }
 
     /**
      * remove the arrow representing the given dependency

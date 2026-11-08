@@ -1393,7 +1393,7 @@ public class PkgMgrFrame
     {
         Package thePkg = getPackage();
         // check whether name is already used
-        if (thePkg.getTarget(name) != null) {
+        if (thePkg.isTargetNameInUse(name)) {
             DialogManager.showErrorFX(getWindow(), "duplicate-name");
             return false;
         }
@@ -1448,6 +1448,8 @@ public class PkgMgrFrame
      */
     public void duplicateClass(String originalClassName, String newClassName, File originalFile, SourceType sourceType)
     {
+        if (getPackage().isTargetNameInUse(newClassName))
+        { DialogManager.showErrorFX(getWindow(), "duplicate-name"); return; }
         try
         {
             String extension = sourceType.getExtension();
@@ -2248,7 +2250,7 @@ public class PkgMgrFrame
 
         Package basePkg = getProject().getPackage(prefix);
         if (basePkg != null) {
-            if (basePkg.getTarget(base) != null) {
+            if (basePkg.isTargetNameInUse(base)) {
                 if (showErrDialog)
                     DialogManager.showErrorFX(getWindow(), "duplicate-name");
                 return false;
