@@ -112,7 +112,7 @@ import java.lang.ClassNotFoundException;
  */
 @OnThread(Tag.FXPlatform)
 public class ClassTarget extends DependentTarget
-    implements InvokeListener
+    implements InvokeListener, bluej.editor.AsyncEditorWatcher
 {
     final static int MIN_WIDTH = 60;
     final static int MIN_HEIGHT = 30;
@@ -1345,6 +1345,13 @@ public class ClassTarget extends DependentTarget
             setState(State.NEEDS_COMPILE);
         }
         sourceInfo.setSourceModified();
+    }
+
+    @Override
+    public CompletableFuture<Void> saveEventAsync(Editor sourceEditor)
+    {
+        saveEvent(sourceEditor);
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override

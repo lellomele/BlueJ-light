@@ -182,6 +182,13 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         @Override public bluej.light.SourceSaveService service() { return sourceSaveService(); }
         @Override public bluej.light.LocalHistory history() { return localHistory; }
         @Override public void saved(bluej.light.SourceSaveService.Result result) { applySourceSave(result); }
+        @Override public CompletableFuture<Void> savedAsync(bluej.light.SourceSaveService.Result result) { return applySourceSaveAsync(result); }
+        @Override public void acknowledgementFailed(bluej.light.SourceSaveService.Result result, Throwable failure)
+        {
+            saveState.setState(Status.CHANGED);
+            scheduleDraft();
+            info.message(Config.getString("editor.info.errorSaving") + " - " + failure.getLocalizedMessage());
+        }
         @Override public void failed(IOException failure)
         { info.message(Config.getString("editor.info.errorSaving") + " - " + failure.getLocalizedMessage()); }
         @Override public java.util.concurrent.CompletableFuture<FlowSourceSaver.ConflictChoice> decideConflict()
@@ -747,6 +754,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private boolean preparedCloseWithCopy;
     private boolean closedWithRecoveryCopy;
     private boolean closeNotified;
+    private bluej.light.SourceSaveService.Snapshot lastSavedSource;
     private long completionRequest;
     private long snippetRequest;
     private SuggestionList activeCompletion;
@@ -1632,6 +1640,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         invalidateRecoveryWork();
         sourceSaver.reset();
         invalidateDiskInspection();
+        lastSavedSource = null;
         this.filename = filename;
         this.docFilename = docFilename;
         this.characterSet = charset;
@@ -2072,6 +2081,23 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
 
     private void applySourceSave(bluej.light.SourceSaveService.Result result)
     {
+        if (updateSourceSaveState(result)) setSaved();
+    }
+
+    private CompletableFuture<Void> applySourceSaveAsync(bluej.light.SourceSaveService.Result result)
+    {
+        if (!updateSourceSaveState(result)) return CompletableFuture.completedFuture(null);
+        saveState.setState(Status.SAVED);
+        if (watcher instanceof bluej.editor.AsyncEditorWatcher asynchronous) return asynchronous.saveEventAsync(this);
+        if (watcher != null) watcher.saveEvent(this);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    public bluej.light.SourceSaveService.Snapshot getLastSavedSource() { return lastSavedSource; }
+
+    private boolean updateSourceSaveState(bluej.light.SourceSaveService.Result result)
+    {
+        lastSavedSource = result.snapshot();
         savedContentRevision = result.snapshot().revision();
         historyDiskText = result.snapshot().text();
         observedDiskText = result.diskText();
@@ -2082,14 +2108,16 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         {
             if (cancelDraft != null) { cancelDraft.run(); cancelDraft = null; }
             recoveryCloseRevision = -1;
-            setSaved();
+            return true;
         }
         else if (isModified()) scheduleDraft();
+        return false;
     }
 
     private void applyDiskReload(bluej.light.SourceSaveService.DiskState state)
     {
         sourceSaver.reset(); invalidateRecoveryWork();
+        lastSavedSource = null;
         undoManager.compoundEdit(() -> document.replaceText(0, document.getLength(), state.text()));
         historyDiskText = state.text(); observedDiskText = state.text(); observedDiskLength = state.byteLength();
         setLastModified(state.modifiedMillis());
@@ -2650,9 +2678,13 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public void changeName(String title, String filename, String javaFilename, String docFilename)
     {
         invalidateRecoveryWork();
-        sourceSaver.reset();
+        sourceSaver.pathChanged();
         invalidateDiskInspection();
         this.filename = filename;
+        if (lastSavedSource != null && filename != null)
+            lastSavedSource = new bluej.light.SourceSaveService.Snapshot(sourceSaver.owner(), savedContentRevision,
+                java.nio.file.Path.of(filename), lastSavedSource.text(), characterSet, observedDiskText,
+                PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES), false);
         this.docFilename = docFilename;
         windowTitle = title;
         setWindowTitle();

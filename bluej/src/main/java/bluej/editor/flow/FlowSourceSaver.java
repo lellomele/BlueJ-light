@@ -25,6 +25,9 @@ final class FlowSourceSaver
         SourceSaveService service();
         LocalHistory history();
         void saved(SourceSaveService.Result result);
+        default CompletableFuture<Void> savedAsync(SourceSaveService.Result result)
+        { saved(result); return CompletableFuture.completedFuture(null); }
+        default void acknowledgementFailed(SourceSaveService.Result result, Throwable failure) { failed(asIOException(failure)); }
         void failed(IOException failure);
         CompletableFuture<ConflictChoice> decideConflict();
         void conflictFinished();
@@ -49,15 +52,19 @@ final class FlowSourceSaver
     private final Map<Long, Attempt> attempts = new HashMap<>();
     private final Map<CompletableFuture<Void>, Attempt> requests = new IdentityHashMap<>();
     private CompletableFuture<Void> conflict;
+    private Attempt acknowledging;
+    private long fileLifetime;
 
     FlowSourceSaver(View view) { this.view = view; }
 
     String ownerId() { return owner.id(); }
+    SourceSaveService.Owner owner() { return owner; }
     boolean pending() { return requests.keySet().stream().anyMatch(request -> !request.isDone()); }
 
     /** Changing/reloading the file retires requests, but never pretends an active disk write has stopped. */
     void reset()
     {
+        fileLifetime++; acknowledging = null;
         owner.retire(); owner = new SourceSaveService.Owner(); source = null; appliedRevision = Long.MIN_VALUE;
         List<CompletableFuture<Void>> old = List.copyOf(requests.keySet());
         requests.values().stream().filter(Objects::nonNull).forEach(attempt -> attempt.handled = true);
@@ -69,12 +76,19 @@ final class FlowSourceSaver
         if (hadConflict) view.cancelConflict();
     }
 
+    /** An acknowledged move changes the writer identity, retaining requests for this same document. */
+    void pathChanged()
+    {
+        owner.retire(); owner = new SourceSaveService.Owner(); source = null; appliedRevision = Long.MIN_VALUE;
+    }
+
     CompletableFuture<Void> saveAsync()
     {
         State state = view.state();
         Attempt current = requests.values().stream().filter(Objects::nonNull)
             .filter(attempt -> attempt.snapshot.owner() == owner && attempt.snapshot.revision() == state.revision() && !attempt.done.isDone()).findFirst().orElse(null);
         if (current != null) return current.done;
+        if (acknowledging != null && !acknowledging.done.isDone()) return afterConflict(acknowledging.done);
         if (conflict != null && conflict.isDone()) conflict = null;
         if (conflict != null)
         {
@@ -94,9 +108,9 @@ final class FlowSourceSaver
     private CompletableFuture<Void> afterConflict(CompletableFuture<Void> barrier)
     {
         CompletableFuture<Void> result = new CompletableFuture<>(); track(result, null);
-        SourceSaveService.Owner expected = owner;
+        long expected = fileLifetime;
         barrier.whenComplete((ignored, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
-            if (failure != null || expected != owner)
+            if (failure != null || expected != fileLifetime)
             { result.completeExceptionally(failure != null ? failure : new IOException("Source editor changed")); return; }
             saveAsync().whenComplete((saved, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
                 if (error == null) result.complete(null); else result.completeExceptionally(error);
@@ -118,6 +132,7 @@ final class FlowSourceSaver
     /** Legacy extension bridge only. Internal UI callers must use saveAsync. */
     void saveBlocking() throws IOException
     {
+        if (acknowledging != null && !acknowledging.done.isDone()) throw new IOException("Source metadata or path update is pending");
         if (conflict != null && !conflict.isDone()) throw new IOException("A source conflict decision is pending");
         conflict = null;
         State state = view.state();
@@ -177,17 +192,41 @@ final class FlowSourceSaver
             if (attempt.snapshot.revision() >= appliedRevision)
             {
                 appliedRevision = attempt.snapshot.revision();
-                try { view.saved(result); }
+                long lifetime = fileLifetime;
+                try
+                {
+                    if (attempt.legacy) view.saved(result);
+                    else
+                    {
+                        acknowledging = attempt;
+                        Objects.requireNonNull(view.savedAsync(result)).whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() ->
+                            finishAcknowledgement(attempt, result, lifetime, failure)));
+                        return;
+                    }
+                }
                 catch (RuntimeException | LinkageError | AssertionError failure)
                 {
-                    bluej.utility.Debug.reportError("Source-save acknowledgement failed", failure);
-                    attempt.done.completeExceptionally(failure); return;
+                    finishAcknowledgement(attempt, result, lifetime, failure); return;
                 }
                 catch (Error fatal) { attempt.done.completeExceptionally(fatal); throw fatal; }
             }
             attempt.done.complete(null);
         }
         else fail(attempt, result.failure() != null ? result.failure() : new IOException("Source editor changed"));
+    }
+
+    private void finishAcknowledgement(Attempt attempt, SourceSaveService.Result result, long lifetime, Throwable failure)
+    {
+        if (acknowledging == attempt) acknowledging = null;
+        if (attempt.done.isDone()) return;
+        if (lifetime != fileLifetime) { attempt.done.completeExceptionally(new IOException("Source editor changed")); return; }
+        if (failure == null) { attempt.done.complete(null); return; }
+        try
+        {
+            bluej.utility.Debug.reportError("Source-save acknowledgement failed", failure);
+            view.acknowledgementFailed(result, failure);
+        }
+        finally { attempt.done.completeExceptionally(failure); }
     }
 
     private void fail(Attempt attempt, IOException failure)

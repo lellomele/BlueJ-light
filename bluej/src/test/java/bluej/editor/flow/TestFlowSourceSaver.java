@@ -33,11 +33,18 @@ public class TestFlowSourceSaver extends FXTest
         Path path;String text="local\n",disk="baseline\n";long revision=1;boolean modified=true;
         int decisions,cancelled,reloads,failures;
         CompletableFuture<FlowSourceSaver.ConflictChoice> choice;
+        CompletableFuture<Void> acknowledgement;
+        boolean acknowledgementDelivered;
         final LocalHistory history=new LocalHistory(folder.getRoot().toPath().resolve("history"));
         @Override public FlowSourceSaver.State state(){return new FlowSourceSaver.State(path,text,StandardCharsets.UTF_8,revision,disk,modified,true);}
         @Override public SourceSaveService service(){return service;}
         @Override public LocalHistory history(){return history;}
         @Override public void saved(SourceSaveService.Result result){disk=result.diskText();if(revision==result.snapshot().revision())modified=false;}
+        @Override public CompletableFuture<Void> savedAsync(SourceSaveService.Result result) {
+            saved(result);acknowledgementDelivered=true;CompletableFuture<Void> pending=acknowledgement;acknowledgement=null;
+            return pending==null?CompletableFuture.completedFuture(null):pending;
+        }
+        @Override public void acknowledgementFailed(SourceSaveService.Result result,Throwable error){modified=true;failures++;}
         @Override public void failed(IOException error){failures++;}
         @Override public CompletableFuture<FlowSourceSaver.ConflictChoice> decideConflict(){decisions++;choice=new CompletableFuture<>();return choice;}
         @Override public void conflictFinished(){}
@@ -95,5 +102,40 @@ public class TestFlowSourceSaver extends FXTest
         fx_(() -> {view.text="newest\n";view.revision++;});var newer=save();assertFalse(newer.isDone());
         fx_(() -> assertTrue(saver.pending()));active.release.countDown();older.get(5,TimeUnit.SECONDS);newer.get(5,TimeUnit.SECONDS);
         assertEquals("newest\n",Files.readString(view.path));fx_(() -> {assertFalse(view.modified);assertFalse(saver.pending());assertEquals(1,view.decisions);});
+    }
+
+    private CompletableFuture<Void> holdAcknowledgement() {
+        CompletableFuture<Void> gate=new CompletableFuture<>();fx_(() -> {view.disk="external\n";view.acknowledgement=gate;});return gate;
+    }
+    private void acknowledgementReady() throws Exception {
+        long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);
+        while(System.nanoTime()<deadline){if(fx(() -> view.acknowledgementDelivered))return;Thread.sleep(10);}fail("Model acknowledgement missing");
+    }
+    @Test public void newerWritesWaitForPathAndModelAcknowledgement() throws Exception {
+        var gate=holdAcknowledgement();var older=save();acknowledgementReady();assertFalse(older.isDone());
+        fx_(() -> {view.text="after metadata\n";view.revision++;view.modified=true;});var newer=save();assertFalse(newer.isDone());
+        assertEquals("local\n",Files.readString(view.path));gate.complete(null);older.get(5,TimeUnit.SECONDS);newer.get(5,TimeUnit.SECONDS);
+        assertEquals("after metadata\n",Files.readString(view.path));fx_(() -> assertFalse(saver.pending()));
+    }
+    @Test public void resetDuringAcknowledgementPreventsLateCallbacksFromChangingTheNewDocument() throws Exception {
+        var gate=holdAcknowledgement();var request=save();acknowledgementReady();
+        fx_(() -> {saver.reset();view.text="other document\n";view.revision++;view.modified=false;});failed(request);
+        gate.completeExceptionally(new IllegalStateException("Late obsolete metadata failure"));fx_(() -> {});
+        fx_(() -> {assertEquals("other document\n",view.text);assertFalse(view.modified);assertEquals(0,view.failures);assertFalse(saver.pending());});
+    }
+    @Test public void acknowledgedPathTransferPreservesWaitingRequestsAndSavesOnlyTheNewName() throws Exception {
+        var gate=holdAcknowledgement();var older=save();acknowledgementReady();Path original=view.path,newPath=original.resolveSibling("Renamed.java");
+        Files.move(original,newPath);
+        fx_(() -> {saver.pathChanged();view.path=newPath;view.text="new path latest\n";view.revision++;view.modified=true;});
+        var newer=save();assertFalse(newer.isDone());gate.complete(null);older.get(5,TimeUnit.SECONDS);newer.get(5,TimeUnit.SECONDS);
+        assertFalse(Files.exists(original));assertEquals("new path latest\n",Files.readString(newPath));
+    }
+    @Test public void failedAcknowledgementSettlesTheRequestAndRetainsARetryableBuffer() throws Exception {
+        var gate=holdAcknowledgement();var request=save();acknowledgementReady();
+        fx_(() -> {try{saver.saveBlocking();fail("Legacy bridge must not wait for an FX acknowledgement");}catch(IOException expected){}});
+        gate.completeExceptionally(new IllegalStateException("Injected metadata failure"));
+        try{request.get(5,TimeUnit.SECONDS);fail("Expected failed acknowledgement");}catch(ExecutionException expected){assertTrue(expected.getCause() instanceof IllegalStateException);}
+        fx_(() -> {assertEquals(1,view.failures);assertTrue(view.modified);assertFalse(saver.pending());});
+        save().get(5,TimeUnit.SECONDS);assertEquals("local\n",Files.readString(view.path));fx_(() -> assertFalse(view.modified));
     }
 }
