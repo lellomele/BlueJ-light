@@ -209,6 +209,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             if (question != null) question.cancel(false);
         }
         @Override public void reloaded(bluej.light.SourceSaveService.DiskState state) { applyDiskReload(state); }
+        @Override public CompletableFuture<Void> reloadedAsync(bluej.light.SourceSaveService.DiskState state) { return applyDiskReload(state); }
     });
     private String observedDiskText = "";
     private long observedDiskLength;
@@ -1483,7 +1484,13 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             { info.message(Config.getString("editor.info.fileReadError")); result.complete(null); return; }
             if (java.util.Objects.equals(disk.text(), observedDiskText))
             { observedDiskLength = disk.byteLength(); setLastModified(disk.modifiedMillis()); result.complete(null); return; }
-            if (!isModified()) { applyDiskReload(disk); result.complete(null); return; }
+            if (!isModified())
+            {
+                sourceSaver.reload(disk).whenComplete((loaded, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                    if (error == null) result.complete(null);else result.completeExceptionally(error);
+                }));
+                return;
+            }
             // Merely focusing a dirty editor must not force a decision or reopen a dismissed question.
             // The next explicit save checks the unchanged baseline and offers reload/keep/cancel.
             result.complete(null);
@@ -2119,16 +2126,23 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         return false;
     }
 
-    private void applyDiskReload(bluej.light.SourceSaveService.DiskState state)
+    private CompletableFuture<Void> applyDiskReload(bluej.light.SourceSaveService.DiskState state)
     {
-        sourceSaver.reset(); invalidateRecoveryWork();
-        lastSavedSource = null;
+        invalidateRecoveryWork();
+        java.nio.file.Path source = java.nio.file.Path.of(filename);String previous = document.getFullContent();
+        bluej.light.HistoryTasks.submit(() -> localHistory.snapshot(source,previous,"before reload"));
         undoManager.compoundEdit(() -> document.replaceText(0, document.getLength(), state.text()));
         historyDiskText = state.text(); observedDiskText = state.text(); observedDiskLength = state.byteLength();
         setLastModified(state.modifiedMillis());
         savedContentRevision = contentRevision;
-        setSaved();
+        saveState.setState(Status.SAVED);
+        lastSavedSource = new bluej.light.SourceSaveService.Snapshot(sourceSaver.owner(),contentRevision,source,state.text(),characterSet,state.text(),
+            PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES),false);
+        CompletableFuture<Void> metadata;
+        if (watcher instanceof bluej.editor.AsyncEditorWatcher asynchronous) metadata = asynchronous.saveEventAsync(this);
+        else { if (watcher != null) watcher.saveEvent(this);metadata = CompletableFuture.completedFuture(null); }
         if (sourceIsCode) scheduleCompilation(CompileReason.LOADED, CompileType.ERROR_CHECK_ONLY);
+        return metadata;
     }
 
     /**

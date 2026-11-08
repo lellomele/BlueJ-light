@@ -33,6 +33,8 @@ final class FlowSourceSaver
         void conflictFinished();
         default void cancelConflict() { conflictFinished(); }
         void reloaded(SourceSaveService.DiskState state);
+        default CompletableFuture<Void> reloadedAsync(SourceSaveService.DiskState state)
+        { reloaded(state);return CompletableFuture.completedFuture(null); }
     }
 
     private static final class Attempt
@@ -65,16 +67,47 @@ final class FlowSourceSaver
     /** Changing/reloading the file retires requests, but never pretends an active disk write has stopped. */
     void reset()
     {
-        fileLifetime++; acknowledging = null;
+        reset(null,true);
+    }
+
+    private void reset(Attempt retained, boolean newLifetime)
+    {
+        if (newLifetime) fileLifetime++;
+        acknowledging = null;
         owner.retire(); owner = new SourceSaveService.Owner(); source = null; appliedRevision = Long.MIN_VALUE;
-        List<CompletableFuture<Void>> old = List.copyOf(requests.keySet());
-        requests.values().stream().filter(Objects::nonNull).forEach(attempt -> attempt.handled = true);
+        List<CompletableFuture<Void>> old = requests.keySet().stream().filter(request -> retained == null || request != retained.done).toList();
+        requests.values().stream().filter(Objects::nonNull).filter(attempt -> attempt != retained).forEach(attempt -> attempt.handled = true);
         requests.clear(); attempts.clear();
-        boolean hadConflict = conflict != null; conflict = null;
+        if (retained != null) requests.put(retained.done,retained);
+        boolean hadConflict = conflict != null && (retained == null || conflict != retained.done); conflict = null;
         JavaFXUtil.runAfterCurrent(() -> {
             old.forEach(request -> request.completeExceptionally(new IOException("Source editor changed")));
         });
         if (hadConflict) view.cancelConflict();
+    }
+
+    /** Adopt an inspected disk version; its path/model changes form part of this request too. */
+    CompletableFuture<Void> reload(SourceSaveService.DiskState disk)
+    {
+        State current = view.state();
+        Attempt attempt = new Attempt(new SourceSaveService.Snapshot(owner,current.revision(),current.source(),disk.text(),
+            current.charset(),disk.text(),current.checkDiskChanges(),false),CompletableFuture.completedFuture(null));
+        track(attempt.done,attempt);adoptReload(attempt,disk);return attempt.done;
+    }
+
+    private void adoptReload(Attempt attempt, SourceSaveService.DiskState disk)
+    {
+        reset(attempt,false);acknowledging = attempt;
+        long lifetime = fileLifetime;
+        SourceSaveService.Result result = new SourceSaveService.Result(SourceSaveService.Outcome.SAVED,attempt.snapshot,null,
+            disk.text(),disk.modifiedMillis(),disk.byteLength(),null);
+        try
+        {
+            Objects.requireNonNull(view.reloadedAsync(disk)).whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() ->
+                finishAcknowledgement(attempt,result,lifetime,failure)));
+        }
+        catch (RuntimeException | LinkageError | AssertionError failure) { finishAcknowledgement(attempt,result,lifetime,failure); }
+        catch (Error fatal) { attempt.done.completeExceptionally(fatal);throw fatal; }
     }
 
     /** An acknowledged move changes the writer identity, retaining requests for this same document. */
@@ -221,6 +254,7 @@ final class FlowSourceSaver
 
     private void finishAcknowledgement(Attempt attempt, SourceSaveService.Result result, long lifetime, Throwable failure)
     {
+        attempt.handled = true;
         if (acknowledging == attempt) acknowledging = null;
         if (attempt.done.isDone()) return;
         if (lifetime != fileLifetime) { attempt.done.completeExceptionally(new IOException("Source editor changed")); return; }
@@ -272,8 +306,7 @@ final class FlowSourceSaver
                     if (failure != null || disk == null || !disk.exists() || attempt.snapshot.owner() != owner
                         || current.revision() != attempt.snapshot.revision())
                     { fail(attempt, new IOException("Cannot reload changed source", failure)); return; }
-                    try { view.reloaded(disk); attempt.handled = true; attempt.done.complete(null); }
-                    catch (RuntimeException unavailable) { attempt.done.completeExceptionally(unavailable); }
+                    adoptReload(attempt,disk);
                 }));
             }
             else

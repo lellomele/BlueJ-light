@@ -34,6 +34,7 @@ public class TestFlowSourceSaver extends FXTest
         int decisions,cancelled,reloads,failures;
         CompletableFuture<FlowSourceSaver.ConflictChoice> choice;
         CompletableFuture<Void> acknowledgement;
+        CompletableFuture<Void> reloadAcknowledgement;
         boolean acknowledgementDelivered;
         final LocalHistory history=new LocalHistory(folder.getRoot().toPath().resolve("history"));
         @Override public FlowSourceSaver.State state(){return new FlowSourceSaver.State(path,text,StandardCharsets.UTF_8,revision,disk,modified,true);}
@@ -50,6 +51,10 @@ public class TestFlowSourceSaver extends FXTest
         @Override public void conflictFinished(){}
         @Override public void cancelConflict(){cancelled++;if(choice!=null)choice.cancel(false);}
         @Override public void reloaded(SourceSaveService.DiskState state){reloads++;text=state.text();disk=text;revision++;modified=false;}
+        @Override public CompletableFuture<Void> reloadedAsync(SourceSaveService.DiskState state) {
+            reloaded(state);acknowledgementDelivered=true;CompletableFuture<Void> pending=reloadAcknowledgement;reloadAcknowledgement=null;
+            return pending==null?CompletableFuture.completedFuture(null):pending;
+        }
     }
     @Override public void start(Stage stage) throws Exception {
         super.start(stage);InitConfig.init();stage.setScene(new Scene(new Pane(),500,300));stage.show();
@@ -158,5 +163,31 @@ public class TestFlowSourceSaver extends FXTest
         try{request.get(5,TimeUnit.SECONDS);fail("Expected failed acknowledgement");}catch(ExecutionException expected){assertTrue(expected.getCause() instanceof IllegalStateException);}
         fx_(() -> {assertEquals(1,view.failures);assertTrue(view.modified);assertFalse(saver.pending());});
         save().get(5,TimeUnit.SECONDS);assertEquals("local\n",Files.readString(view.path));fx_(() -> assertFalse(view.modified));
+    }
+    @Test public void acceptedReloadWaitsForMetadataAndPreservesNewerSavesAcrossItsPathChange() throws Exception {
+        CompletableFuture<Void> gate=new CompletableFuture<>();fx_(() -> view.reloadAcknowledgement=gate);
+        var original=save();decisionReady();fx_(() -> view.choice.complete(FlowSourceSaver.ConflictChoice.RELOAD));acknowledgementReady();assertFalse(original.isDone());
+        Path old=view.path,renamed=old.resolveSibling("Reloaded.java");Files.move(old,renamed);
+        fx_(() -> {saver.pathChanged();view.path=renamed;view.text="newer after reload\n";view.revision++;view.modified=true;});var newer=save();
+        assertFalse(newer.isDone());assertEquals("external\n",Files.readString(renamed));gate.complete(null);
+        original.get(5,TimeUnit.SECONDS);newer.get(5,TimeUnit.SECONDS);assertEquals("newer after reload\n",Files.readString(renamed));assertFalse(Files.exists(old));
+        fx_(() -> {assertFalse(saver.pending());assertFalse(view.modified);assertEquals(1,view.reloads);});
+    }
+    @Test public void resetDuringReloadAcknowledgementSettlesTheOriginalRequestAndIgnoresLateFailure() throws Exception {
+        CompletableFuture<Void> gate=new CompletableFuture<>();fx_(() -> view.reloadAcknowledgement=gate);
+        var original=save();decisionReady();fx_(() -> view.choice.complete(FlowSourceSaver.ConflictChoice.RELOAD));acknowledgementReady();
+        fx_(() -> {saver.reset();view.text="different editor file\n";view.revision++;view.modified=false;});failed(original);
+        gate.completeExceptionally(new IOException("Late reload metadata failure"));fx_(() -> {});
+        fx_(() -> {assertEquals("different editor file\n",view.text);assertFalse(view.modified);assertEquals(0,view.failures);assertFalse(saver.pending());});
+    }
+    @Test public void aCleanFocusReloadIsTrackedUntilItsModelAcknowledgementFinishes() throws Exception {
+        CompletableFuture<Void> gate=new CompletableFuture<>();AtomicReference<CompletableFuture<Void>> request=new AtomicReference<>();
+        fx_(() -> {
+            view.modified=false;view.reloadAcknowledgement=gate;
+            request.set(saver.reload(new SourceSaveService.DiskState(view.path,"external\n",1,9,true)));
+            assertTrue(saver.pending());assertEquals(0,view.decisions);assertEquals("external\n",view.text);
+        });
+        var saving=save();assertFalse(request.get().isDone());assertFalse(saving.isDone());gate.complete(null);
+        request.get().get(5,TimeUnit.SECONDS);saving.get(5,TimeUnit.SECONDS);fx_(() -> assertFalse(saver.pending()));
     }
 }
