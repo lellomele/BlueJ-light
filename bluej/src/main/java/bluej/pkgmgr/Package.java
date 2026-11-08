@@ -217,15 +217,15 @@ public final class Package
     private boolean currentlyCompiling = false;
 
     private DebuggerListener idleCompileListener;
-    private final Map<ClassTarget, PendingCompilation> idleCompilations = new LinkedHashMap<>();
-    private final Map<ClassTarget, PendingCompilation> pendingCompilations = new LinkedHashMap<>();
-    private final Map<ClassTarget, PendingCompilation> preparingCompilations = new LinkedHashMap<>();
+    private final Map<ClassTarget, PendingCompilation> idleCompilations = new OrderedIdentityMap<>();
+    private final Map<ClassTarget, PendingCompilation> pendingCompilations = new OrderedIdentityMap<>();
+    private final Map<ClassTarget, PendingCompilation> preparingCompilations = new OrderedIdentityMap<>();
     private boolean preparingSources;
     private long sourcePreparationGeneration;
     private final Deque<CompilationRetry> compilationRetries = new ArrayDeque<>();
     private CompilationRetry preparingRetry;
-    private final Map<ClassTarget, Long> activeCompilationJobs = new HashMap<>();
-    private final Map<ClassTarget, Long> checkedRevisions = new WeakHashMap<>();
+    private final Map<ClassTarget, Long> activeCompilationJobs = new IdentityHashMap<>();
+    private final Map<ClassTarget, Long> checkedRevisions = new IdentityHashMap<>();
     private long nextCompilationJob;
     private long activePackageJob = -1;
     private long nextMetadataSave, appliedMetadataSave;
@@ -1498,7 +1498,7 @@ public final class Package
             return;
         }
         if (!prepareCompilationSources(null, false, compObserver, reason, type)) return;
-        Set<ClassTarget> toCompile = new HashSet<ClassTarget>();
+        Set<ClassTarget> toCompile = Sets.newIdentityHashSet();
 
         try
         {
@@ -1751,7 +1751,7 @@ public final class Package
             return;
         }
 
-        Set<ClassTarget> toCompile = new HashSet<ClassTarget>();
+        Set<ClassTarget> toCompile = Sets.newIdentityHashSet();
 
         try {
             List<ClassTarget> queue = new LinkedList<ClassTarget>();
@@ -1978,7 +1978,7 @@ public final class Package
         bluej.editor.EditorSaveBatch.save(scope, type).whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() -> {
             if (generation != sourcePreparationGeneration) return;
             // Detach before callbacks: a failed observer may enqueue a replacement preparation.
-            Map<ClassTarget, PendingCompilation> waiting = new LinkedHashMap<>(preparingCompilations);
+            Map<ClassTarget, PendingCompilation> waiting = new OrderedIdentityMap<>(preparingCompilations);
             preparingCompilations.clear(); preparingSources = false;
             PendingCompilation original = waiting.remove(target);
             try
@@ -2088,11 +2088,11 @@ public final class Package
         waitingForIdleToCompile = false;
         List<Map<ClassTarget, PendingCompilation>> detached = new ArrayList<>();
         for (Map<ClassTarget, PendingCompilation> pending : List.of(idleCompilations, pendingCompilations, preparingCompilations)) {
-            detached.add(new LinkedHashMap<>(pending)); pending.clear();
+            detached.add(new OrderedIdentityMap<>(pending)); pending.clear();
         }
         List<CompilationRetry> retries = new ArrayList<>(compilationRetries); compilationRetries.clear();
         if (preparingRetry != null) { retries.add(preparingRetry); preparingRetry = null; }
-        Set<ClassTarget> cancelled = new HashSet<>(activeCompilationJobs.keySet());
+        Set<ClassTarget> cancelled = Sets.newIdentityHashSet(); cancelled.addAll(activeCompilationJobs.keySet());
         for (Map<ClassTarget, PendingCompilation> pending : detached)
             for (ClassTarget target : pending.keySet()) if (target != null) cancelled.add(target);
         activeCompilationJobs.clear();
@@ -2136,7 +2136,7 @@ public final class Package
         if (edtObserver instanceof QuietPackageCompileObserver observer) {
             observer.job = job;
             observer.submittedTargets = new HashMap<>();
-            observer.submittedVersions = new HashMap<>();
+            observer.submittedVersions = new IdentityHashMap<>();
             // Include implicit sources in this package, without opening editors or reading files.
             for (ClassTarget target : getClassTargets())
             {
@@ -2148,8 +2148,8 @@ public final class Package
         }
         for (ClassTarget target : submitted) { target.setQueued(true); activeCompilationJobs.put(target, job); }
         if (wholePackage) { currentlyCompiling = true; activePackageJob = job; }
-        Map<ClassTarget, Long> submittedRevisions = new HashMap<>();
-        Map<ClassTarget, Editor> submittedEditors = new HashMap<>();
+        Map<ClassTarget, Long> submittedRevisions = new IdentityHashMap<>();
+        Map<ClassTarget, Editor> submittedEditors = new IdentityHashMap<>();
         for (ClassTarget target : submitted)
         {
             Editor sourceEditor = target.getEditorIfOpen();
@@ -2286,7 +2286,7 @@ public final class Package
         getDebugger().removeDebuggerListener(listener);
         idleCompileListener = null;
         waitingForIdleToCompile = false;
-        var requests = new LinkedHashMap<>(idleCompilations);
+        var requests = new OrderedIdentityMap<>(idleCompilations);
         idleCompilations.clear();
         for (var entry : requests.entrySet()) {
             if (isDebuggerIdle()) runPendingCompilation(entry.getKey(), entry.getValue());
@@ -2375,6 +2375,7 @@ public final class Package
 
     public synchronized void removeTarget(Target t)
     {
+        if (t instanceof ClassTarget ct) checkedRevisions.remove(ct);
         targets.remove(t.getIdentifierName());
         getProject().completionSourcesChanged();
         t.setRemoved();
@@ -3040,7 +3041,7 @@ public final class Package
         private Map<String, ClassTarget> submittedTargets = Map.of();
         private Map<ClassTarget, SubmittedSource> submittedVersions = Map.of();
         private long job;
-        protected Set<ClassTarget> retriedTargets = new HashSet<>();
+        protected Set<ClassTarget> retriedTargets = Sets.newIdentityHashSet();
 
         /**
          * Construct a new QuietPackageCompileObserver. The chained observers (if
