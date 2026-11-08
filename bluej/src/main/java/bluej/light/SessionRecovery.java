@@ -119,7 +119,7 @@ public final class SessionRecovery
             }
             Path file = file();
             List<Entry> snapshot = List.copyOf(entries.values());
-            HistoryTasks.submitDraft(file, () -> write(file, snapshot));
+            HistoryTasks.submitDraft(file, retainedBytes(snapshot), () -> write(file, snapshot));
         });
     }
 
@@ -130,7 +130,7 @@ public final class SessionRecovery
         long generation = ++restoreGeneration;
         restoringEditors = true;
         Path preferences = Config.getUserConfigDir().toPath(); List<Entry> captured = List.copyOf(entries);
-        HistoryTasks.submitAsync(() -> {
+        HistoryTasks.submitAsync(retainedBytes(captured), () -> {
             List<Entry> resolved = resolveEntries(captured,new LocalHistory(preferences));
             JavaFXUtil.runNowOrLater(() -> {
                 if (generation != restoreGeneration) return;
@@ -202,6 +202,17 @@ public final class SessionRecovery
         active = false;
         if (cancelCheckpoint != null) { cancelCheckpoint.run(); cancelCheckpoint = null; }
         Path file = file();
-        return HistoryTasks.submitAsync(() -> Files.deleteIfExists(file));
+        return HistoryTasks.finishAsync(() -> Files.deleteIfExists(file));
+    }
+
+    private static long retainedBytes(List<Entry> entries)
+    {
+        long bytes = 4096;
+        for (Entry entry : entries)
+        {
+            bytes += 128 + 2L * entry.packageDirectory().toString().length();
+            for (String name : entry.classes()) bytes += 64 + 2L * name.length();
+        }
+        return bytes;
     }
 }

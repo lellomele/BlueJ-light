@@ -208,7 +208,8 @@ final class FlowSourceSaver
         track(attempt.done, attempt);
         io.whenComplete((result, failure) -> {
             if (result != null && result.saved())
-                HistoryTasks.submit(() -> history.acknowledgeSave(snapshot.source(), result.previousText(), snapshot.text(), snapshot.owner().id(), snapshot.revision()));
+                HistoryTasks.submit(HistoryTasks.retainedTextBytes(snapshot.text(),snapshot.expectedDiskText(),result.diskText(),result.previousText()),
+                    () -> history.acknowledgeSave(snapshot.source(), result.previousText(), snapshot.text(), snapshot.owner().id(), snapshot.revision()));
             dispatch(attempt, () -> {
                 if (attempt.legacy || attempt.handled) return;
                 if (failure != null) fail(attempt, asIOException(failure));

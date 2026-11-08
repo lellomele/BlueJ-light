@@ -300,7 +300,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         if (filename != null)
         {
             java.nio.file.Path source = java.nio.file.Path.of(filename);
-            bluej.light.HistoryTasks.submit(() -> localHistory.snapshot(source, current, "before restore"));
+            bluej.light.HistoryTasks.submit(bluej.light.HistoryTasks.retainedTextBytes(current), () -> localHistory.snapshot(source, current, "before restore"));
         }
         undoManager.compoundEdit(() -> document.replaceText(0, document.getLength(), text));
         getSourcePane().positionCaret(0);
@@ -312,7 +312,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         String disk = historyDiskText;
         int generation = ++historyGeneration;
         recoveryPending = true;
-        bluej.light.HistoryTasks.submit(() -> {
+        bluej.light.HistoryTasks.submitAsync(bluej.light.HistoryTasks.retainedTextBytes(disk), () -> {
             Optional<bluej.light.LocalHistory.Draft> draft;
             try
             {
@@ -328,6 +328,12 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 pendingRecoveredDraft = recovered.orElse(null);
                 showRecoveryPrompt();
                 if (!recoveryPending && isModified()) scheduleDraft();
+            });
+        }).whenComplete((ignored, failure) -> {
+            if (failure != null) JavaFXUtil.runNowOrLater(() -> {
+                if (generation != historyGeneration || !source.toString().equals(filename)) return;
+                recoveryPending = false;
+                if (isModified()) scheduleDraft();
             });
         });
     }
@@ -375,7 +381,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             String base = bluej.light.LocalHistory.hash(historyDiskText);
             String owner = sourceSaver.ownerId();
             long revision = contentRevision;
-            bluej.light.HistoryTasks.submitDraft(source, () -> localHistory.draft(source, text, base, owner, revision));
+            bluej.light.HistoryTasks.submitDraft(source, bluej.light.HistoryTasks.retainedTextBytes(text,base), () -> localHistory.draft(source, text, base, owner, revision));
         });
     }
     // version number
@@ -1946,7 +1952,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             java.nio.file.Path source = java.nio.file.Path.of(filename);
             sourceSaver.reset();invalidateDiskInspection();
             invalidateRecoveryWork();
-            bluej.light.HistoryTasks.submit(() -> localHistory.snapshot(source, previous, "before reload"));
+            bluej.light.HistoryTasks.submit(bluej.light.HistoryTasks.retainedTextBytes(previous), () -> localHistory.snapshot(source, previous, "before reload"));
             document.replaceText(0, document.getLength(), text);
             getSourcePane().positionCaret(0);
             undoManager.forgetHistory();
@@ -2167,7 +2173,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         diskConfirmationRequired = false;
         invalidateRecoveryWork();
         java.nio.file.Path source = java.nio.file.Path.of(filename);String previous = document.getFullContent();
-        bluej.light.HistoryTasks.submit(() -> localHistory.snapshot(source,previous,"before reload"));
+        bluej.light.HistoryTasks.submit(bluej.light.HistoryTasks.retainedTextBytes(previous), () -> localHistory.snapshot(source,previous,"before reload"));
         undoManager.compoundEdit(() -> document.replaceText(0, document.getLength(), state.text()));
         historyDiskText = state.text(); observedDiskText = state.text(); observedDiskLength = state.byteLength();
         setLastModified(state.modifiedMillis());
