@@ -2170,41 +2170,38 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     {
         if (pendingClose != null && !pendingClose.isDone()) return pendingClose;
         CompletableFuture<Boolean> result = new CompletableFuture<>(); pendingClose = result;
-        String owner = sourceSaver.ownerId();
+        long lifetime = sourceSaver.lifetime();
         result.whenComplete((ready, failure) -> { if (pendingClose == result) pendingClose = null; });
         if (offeringRecoveryClose || showingChangedOnDiskDialog) { result.complete(false); return result; }
         if (recoveryCloseRevision == contentRevision && java.util.Objects.equals(recoveryCloseFilename, filename) && recoveryCloseFile != null)
         {
             long revision = contentRevision; String text = document.getFullContent();
             recoverySaveService().inspect(recoveryCloseFile, java.nio.charset.StandardCharsets.UTF_8).whenComplete((copy, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
-                if (!owner.equals(sourceSaver.ownerId()) || revision != contentRevision) { result.complete(false); return; }
+                if (lifetime != sourceSaver.lifetime() || revision != contentRevision) { result.complete(false); return; }
                 if (failure == null && copy != null && copy.exists() && text.equals(copy.text()))
                 { approveClose(true); result.complete(true); }
-                else { recoveryCloseRevision = -1; prepareSourceForClose(owner, result); }
+                else { recoveryCloseRevision = -1; prepareSourceForClose(lifetime, result); }
             }));
         }
-        else prepareSourceForClose(owner, result);
+        else prepareSourceForClose(lifetime, result);
         return result;
     }
 
-    private void prepareSourceForClose(String owner, CompletableFuture<Boolean> result)
+    protected javafx.util.Duration closeSaveWarningDelay() { return javafx.util.Duration.seconds(8); }
+
+    private void prepareSourceForClose(long lifetime, CompletableFuture<Boolean> result)
     {
-        bluej.editor.EditorSaveBatch.save(() -> List.of(this), null).whenComplete((ignored, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
-            if (!owner.equals(sourceSaver.ownerId())) { result.complete(false); return; }
-            if (failure == null) { approveClose(false); result.complete(true); return; }
-            IOException error = failure instanceof IOException io ? io : new IOException("Cannot save source", failure);
-            info.messageImportant(Config.getString("editor.info.errorSaving") + " - " + error.getLocalizedMessage());
-            try
-            {
-                offerRecoveryForCloseAsync(error).whenComplete((copyReady, copyFailure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
-                    if (copyFailure != null) { Debug.reportError("Cannot preserve source for close", copyFailure); result.complete(false); }
-                    else if (Boolean.TRUE.equals(copyReady) && owner.equals(sourceSaver.ownerId()) && recoveryCloseRevision == contentRevision)
-                    { approveClose(true); result.complete(true); }
-                    else result.complete(false);
-                }));
-            }
-            catch (RuntimeException | LinkageError | AssertionError unavailable) { result.completeExceptionally(unavailable); }
-        }));
+        CloseSaveAttempt.start(bluej.editor.EditorSaveBatch.save(() -> List.of(this),null),
+            () -> lifetime == sourceSaver.lifetime(),this::offerRecoveryForCloseAsync,
+            expired -> JavaFXUtil.runAfter(closeSaveWarningDelay(),expired),Config.getString("light.save.stillPending"))
+            .whenComplete((outcome, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (failure != null) { Debug.reportError("Cannot preserve source for close",failure);result.complete(false);return; }
+                if (lifetime != sourceSaver.lifetime()) { result.complete(false);return; }
+                if (outcome == CloseSaveAttempt.Outcome.SAVED) { approveClose(false);result.complete(true); }
+                else if (outcome == CloseSaveAttempt.Outcome.RECOVERY_COPY && recoveryCloseRevision == contentRevision)
+                { approveClose(true);result.complete(true); }
+                else result.complete(false);
+            }));
     }
 
     protected CompletableFuture<Boolean> offerRecoveryForCloseAsync(IOException failure)
@@ -2215,7 +2212,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         ButtonType copyAndClose = new ButtonType(Config.getString("light.save.copyClose"));
         ButtonType keepEditing = new ButtonType(Config.getString("light.save.keepEditing"), javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
         Alert alert = new Alert(Alert.AlertType.WARNING,
-            Config.getString("light.save.closeFailure") + "\n\n" + filename + "\n" + failure.getLocalizedMessage(), keepEditing, copyAndClose);
+            Config.getString(failure instanceof CloseSaveAttempt.PendingWrite ? "light.save.closePending" : "light.save.closeFailure")
+                + "\n\n" + filename + "\n" + failure.getLocalizedMessage(), keepEditing, copyAndClose);
         alert.initOwner(getWindow()); alert.setTitle(Config.getString("light.save.recoveryTitle"));
         ((javafx.scene.control.Button)alert.getDialogPane().lookupButton(copyAndClose)).setDefaultButton(false);
         ((javafx.scene.control.Button)alert.getDialogPane().lookupButton(keepEditing)).setDefaultButton(true);

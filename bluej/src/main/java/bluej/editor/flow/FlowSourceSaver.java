@@ -58,6 +58,7 @@ final class FlowSourceSaver
     FlowSourceSaver(View view) { this.view = view; }
 
     String ownerId() { return owner.id(); }
+    long lifetime() { return fileLifetime; }
     SourceSaveService.Owner owner() { return owner; }
     boolean pending() { return requests.keySet().stream().anyMatch(request -> !request.isDone()); }
 
