@@ -123,12 +123,23 @@ public final class SourceSaveService implements AutoCloseable
 
     /** The history intent precedes the physical move; a crash can resolve its identity at the new name. */
     public CompletableFuture<Relocation> relocate(Snapshot saved, Path destination, LocalHistory history)
+    { return relocateWithHistory(saved,destination,history,null); }
+
+    /** Cross-package moves are confined to the same explicitly supplied project root. */
+    public CompletableFuture<Relocation> movePackage(Snapshot saved, Path destination, Path projectRoot, LocalHistory history)
+    {
+        if (!saved.source().getFileName().equals(destination.getFileName()))
+            return CompletableFuture.failedFuture(new IOException("A package move must retain the Java class filename"));
+        return relocateWithHistory(saved,destination,history,Objects.requireNonNull(projectRoot).toAbsolutePath().normalize());
+    }
+
+    private CompletableFuture<Relocation> relocateWithHistory(Snapshot saved, Path destination, LocalHistory history, Path projectRoot)
     {
         Path target = destination.toAbsolutePath().normalize();
         return submit(() -> {
-            HistoryPaths.Move change = history.preparePathChange(saved.source(), target);
+            HistoryPaths.Move change = history.preparePathChange(saved.source(), target, projectRoot);
             DiskState state;
-            try { state = relocateNow(saved, target); }
+            try { state = relocateNow(saved, target, projectRoot); }
             catch (IOException | RuntimeException failure)
             {
                 try { history.abortPathChange(change); } catch (IOException cleanup) { failure.addSuppressed(cleanup); }
@@ -149,13 +160,19 @@ public final class SourceSaveService implements AutoCloseable
     }
 
     private DiskState relocateNow(Snapshot saved, Path target) throws IOException
+    { return relocateNow(saved,target,null); }
+
+    private DiskState relocateNow(Snapshot saved, Path target, Path projectRoot) throws IOException
     {
         Path source = saved.source();
         if (saved.recoveryCopy() || source.getFileName() == null || target.getFileName() == null
             || !source.getFileName().toString().endsWith(".java") || !target.getFileName().toString().endsWith(".java")
-            || source.getParent() == null || target.getParent() == null
-            || !source.getParent().toRealPath().equals(target.getParent().toRealPath()))
-            throw new IOException("Class renaming requires Java sources in the same package directory");
+            || source.getParent() == null || target.getParent() == null)
+            throw new IOException("Class relocation requires Java source paths");
+        Path fromDirectory = source.getParent().toRealPath(), toDirectory = target.getParent().toRealPath();
+        if (projectRoot == null ? !fromDirectory.equals(toDirectory)
+            : !fromDirectory.startsWith(projectRoot.toRealPath()) || !toDirectory.startsWith(projectRoot.toRealPath()))
+            throw new IOException("Class relocation leaves its package or project");
         if (!saved.owner().beginRelocation(source, saved.revision())) throw new IOException("Source identity changed before renaming");
         boolean moved = false;
         List<Map.Entry<Path, FileLock>> locks = new ArrayList<>();
@@ -178,7 +195,7 @@ public final class SourceSaveService implements AutoCloseable
             if (!Files.isRegularFile(source) || !Objects.equals(read(saved), normalise(saved.text())))
                 throw new IOException("Source content changed before renaming");
             boolean sameSpelling = source.toString().equals(target.toString());
-            boolean caseOnly = !sameSpelling && source.getFileName().toString().equalsIgnoreCase(target.getFileName().toString())
+            boolean caseOnly = fromDirectory.equals(toDirectory) && !sameSpelling && source.getFileName().toString().equalsIgnoreCase(target.getFileName().toString())
                 && Files.exists(target) && Files.isSameFile(source, target);
             if (Files.exists(target) && !sameSpelling && !caseOnly) throw new FileAlreadyExistsException(target.toString());
             if (saved.owner().isRetired()) throw new IOException("Source editor changed before renaming");

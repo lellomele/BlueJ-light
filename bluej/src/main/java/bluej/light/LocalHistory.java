@@ -26,6 +26,7 @@ public final class LocalHistory
     }
 
     synchronized HistoryPaths.Move preparePathChange(Path source, Path destination) throws IOException { return paths.prepare(source, destination); }
+    synchronized HistoryPaths.Move preparePathChange(Path source, Path destination, Path projectRoot) throws IOException { return paths.prepare(source, destination, projectRoot); }
     synchronized void commitPathChange(HistoryPaths.Move move) throws IOException { paths.commit(move); }
     synchronized void abortPathChange(HistoryPaths.Move move) throws IOException { paths.abort(move); }
     public synchronized Path effectiveSource(Path source) throws IOException { return paths.effectiveSource(source); }

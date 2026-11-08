@@ -19,7 +19,7 @@ final class HistoryPaths
     // Old queued jobs in this editor retain their document identity after its path changes.
     private final Map<String, String> identities = new HashMap<>();
 
-    record Move(String id, Path source, Path destination, String identity, String vacatedIdentity) { }
+    record Move(String id, Path source, Path destination, String identity, String vacatedIdentity, Path projectRoot) { }
 
     HistoryPaths(Path root) { this.root = root; }
     private static String key(Path source) { return source.toAbsolutePath().normalize().toString(); }
@@ -49,14 +49,18 @@ final class HistoryPaths
     }
 
     Move prepare(Path source, Path destination) throws IOException
+    { return prepare(source,destination,null); }
+
+    Move prepare(Path source, Path destination, Path projectRoot) throws IOException
     {
         synchronized (lock)
         {
             recoverMoves();
             Path from = source.toAbsolutePath().normalize(), to = destination.toAbsolutePath().normalize();
-            if (from.getParent() == null || !Objects.equals(from.getParent(), to.getParent()) || key(from).equals(key(to)))
+            Path scope = projectRoot == null ? null : projectRoot.toAbsolutePath().normalize();
+            if (!validPathChange(from,to,scope))
                 throw new IOException("Invalid history path change");
-            Move move = new Move(UUID.randomUUID().toString(), from, to, folder(from).getFileName().toString(), LocalHistory.hash(UUID.randomUUID().toString()));
+            Move move = new Move(UUID.randomUUID().toString(), from, to, folder(from).getFileName().toString(), LocalHistory.hash(UUID.randomUUID().toString()),scope);
             write(journal(move), values(move, "prepared"));
             return move;
         }
@@ -80,8 +84,8 @@ final class HistoryPaths
     private void publish(Move move) throws IOException
     {
         // A newly created class at the vacated name must have its own draft/history identity.
-        link(move.source(), move.vacatedIdentity(),move.destination());
-        link(move.destination(), move.identity(),null);
+        link(move.source(), move.vacatedIdentity(),move.destination(),move.projectRoot());
+        link(move.destination(), move.identity(),null,null);
         try { Files.deleteIfExists(journal(move)); }
         catch (IOException unavailable)
         {
@@ -90,10 +94,11 @@ final class HistoryPaths
         }
     }
 
-    private void link(Path source, String identity, Path movedTo) throws IOException
+    private void link(Path source, String identity, Path movedTo, Path projectRoot) throws IOException
     {
         Properties values = new Properties(); values.setProperty("source", key(source)); values.setProperty("identity", identity);
         if (movedTo != null) values.setProperty("movedTo",key(movedTo));
+        if (projectRoot != null) values.setProperty("projectRoot",key(projectRoot));
         write(root.resolve("path-links").resolve(LocalHistory.hash(key(source)) + ".properties"), values);
     }
 
@@ -114,8 +119,10 @@ final class HistoryPaths
                 Path next;
                 try { next = Path.of(redirect).toAbsolutePath().normalize(); }
                 catch (RuntimeException invalid) { throw new IOException("Invalid history path redirect",invalid); }
-                if (current.getParent() == null || !current.getParent().equals(next.getParent()) || !next.getFileName().toString().endsWith(".java"))
-                    throw new IOException("History path redirect leaves its package");
+                Path scope = null;
+                try { if (values.getProperty("projectRoot") != null) scope = Path.of(values.getProperty("projectRoot")); }
+                catch (RuntimeException invalid) { throw new IOException("Invalid history project root",invalid); }
+                if (!validPathChange(current,next,scope)) throw new IOException("History path redirect leaves its package or project");
                 if (Files.exists(current))
                 {
                     boolean changedCase = !key(current).equals(key(next)) && Files.exists(next) && Files.isSameFile(current,next)
@@ -185,20 +192,32 @@ final class HistoryPaths
             if (!UUID.fromString(id).toString().equals(id) || !validIdentity(identity) || !validIdentity(vacated))
                 throw new IllegalArgumentException();
             Path source = Path.of(values.getProperty("source")), destination = Path.of(values.getProperty("destination"));
-            if (!source.isAbsolute() || !destination.isAbsolute() || source.getParent() == null
-                || !Objects.equals(source.getParent(), destination.getParent()) || key(source).equals(key(destination)))
+            Path scope = values.getProperty("projectRoot") == null ? null : Path.of(values.getProperty("projectRoot"));
+            if (!validPathChange(source,destination,scope))
                 throw new IllegalArgumentException();
-            return new Move(id, source, destination, identity, vacated);
+            return new Move(id, source, destination, identity, vacated,scope);
         }
         catch (RuntimeException invalid) { throw new IOException("Invalid local history path transaction", invalid); }
     }
 
     private static boolean validIdentity(String value) { return value != null && value.matches("[0-9a-f]{64}"); }
+    private static boolean validPathChange(Path source, Path destination, Path projectRoot) throws IOException
+    {
+        if (!source.isAbsolute() || !destination.isAbsolute() || source.getParent() == null || destination.getParent() == null
+            || !source.normalize().equals(source) || !destination.normalize().equals(destination) || key(source).equals(key(destination))
+            || !source.getFileName().toString().endsWith(".java") || !destination.getFileName().toString().endsWith(".java")) return false;
+        if (projectRoot == null) return Objects.equals(source.getParent(),destination.getParent());
+        if (!projectRoot.isAbsolute() || !projectRoot.normalize().equals(projectRoot)
+            || !(Files.isRegularFile(projectRoot.resolve("package.bluej")) || Files.isRegularFile(projectRoot.resolve("bluej.pkg")))) return false;
+        Path realRoot = projectRoot.toRealPath();
+        return source.getParent().toRealPath().startsWith(realRoot) && destination.getParent().toRealPath().startsWith(realRoot);
+    }
     private static Properties values(Move move, String phase)
     {
         Properties values = new Properties();
         values.setProperty("id", move.id()); values.setProperty("source", key(move.source())); values.setProperty("destination", key(move.destination()));
         values.setProperty("identity", move.identity()); values.setProperty("vacated", move.vacatedIdentity()); values.setProperty("phase", phase);
+        if (move.projectRoot() != null) values.setProperty("projectRoot",key(move.projectRoot()));
         return values;
     }
     private static Properties read(Path file) throws IOException
