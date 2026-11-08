@@ -25,13 +25,24 @@ public final class SourceSaveService implements AutoCloseable
         private final AtomicBoolean retired = new AtomicBoolean();
         private Path path;
         private long lastAcceptedRevision = Long.MIN_VALUE;
+        private boolean relocating;
         public String id() { return id; }
         public void retire() { retired.set(true); }
         public boolean isRetired() { return retired.get(); }
         private synchronized boolean reserve(Path source, long revision)
         {
-            if (retired.get() || (path != null && !path.equals(source)) || revision < lastAcceptedRevision) return false;
+            if (relocating || retired.get() || (path != null && !path.equals(source)) || revision < lastAcceptedRevision) return false;
             path = source; lastAcceptedRevision = revision; return true;
+        }
+        private synchronized boolean beginRelocation(Path source, long revision)
+        {
+            if (!reserve(source, revision)) return false;
+            relocating = true; return true;
+        }
+        private synchronized void finishRelocation(boolean moved)
+        {
+            if (moved) retired.set(true);
+            relocating = false;
         }
     }
 
@@ -53,6 +64,79 @@ public final class SourceSaveService implements AutoCloseable
     }
 
     public record DiskState(Path source, String text, long modifiedMillis, long byteLength, boolean exists) { }
+
+    /** A path change consumes the old writer identity; the UI must create a fresh identity after acknowledgement. */
+    public CompletableFuture<DiskState> relocate(Snapshot saved, Path destination)
+    {
+        Path target = destination.toAbsolutePath().normalize();
+        return submit(() -> relocateNow(saved, target));
+    }
+
+    private DiskState relocateNow(Snapshot saved, Path target) throws IOException
+    {
+        Path source = saved.source();
+        if (saved.recoveryCopy() || source.getFileName() == null || target.getFileName() == null
+            || !source.getFileName().toString().endsWith(".java") || !target.getFileName().toString().endsWith(".java")
+            || source.getParent() == null || target.getParent() == null
+            || !source.getParent().toRealPath().equals(target.getParent().toRealPath()))
+            throw new IOException("Class renaming requires Java sources in the same package directory");
+        if (!saved.owner().beginRelocation(source, saved.revision())) throw new IOException("Source identity changed before renaming");
+        boolean moved = false;
+        List<Map.Entry<Path, FileLock>> locks = new ArrayList<>();
+        int acquired = 0;
+        try
+        {
+            Path realSource = source.toRealPath();
+            Path realTarget = Files.exists(target) ? target.toRealPath() : target.getParent().toRealPath().resolve(target.getFileName());
+            List<Path> keys = java.util.stream.Stream.of(realSource, realTarget).distinct().sorted(Comparator.comparing(Path::toString)).toList();
+            synchronized (fileLocks)
+            {
+                for (Path key : keys)
+                {
+                    FileLock guard = fileLocks.computeIfAbsent(key, ignored -> new FileLock()); guard.users++;
+                    locks.add(Map.entry(key, guard));
+                }
+            }
+            for (var entry : locks) { entry.getValue().lock.lock(); acquired++; }
+            if (saved.owner().isRetired()) throw new IOException("Source editor changed before renaming");
+            if (!Files.isRegularFile(source) || !Objects.equals(read(saved), normalise(saved.text())))
+                throw new IOException("Source content changed before renaming");
+            boolean sameSpelling = source.toString().equals(target.toString());
+            boolean caseOnly = !sameSpelling && source.getFileName().toString().equalsIgnoreCase(target.getFileName().toString())
+                && Files.exists(target) && Files.isSameFile(source, target);
+            if (Files.exists(target) && !sameSpelling && !caseOnly) throw new FileAlreadyExistsException(target.toString());
+            if (saved.owner().isRetired()) throw new IOException("Source editor changed before renaming");
+            // ATOMIC_MOVE is restricted to the same physical file: on Windows it otherwise permits replacement.
+            if (caseOnly) Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+            else if (!sameSpelling) Files.move(source, target);
+            moved = true;
+            written.remove(realSource);
+            written.remove(realTarget);
+            long modified = -1, length = -1;
+            try
+            {
+                BasicFileAttributes attributes = Files.readAttributes(target, BasicFileAttributes.class);
+                modified = attributes.lastModifiedTime().toMillis(); length = attributes.size();
+            }
+            catch (IOException unavailable) { /* The move already committed. */ }
+            return new DiskState(target, normalise(saved.text()), modified, length, true);
+        }
+        finally
+        {
+            try
+            {
+                for (int i = acquired - 1; i >= 0; i--) locks.get(i).getValue().lock.unlock();
+            }
+            finally
+            {
+                synchronized (fileLocks)
+                {
+                    for (var entry : locks) if (--entry.getValue().users == 0) fileLocks.remove(entry.getKey(), entry.getValue());
+                }
+                saved.owner().finishRelocation(moved);
+            }
+        }
+    }
 
     @FunctionalInterface interface Storage
     {
