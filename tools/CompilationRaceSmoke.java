@@ -16,6 +16,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 
@@ -25,6 +26,8 @@ public final class CompilationRaceSmoke extends BootSmoke
     private static final AtomicInteger explicitFinishes = new AtomicInteger();
     private static final AtomicInteger automaticFinishes = new AtomicInteger();
     private static final AtomicInteger automaticFailures = new AtomicInteger();
+    private static final AtomicLong firstAutomaticRevision = new AtomicLong(-1);
+    private static final AtomicLong lastAutomaticRevision = new AtomicLong(-1);
     private static final Queue<String> compileFailures = new ConcurrentLinkedQueue<>();
     private static Object target, sourceEditor, document, project;
     private static Path sourceFile, classFile, blockerDirectory;
@@ -118,6 +121,8 @@ public final class CompilationRaceSmoke extends BootSmoke
                     int explicitBefore = explicitFinishes.get();
                     int automaticBefore = automaticFinishes.get();
                     int failedChecksBefore = automaticFailures.get();
+                    firstAutomaticRevision.set(-1);
+                    lastAutomaticRevision.set(-1);
                     gate = blockCompiler();
                     if (!gate.entered.await(15, TimeUnit.SECONDS)) throw new AssertionError("Compiler blocker did not enter");
                     String valid = original.replace("return 42;", "return " + (200 + round) + ";");
@@ -152,13 +157,19 @@ public final class CompilationRaceSmoke extends BootSmoke
                     if (explicitFinishes.get() != explicitBefore)
                         throw new AssertionError("Automatic checking triggered an unexpected explicit compilation");
                     int completedAutomatic = automaticFinishes.get() - automaticBefore;
-                    int expectedAutomatic = savedBeforeStart ? 1 : 2;
+                    long latestRevision = fx(() -> ((Number)field(sourceEditor, "contentRevision")).longValue());
+                    // A queued asynchronous job owns its submitted revision. A later save cannot relabel it.
+                    // One check is sufficient only when the first job actually acknowledges the latest revision.
+                    int expectedAutomatic = savedBeforeStart && firstAutomaticRevision.get() == latestRevision ? 1 : 2;
                     if (completedAutomatic != expectedAutomatic)
                         throw new AssertionError("Expected " + expectedAutomatic + " automatic compilations, got " + completedAutomatic);
+                    if (lastAutomaticRevision.get() != latestRevision)
+                        throw new AssertionError("Latest revision was never checked: " + lastAutomaticRevision.get() + " != " + latestRevision);
                     checkFailures();
                     System.out.println("COMPILATION_RACE_AUTO_ROUND_OK round=" + round
                         + " freshDiagnostic=true invalidSourceSaved=true explicitRequests=0 savedBeforeStart="
-                        + savedBeforeStart + " automaticCompilations=" + completedAutomatic);
+                        + savedBeforeStart + " automaticCompilations=" + completedAutomatic
+                        + " firstRevision=" + firstAutomaticRevision.get() + " latestRevision=" + latestRevision);
                     gate = null;
                     replace(original);
                     compileOnce();
@@ -256,6 +267,12 @@ public final class CompilationRaceSmoke extends BootSmoke
                 String type = values[2].toString();
                 System.out.println("COMPILATION_RACE_EVENT " + method.getName() + " type=" + type
                     + " resultOrReason=" + values[1] + " sequence=" + values[3]);
+                if (method.getName().equals("startCompile") && type.equals("ERROR_CHECK_ONLY"))
+                {
+                    long revision = ((Number)field(sourceEditor, "diagnosticsRevision")).longValue();
+                    firstAutomaticRevision.compareAndSet(-1, revision);
+                    lastAutomaticRevision.set(revision);
+                }
                 if (method.getName().equals("endCompile") && type.equals("EXPLICIT_USER_COMPILE"))
                 {
                     if (Boolean.TRUE.equals(values[1])) explicitFinishes.incrementAndGet();
