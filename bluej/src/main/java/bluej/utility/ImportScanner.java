@@ -349,18 +349,21 @@ public class ImportScanner
         // (e.g. JUnit, other configured BlueJ libraries):
         ArrayList<ClassLoader> cl = new ArrayList<>();
         
+        CompletableFuture<ClassLoader> projectClassLoader = requestProjectClassLoader();
         try
         {
-            CompletableFuture<ClassLoader> projectClassLoader = new CompletableFuture<>();
-            // Safe to wait for platform thread because we are a worker thread:
-            Platform.runLater(() -> {
-                projectClassLoader.complete(project.getClassLoader());
-            });
-            cl.add(projectClassLoader.get());
+            cl.add(projectClassLoader.get(10, TimeUnit.SECONDS));
         }
-        catch (InterruptedException | ExecutionException e)
+        catch (InterruptedException interrupted)
         {
-            Debug.reportError(e);
+            projectClassLoader.cancel(false);
+            Thread.currentThread().interrupt();
+            throw new java.util.concurrent.CompletionException(interrupted);
+        }
+        catch (ExecutionException | TimeoutException failure)
+        {
+            projectClassLoader.cancel(false);
+            throw new java.util.concurrent.CompletionException(failure);
         }
         cl.add(new URLClassLoader(Boot.getInstance().getRuntimeUserClassPath()));
 
@@ -381,6 +384,21 @@ public class ImportScanner
             userClassGraph.enableClassInfo(),
             systemClassGraph.enableClassInfo()
         );
+    }
+
+    @OnThread(Tag.Worker)
+    protected final CompletableFuture<ClassLoader> requestProjectClassLoader()
+    {
+        CompletableFuture<ClassLoader> request = new CompletableFuture<>();
+        bluej.utility.javafx.FXFuture.run(request, () -> request.complete(projectClassLoader()));
+        return request;
+    }
+
+    @OnThread(Tag.FXPlatform)
+    protected ClassLoader projectClassLoader()
+    {
+        if (project.isClosing()) throw new java.util.concurrent.CancellationException("Project is closing");
+        return project.getClassLoader();
     }
 
     /**

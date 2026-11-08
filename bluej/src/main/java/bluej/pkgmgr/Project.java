@@ -337,7 +337,13 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
         });
 
         Utility.runBackground(() -> {
-            projectImportInformation.complete(new ProjectImportInformation(this));
+            try { projectImportInformation.complete(new ProjectImportInformation(this)); }
+            catch (Throwable failure)
+            {
+                projectImportInformation.completeExceptionally(failure);
+                Debug.reportError("Cannot prepare project import information", failure);
+                if (failure instanceof VirtualMachineError fatal) throw fatal;
+            }
         });
 
         ExtensionsManager.getInstance().projectOpening(this);

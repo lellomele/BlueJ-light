@@ -42,7 +42,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -87,15 +86,29 @@ public class EditorFixesManager
     public Future<List<AssistContentThreadSafe>> scanImports(final String importString)
     {
         CompletableFuture<List<AssistContentThreadSafe>> f = new CompletableFuture<>();
-        Utility.runBackground(() -> {
+        projectImportInformation.whenComplete((information, failure) -> {
+            if (failure != null || information == null)
+            {
+                f.complete(Collections.emptyList());
+                return;
+            }
             try
             {
-                f.complete(projectImportInformation.get().scanImports(importString));
+                Utility.runBackground(() -> {
+                    if (f.isDone()) return;
+                    try { f.complete(information.scanImports(importString)); }
+                    catch (Throwable unavailable)
+                    {
+                        f.complete(Collections.emptyList());
+                        Debug.reportError("Exception while scanning for import " + importString, unavailable);
+                        if (unavailable instanceof VirtualMachineError fatal) throw fatal;
+                    }
+                });
             }
-            catch (Throwable t)
+            catch (RuntimeException unavailable)
             {
-                Debug.reportError("Exception while scanning for import " + importString, t);
                 f.complete(Collections.emptyList());
+                Debug.reportError("Cannot schedule import scan " + importString, unavailable);
             }
         });
         return f;
@@ -113,8 +126,10 @@ public class EditorFixesManager
         HashMap<String, Pair<SuggestionShown, AssistContentThreadSafe>> imports = new HashMap<>();
         try
         {
-            List<AssistContentThreadSafe> popularImports = projectImportInformation.get().getPopularImports();
-            List<AssistContentThreadSafe> rarerImports = projectImportInformation.get().getRarerImports();
+            ProjectImportInformation information = currentInformation();
+            if (information == null) return Collections.emptyMap();
+            List<AssistContentThreadSafe> popularImports = information.getPopularImports();
+            List<AssistContentThreadSafe> rarerImports = information.getRarerImports();
         
             // Add popular:
             Stream.concat(
@@ -138,7 +153,7 @@ public class EditorFixesManager
             // Remove imports we want to hide (for instance that are unused and confusing for users)
             imports.remove("java.awt.List");
         }
-        catch (InterruptedException | ExecutionException ex)
+        catch (java.util.concurrent.CompletionException ex)
         {
             Debug.reportError(ex);
         }
@@ -167,7 +182,10 @@ public class EditorFixesManager
         importedTypesLock.readLock().lock();
         ArrayList<Future<List<AssistContentThreadSafe>>> importedTypesCopy = new ArrayList<>(importedTypes);
         importedTypesLock.readLock().unlock();
-        return Stream.concat(Stream.of(projectImportInformation.thenApply(i -> i.getJavaLangImports())), importedTypesCopy.stream()).map(Utility::getFutureList).flatMap(List::stream);
+        ProjectImportInformation information = currentInformation();
+        Stream<AssistContentThreadSafe> javaLang = information == null ? Stream.empty() : information.getJavaLangImports().stream();
+        // Completion uses available snapshots; a pending import must not occupy its worker for ten seconds.
+        return Stream.concat(javaLang, importedTypesCopy.stream().filter(Future::isDone).map(Utility::getFutureList).flatMap(List::stream));
     }
 
     @OnThread(Tag.Worker)
@@ -193,15 +211,20 @@ public class EditorFixesManager
     @OnThread(Tag.Any)
     public List<AssistContentThreadSafe> getJavaLangImports()
     {
+        ProjectImportInformation information = currentInformation();
+        return information == null ? Collections.emptyList() : information.getJavaLangImports();
+    }
+
+    @OnThread(Tag.Any)
+    private ProjectImportInformation currentInformation()
+    {
         try
         {
-            ProjectImportInformation information = projectImportInformation.getNow(null);
-            return information == null ? Collections.emptyList() : information.getJavaLangImports();
+            return projectImportInformation.getNow(null);
         }
-        catch (java.util.concurrent.CompletionException ex)
+        catch (java.util.concurrent.CompletionException | java.util.concurrent.CancellationException ex)
         {
-            Debug.reportError(ex);
-            return Collections.emptyList();
+            return null;
         }
     }
 
