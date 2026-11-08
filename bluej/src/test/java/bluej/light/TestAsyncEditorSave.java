@@ -2,6 +2,7 @@
 package bluej.light;
 
 import bluej.editor.EditorWatcher;
+import bluej.editor.EditorSaveBatch;
 import bluej.editor.flow.*;
 import bluej.parser.InitConfig;
 import bluej.Config;
@@ -127,5 +128,86 @@ public class TestAsyncEditorSave extends FXTest
         try{saved(pending);fail("Expected observer failure");}catch(ExecutionException expected){assertTrue(expected.getCause() instanceof AssertionError);}
         assertEquals(first,Files.readString(path));
         text(next);saved(save());assertEquals(next,Files.readString(path));fx_(() -> assertFalse(editor.isModified()));
+    }
+
+    @Test public void batchRevisitsAnEarlierEditorChangedWhileAnotherFileIsSaving() throws Exception
+    {
+        Path otherPath=folder.getRoot().toPath().resolve("Other.java");Files.writeString(otherPath,"class Other {}\n");
+        AtomicReference<FlowEditor> otherRef=new AtomicReference<>();
+        fx_(() -> {
+            FlowEditor other=new FlowEditor(window->null,"Other",null,null,null,null,new ReadOnlyBooleanWrapper(true),false) {
+                @Override protected SourceSaveService sourceSaveService(){return service;}
+            };
+            assertTrue(other.showFile(otherPath.toString(),StandardCharsets.UTF_8,false,null));
+            var document=other.getSourcePane().getDocument();document.replaceText(0,document.getLength(),"class Other { int saved; }\n");
+            otherRef.set(other);
+        });
+        String first="class Example { int first; }\n",newer="class Example { int latest; }\n";
+        text(first);Gate one=arm(false);AtomicReference<CompletableFuture<Void>> batchRef=new AtomicReference<>();
+        fx_(() -> batchRef.set(EditorSaveBatch.save(() -> java.util.List.of(editor,otherRef.get()),null)));
+        assertTrue(one.entered.await(5,TimeUnit.SECONDS));Gate two=arm(false);one.release.countDown();
+        assertTrue(two.entered.await(5,TimeUnit.SECONDS));text(newer);assertFalse(batchRef.get().isDone());
+        two.release.countDown();saved(batchRef.get());
+        assertEquals(newer,Files.readString(path));assertEquals("class Other { int saved; }\n",Files.readString(otherPath));
+        fx_(() -> {assertFalse(editor.isModified());assertFalse(otherRef.get().isModified());});
+    }
+
+    @Test public void closeWaitsForTheLatestTextAndAnUndoInvalidatesItsPermission() throws Exception
+    {
+        String first="class Example { int first; }\n",latest="class Example { int latest; }\n";
+        text(first);Gate gate=arm(false);AtomicReference<CompletableFuture<Boolean>> close=new AtomicReference<>();
+        fx_(() -> close.set(editor.saveForCloseAsync()));assertTrue(gate.entered.await(5,TimeUnit.SECONDS));
+        text(latest);fx_(() -> {assertFalse(close.get().isDone());assertFalse(editor.isPreparedForClose());});
+        gate.release.countDown();assertTrue(close.get().get(10,TimeUnit.SECONDS));assertEquals(latest,Files.readString(path));
+        fx_(() -> {
+            assertTrue(editor.isPreparedForClose());editor.getActions().getActionByName("undo").actionPerformed(false);
+            assertEquals(first,editor.getSourcePane().getDocument().getFullContent());assertFalse(editor.isPreparedForClose());
+            editor.getActions().getActionByName("redo").actionPerformed(false);assertFalse(editor.isPreparedForClose());
+        });
+        saved(save());assertEquals(latest,Files.readString(path));
+    }
+
+    @Test public void verifiedRecoveryCopyCanCloseWhileTheOrdinarySourceWriterIsHeld() throws Exception
+    {
+        String latest="class Example { int emergency; }\n";
+        text(latest);Gate gate=arm(false);var pending=save();assertTrue(gate.entered.await(5,TimeUnit.SECONDS));
+        AtomicReference<CompletableFuture<Path>> backup=new AtomicReference<>();
+        fx_(() -> {
+            try
+            {
+                var method=FlowEditor.class.getDeclaredMethod("writeRecoveryCopyForCloseAsync");method.setAccessible(true);
+                @SuppressWarnings("unchecked") CompletableFuture<Path> copy=(CompletableFuture<Path>)method.invoke(editor);backup.set(copy);
+            }
+            catch(ReflectiveOperationException error){throw new AssertionError(error);}
+        });
+        Path copy=backup.get().get(5,TimeUnit.SECONDS);assertEquals(latest,Files.readString(copy));
+        AtomicReference<CompletableFuture<Boolean>> close=new AtomicReference<>();fx_(() -> close.set(editor.saveForCloseAsync()));
+        assertTrue(close.get().get(5,TimeUnit.SECONDS));assertEquals(1,gate.release.getCount());
+        fx_(() -> {assertTrue(editor.isPreparedForClose());editor.closePrepared();});
+        gate.release.countDown();
+        try{saved(pending);fail("Closed owner must settle the old request as cancelled");}catch(ExecutionException expected){assertTrue(expected.getCause() instanceof IOException);}
+        service.closeAsync().get(10,TimeUnit.SECONDS);
+        assertEquals(ORIGINAL,Files.readString(path));assertEquals(latest,Files.readString(copy));
+        fx_(() -> assertTrue(editor.saveForCompilationAsync(bluej.compiler.CompileType.ERROR_CHECK_ONLY).isCompletedExceptionally()));
+        Files.delete(copy);
+    }
+
+    @Test public void saveAllStillSavesOtherFilesAfterOneSourceFails() throws Exception
+    {
+        Path otherPath=folder.getRoot().toPath().resolve("Other.java");Files.writeString(otherPath,"class Other {}\n");
+        AtomicReference<FlowEditor> otherRef=new AtomicReference<>();
+        fx_(() -> {
+            FlowEditor other=new FlowEditor(window->null,"Other",null,null,null,null,new ReadOnlyBooleanWrapper(true),false) {
+                @Override protected SourceSaveService sourceSaveService(){return service;}
+            };
+            assertTrue(other.showFile(otherPath.toString(),StandardCharsets.UTF_8,false,null));
+            var document=other.getSourcePane().getDocument();document.replaceText(0,document.getLength(),"class Other { int saved; }\n");otherRef.set(other);
+        });
+        text("class Example { int blocked; }\n");Gate gate=arm(true);AtomicReference<CompletableFuture<Void>> batch=new AtomicReference<>();
+        fx_(() -> batch.set(EditorSaveBatch.saveAll(() -> java.util.List.of(editor,otherRef.get()))));
+        assertTrue(gate.entered.await(5,TimeUnit.SECONDS));gate.release.countDown();
+        try{saved(batch.get());fail("Expected combined failure");}catch(ExecutionException expected){assertTrue(expected.getCause() instanceof IOException);}
+        assertEquals(ORIGINAL,Files.readString(path));assertEquals("class Other { int saved; }\n",Files.readString(otherPath));
+        fx_(() -> {assertTrue(editor.isModified());assertFalse(otherRef.get().isModified());});
     }
 }

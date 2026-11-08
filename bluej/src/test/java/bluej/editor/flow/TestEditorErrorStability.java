@@ -74,6 +74,20 @@ public class TestEditorErrorStability extends FXTest
         });
         sleep(200);
     }
+    @Test public void queuedCompilationUsesItsSubmittedRevisionRatherThanTheBufferAtStart()
+    {
+        fx_(() -> {
+            String source="class Example { public answer() {} }";code(source);
+            long submitted=editor.getContentRevision();
+            editor.getSourcePane().getDocument().replaceText(source.length(),source.length(),"\n// newer text\n");
+            editor.compileStarted(17,submitted);
+            assertFalse(editor.displayDiagnostic(diagnostic(source),0,CompileType.ERROR_CHECK_ONLY));
+            assertTrue(errors.getObservableErrorList().isEmpty());
+            editor.compileStarted(18,editor.getContentRevision());
+            assertTrue(editor.displayDiagnostic(diagnostic(source),0,CompileType.ERROR_CHECK_ONLY));
+            assertEquals(1,errors.getObservableErrorList().size());
+        });
+    }
     @Test public void repeatedUnderlineRequestsRemainBoundedAndRangesAreClipped()
     {
         fx_(() -> {
