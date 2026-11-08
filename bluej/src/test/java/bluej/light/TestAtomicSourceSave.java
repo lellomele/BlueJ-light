@@ -92,4 +92,18 @@ public class TestAtomicSourceSave
         assertEquals("recovery copy", Files.readString(backup));
         assertNoTemporaryFiles();
     }
+
+    @Test public void symbolicSourceCannotUseItsActualTargetAsTheDisposableBackup() throws Exception
+    {
+        Path link = folder.getRoot().toPath().resolve("Alias.java");
+        Path target = link.resolveSibling("Alias.java#");
+        Files.writeString(target, "original source");
+        try { Files.createSymbolicLink(link, target.getFileName()); }
+        catch (IOException | UnsupportedOperationException unavailable) { org.junit.Assume.assumeNoException(unavailable); }
+        try { AtomicSourceSave.save(link, "replacement", StandardCharsets.UTF_8, "#"); fail("Expected backup/source collision rejection"); }
+        catch (IOException expected) { }
+        assertEquals("original source", Files.readString(target));
+        assertTrue(Files.isSymbolicLink(link));
+        assertNoTemporaryFiles();
+    }
 }

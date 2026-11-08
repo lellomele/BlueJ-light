@@ -36,6 +36,9 @@ public final class AtomicSourceSave
             throw new IOException("Source file is not writable: " + source);
         Path parent = target.getParent();
         Path backup = source.toAbsolutePath().normalize().resolveSibling(source.getFileName() + backupSuffix);
+        // A symbolic source may resolve to the name otherwise used for its backup.
+        // Never delete that actual source as part of successful backup cleanup.
+        if (target.equals(backup)) throw new IOException("Source and recovery backup must have different paths: " + source);
         Path temporary = Files.createTempFile(parent, ".bluej-save-", ".tmp");
         Path backupTemporary = null;
         boolean committed = false;
