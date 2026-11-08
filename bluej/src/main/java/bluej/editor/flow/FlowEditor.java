@@ -186,14 +186,21 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         { info.message(Config.getString("editor.info.errorSaving") + " - " + failure.getLocalizedMessage()); }
         @Override public java.util.concurrent.CompletableFuture<FlowSourceSaver.ConflictChoice> decideConflict()
         {
-            if (getWindow() == null || !getWindow().isShowing())
+            if (showingChangedOnDiskDialog || getWindow() == null || !getWindow().isShowing())
                 return java.util.concurrent.CompletableFuture.completedFuture(FlowSourceSaver.ConflictChoice.CANCEL);
             showingChangedOnDiskDialog = true;
-            return DialogManager.askQuestionFXAsync(getWindow(), "changed-on-disk").thenApply(answer ->
+            pendingConflictQuestion = DialogManager.askQuestionFXAsync(getWindow(), "light-source-conflict");
+            return pendingConflictQuestion.thenApply(answer ->
                 answer == 0 ? FlowSourceSaver.ConflictChoice.RELOAD : answer == 1
                     ? FlowSourceSaver.ConflictChoice.KEEP_LOCAL : FlowSourceSaver.ConflictChoice.CANCEL);
         }
-        @Override public void conflictFinished() { showingChangedOnDiskDialog = false; }
+        @Override public void conflictFinished() { pendingConflictQuestion = null; refreshDiskQuestionFlag(); }
+        @Override public void cancelConflict()
+        {
+            CompletableFuture<Integer> question = pendingConflictQuestion;
+            pendingConflictQuestion = null; refreshDiskQuestionFlag();
+            if (question != null) question.cancel(false);
+        }
         @Override public void reloaded(bluej.light.SourceSaveService.DiskState state) { applyDiskReload(state); }
     });
     private String observedDiskText = "";
@@ -732,6 +739,9 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private boolean offeringRecoveryClose;
     private CompletableFuture<Boolean> pendingClose;
     private CompletableFuture<Void> pendingDiskInspection;
+    private CompletableFuture<Integer> pendingConflictQuestion;
+    private CompletableFuture<Integer> pendingDiskQuestion;
+    private boolean legacyDiskQuestionActive;
     private long preparedCloseRevision = -1;
     private String preparedCloseOwner;
     private boolean preparedCloseWithCopy;
@@ -1420,19 +1430,21 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             Debug.message("File " + filename + " changed on disk; our record is " + lastModified + " but file was " + modified);
             if (saveState.isChanged())
             {
+                legacyDiskQuestionActive = true;
                 showingChangedOnDiskDialog = true;
                 try
                 {
-                    int answer = DialogManager.askQuestionFX(getWindow(), "changed-on-disk");
+                    int answer = DialogManager.askQuestionFX(getWindow(), "light-source-conflict");
                     if (answer == 0)
                     {
                         doReload();
                         return !saveState.isChanged();
                     }
+                    if (answer != 1) return false;
                 }
                 finally
                 {
-                    showingChangedOnDiskDialog = false;
+                    legacyDiskQuestionActive = false; refreshDiskQuestionFlag();
                 }
             }
             else
@@ -1464,20 +1476,32 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             { observedDiskLength = disk.byteLength(); setLastModified(disk.modifiedMillis()); result.complete(null); return; }
             if (!isModified()) { applyDiskReload(disk); result.complete(null); return; }
             showingChangedOnDiskDialog = true;
-            DialogManager.askQuestionFXAsync(getWindow(), "changed-on-disk").whenComplete((answer, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
-                showingChangedOnDiskDialog = false;
+            pendingDiskQuestion = DialogManager.askQuestionFXAsync(getWindow(), "changed-on-disk");
+            pendingDiskQuestion.whenComplete((answer, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                pendingDiskQuestion = null; refreshDiskQuestionFlag();
                 if (error == null && owner.equals(sourceSaver.ownerId()) && revision == contentRevision && !sourceSaver.pending())
                 {
                     if (Integer.valueOf(0).equals(answer)) applyDiskReload(disk);
-                    else if (Integer.valueOf(1).equals(answer))
-                    {
-                        observedDiskText = disk.text(); observedDiskLength = disk.byteLength(); setLastModified(disk.modifiedMillis());
-                        if (sourceIsCode) scheduleCompilation(CompileReason.MODIFIED, CompileType.ERROR_CHECK_ONLY);
-                    }
                 }
                 result.complete(null);
             }));
         }));
+    }
+
+    private void refreshDiskQuestionFlag()
+    {
+        showingChangedOnDiskDialog = legacyDiskQuestionActive
+            || (pendingDiskQuestion != null && !pendingDiskQuestion.isDone())
+            || (pendingConflictQuestion != null && !pendingConflictQuestion.isDone());
+    }
+
+    private void invalidateDiskInspection()
+    {
+        CompletableFuture<Void> inspection = pendingDiskInspection;
+        CompletableFuture<Integer> question = pendingDiskQuestion;
+        pendingDiskInspection = null; pendingDiskQuestion = null; refreshDiskQuestionFlag();
+        if (question != null) question.cancel(false);
+        if (inspection != null) JavaFXUtil.runAfterCurrent(() -> inspection.complete(null));
     }
 
 
@@ -1535,12 +1559,17 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             closeNotified = true;
             closedWithRecoveryCopy = isModified() && preparedCloseWithCopy;
             sourceSaver.reset();
+            invalidateDiskInspection();
             preparedCloseOwner = sourceSaver.ownerId();
             if (standaloneSourceSaves != null) { standaloneSourceSaves.closeAsync(); standaloneSourceSaves = null; }
             if (standaloneRecoverySaves != null) { standaloneRecoverySaves.closeAsync(); standaloneRecoverySaves = null; }
             if (watcher != null) watcher.closeEvent(this);
         }
-        else if (parent != null) { closedWithRecoveryCopy = false; closeNotified = false; }
+        else if (parent != null)
+        {
+            closedWithRecoveryCopy = false; closeNotified = false;
+            preparedCloseRevision = -1; preparedCloseOwner = null; preparedCloseWithCopy = false;
+        }
     }
 
     /**
@@ -1602,6 +1631,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     {
         invalidateRecoveryWork();
         sourceSaver.reset();
+        invalidateDiskInspection();
         this.filename = filename;
         this.docFilename = docFilename;
         this.characterSet = charset;
@@ -2621,6 +2651,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     {
         invalidateRecoveryWork();
         sourceSaver.reset();
+        invalidateDiskInspection();
         this.filename = filename;
         this.docFilename = docFilename;
         windowTitle = title;

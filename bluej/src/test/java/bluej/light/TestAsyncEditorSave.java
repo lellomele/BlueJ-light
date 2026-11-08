@@ -189,6 +189,11 @@ public class TestAsyncEditorSave extends FXTest
         service.closeAsync().get(10,TimeUnit.SECONDS);
         assertEquals(ORIGINAL,Files.readString(path));assertEquals(latest,Files.readString(copy));
         fx_(() -> assertTrue(editor.saveForCompilationAsync(bluej.compiler.CompileType.ERROR_CHECK_ONLY).isCompletedExceptionally()));
+        fx_(() -> {
+            assertTrue(editor.isPreparedForClose());
+            editor.setParent(new bluej.editor.tabbed.FXTabbedEditor(null,null),true);
+            assertFalse("Reopening must require a fresh save or recovery-copy verification",editor.isPreparedForClose());
+        });
         Files.delete(copy);
     }
 

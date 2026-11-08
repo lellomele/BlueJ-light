@@ -254,12 +254,19 @@ Cancella
 null
 
 changed-on-disk
-Il codice sorgente \u00e8 cambiato sul disco. Vuoi
-ricaricarlo dal disco? I cambiamenti saranno mostrati 
-qui nell'editor.
+Il file sorgente \u00e8 stato modificato sul disco. Ricaricarlo?
+Le modifiche presenti solo nell'editor saranno scartate.
 Ricarica
-Cancella
+Annulla
 null
+
+light-source-conflict
+Un'altra applicazione ha modificato questo sorgente sul disco.
+Ricaricare il file o sostituirlo con il testo dell'editor?
+Annulla conserva entrambe le versioni e interrompe l'operazione.
+Ricarica dal disco
+Conserva il testo dell'editor
+Annulla
 
 really-print
 Il testo \u00e8 pi\u00f9 largo della carta.

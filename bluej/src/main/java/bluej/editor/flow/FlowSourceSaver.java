@@ -28,6 +28,7 @@ final class FlowSourceSaver
         void failed(IOException failure);
         CompletableFuture<ConflictChoice> decideConflict();
         void conflictFinished();
+        default void cancelConflict() { conflictFinished(); }
         void reloaded(SourceSaveService.DiskState state);
     }
 
@@ -46,38 +47,79 @@ final class FlowSourceSaver
     private Path source;
     private long appliedRevision = Long.MIN_VALUE;
     private final Map<Long, Attempt> attempts = new HashMap<>();
+    private final Map<CompletableFuture<Void>, Attempt> requests = new IdentityHashMap<>();
     private CompletableFuture<Void> conflict;
 
     FlowSourceSaver(View view) { this.view = view; }
 
     String ownerId() { return owner.id(); }
-    boolean pending() { return !attempts.isEmpty(); }
+    boolean pending() { return requests.keySet().stream().anyMatch(request -> !request.isDone()); }
 
     /** Changing/reloading the file retires requests, but never pretends an active disk write has stopped. */
     void reset()
     {
         owner.retire(); owner = new SourceSaveService.Owner(); source = null; appliedRevision = Long.MIN_VALUE;
-        List<Attempt> old = List.copyOf(attempts.values()); attempts.clear();
-        CompletableFuture<Void> oldConflict = conflict; conflict = null;
-        old.forEach(attempt -> attempt.handled = true);
+        List<CompletableFuture<Void>> old = List.copyOf(requests.keySet());
+        requests.values().stream().filter(Objects::nonNull).forEach(attempt -> attempt.handled = true);
+        requests.clear(); attempts.clear();
+        boolean hadConflict = conflict != null; conflict = null;
         JavaFXUtil.runAfterCurrent(() -> {
-            old.forEach(attempt -> attempt.done.completeExceptionally(new IOException("Source editor changed")));
-            if (oldConflict != null) oldConflict.completeExceptionally(new IOException("Source editor changed"));
+            old.forEach(request -> request.completeExceptionally(new IOException("Source editor changed")));
         });
+        if (hadConflict) view.cancelConflict();
     }
 
     CompletableFuture<Void> saveAsync()
     {
-        if (conflict != null) return conflict;
         State state = view.state();
-        if (state.source() == null || (!state.modified() && attempts.isEmpty())) return CompletableFuture.completedFuture(null);
+        Attempt current = requests.values().stream().filter(Objects::nonNull)
+            .filter(attempt -> attempt.snapshot.owner() == owner && attempt.snapshot.revision() == state.revision() && !attempt.done.isDone()).findFirst().orElse(null);
+        if (current != null) return current.done;
+        if (conflict != null && conflict.isDone()) conflict = null;
+        if (conflict != null)
+        {
+            Attempt sameRevision = attempts.get(state.revision());
+            if (sameRevision != null) return sameRevision.done;
+            return afterConflict(conflict);
+        }
+        if (state.source() == null) return CompletableFuture.completedFuture(null);
+        if (!state.modified())
+        {
+            Attempt active = requests.values().stream().filter(Objects::nonNull).filter(attempt -> !attempt.done.isDone()).findFirst().orElse(null);
+            return active == null ? CompletableFuture.completedFuture(null) : afterConflict(active.done);
+        }
         return begin(state, false).done;
+    }
+
+    private CompletableFuture<Void> afterConflict(CompletableFuture<Void> barrier)
+    {
+        CompletableFuture<Void> result = new CompletableFuture<>(); track(result, null);
+        SourceSaveService.Owner expected = owner;
+        barrier.whenComplete((ignored, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (failure != null || expected != owner)
+            { result.completeExceptionally(failure != null ? failure : new IOException("Source editor changed")); return; }
+            saveAsync().whenComplete((saved, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (error == null) result.complete(null); else result.completeExceptionally(error);
+            }));
+        }));
+        return result;
+    }
+
+    private void track(CompletableFuture<Void> request, Attempt attempt)
+    {
+        requests.put(request, attempt);
+        request.whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            requests.remove(request);
+            if (attempt != null) attempts.remove(attempt.snapshot.revision(), attempt);
+            if (conflict == request) conflict = null;
+        }));
     }
 
     /** Legacy extension bridge only. Internal UI callers must use saveAsync. */
     void saveBlocking() throws IOException
     {
-        if (conflict != null) throw new IOException("A source conflict decision is pending");
+        if (conflict != null && !conflict.isDone()) throw new IOException("A source conflict decision is pending");
+        conflict = null;
         State state = view.state();
         if (state.source() == null || (!state.modified() && attempts.isEmpty())) return;
         Attempt attempt = begin(state, true);
@@ -111,6 +153,7 @@ final class FlowSourceSaver
         CompletableFuture<SourceSaveService.Result> io = view.service().save(snapshot);
         Attempt attempt = new Attempt(snapshot, io); attempt.legacy = legacy;
         attempts.put(state.revision(), attempt);
+        track(attempt.done, attempt);
         io.whenComplete((result, failure) -> {
             if (result != null && result.saved())
                 HistoryTasks.submit(() -> history.acknowledgeSave(snapshot.source(), result.previousText(), snapshot.text(), snapshot.owner().id(), snapshot.revision()));
@@ -167,7 +210,7 @@ final class FlowSourceSaver
             return;
         }
         decision.whenComplete((choice, error) -> dispatch(attempt, () -> {
-            view.conflictFinished(); conflict = null;
+            view.conflictFinished();
             if (attempt.snapshot.owner() != owner || error != null || choice == null || choice == ConflictChoice.CANCEL)
             { fail(attempt, new IOException("Source save cancelled")); return; }
             attempts.remove(attempt.snapshot.revision(), attempt);

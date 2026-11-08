@@ -242,14 +242,19 @@ public class DialogManager
         List<ButtonType> buttons = new ArrayList<>();
         for (int i = 0; i < message.getOptions().size(); i++)
             buttons.add(new ButtonType(message.getOptions().get(i), i == message.getOptions().size() - 1
-                ? ButtonBar.ButtonData.NO : ButtonBar.ButtonData.YES));
+                ? ButtonBar.ButtonData.CANCEL_CLOSE : ButtonBar.ButtonData.YES));
         Alert alert = new Alert(Alert.AlertType.CONFIRMATION, message.getMessage(), buttons.toArray(new ButtonType[0]));
         alert.setHeaderText(""); alert.initOwner(parent);
         alert.initModality(parent == null ? Modality.APPLICATION_MODAL : Modality.WINDOW_MODAL);
         alert.setTitle(Config.getApplicationName() + ":  " + Config.getString("dialogmgr.question"));
+        for (int i = 0; i < buttons.size(); i++)
+            ((Button)alert.getDialogPane().lookupButton(buttons.get(i))).setDefaultButton(i == buttons.size() - 1);
         alert.setOnHidden(event -> {
             int selected = buttons.indexOf(alert.getResult());
             answer.complete(selected);
+        });
+        answer.whenComplete((selected, failure) -> {
+            if (answer.isCancelled()) bluej.utility.javafx.JavaFXUtil.runNowOrLater(() -> { alert.setResult(ButtonType.CANCEL); alert.close(); });
         });
         alert.show();
         return answer;
