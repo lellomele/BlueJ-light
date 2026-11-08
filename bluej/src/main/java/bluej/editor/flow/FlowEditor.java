@@ -747,7 +747,6 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private CompletableFuture<Boolean> pendingClose;
     private CompletableFuture<Void> pendingDiskInspection;
     private CompletableFuture<Integer> pendingConflictQuestion;
-    private CompletableFuture<Integer> pendingDiskQuestion;
     private boolean legacyDiskQuestionActive;
     private long preparedCloseRevision = -1;
     private String preparedCloseOwner;
@@ -1483,32 +1482,22 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             if (java.util.Objects.equals(disk.text(), observedDiskText))
             { observedDiskLength = disk.byteLength(); setLastModified(disk.modifiedMillis()); result.complete(null); return; }
             if (!isModified()) { applyDiskReload(disk); result.complete(null); return; }
-            showingChangedOnDiskDialog = true;
-            pendingDiskQuestion = DialogManager.askQuestionFXAsync(getWindow(), "changed-on-disk");
-            pendingDiskQuestion.whenComplete((answer, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
-                pendingDiskQuestion = null; refreshDiskQuestionFlag();
-                if (error == null && owner.equals(sourceSaver.ownerId()) && revision == contentRevision && !sourceSaver.pending())
-                {
-                    if (Integer.valueOf(0).equals(answer)) applyDiskReload(disk);
-                }
-                result.complete(null);
-            }));
+            // Merely focusing a dirty editor must not force a decision or reopen a dismissed question.
+            // The next explicit save checks the unchanged baseline and offers reload/keep/cancel.
+            result.complete(null);
         }));
     }
 
     private void refreshDiskQuestionFlag()
     {
         showingChangedOnDiskDialog = legacyDiskQuestionActive
-            || (pendingDiskQuestion != null && !pendingDiskQuestion.isDone())
             || (pendingConflictQuestion != null && !pendingConflictQuestion.isDone());
     }
 
     private void invalidateDiskInspection()
     {
         CompletableFuture<Void> inspection = pendingDiskInspection;
-        CompletableFuture<Integer> question = pendingDiskQuestion;
-        pendingDiskInspection = null; pendingDiskQuestion = null; refreshDiskQuestionFlag();
-        if (question != null) question.cancel(false);
+        pendingDiskInspection = null;
         if (inspection != null) JavaFXUtil.runAfterCurrent(() -> inspection.complete(null));
     }
 
@@ -2068,7 +2057,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     {
         if (closedWithRecoveryCopy && !isOpen() && type == CompileType.ERROR_CHECK_ONLY)
             return CompletableFuture.failedFuture(new IOException("Closed source is preserved in a recovery copy"));
-        return saveAsync();
+        return sourceSaver.saveAsync(type != CompileType.ERROR_CHECK_ONLY);
     }
 
     protected bluej.light.SourceSaveService sourceSaveService()

@@ -40,7 +40,7 @@ final class FlowSourceSaver
         final SourceSaveService.Snapshot snapshot;
         final CompletableFuture<SourceSaveService.Result> io;
         final CompletableFuture<Void> done = new CompletableFuture<>();
-        boolean legacy, handled;
+        boolean legacy, handled, interactive;
         Attempt(SourceSaveService.Snapshot snapshot, CompletableFuture<SourceSaveService.Result> io)
         { this.snapshot = snapshot; this.io = io; }
     }
@@ -82,37 +82,40 @@ final class FlowSourceSaver
         owner.retire(); owner = new SourceSaveService.Owner(); source = null; appliedRevision = Long.MIN_VALUE;
     }
 
-    CompletableFuture<Void> saveAsync()
+    CompletableFuture<Void> saveAsync() { return saveAsync(true); }
+
+    /** Background error checks must never ask a modal question or reopen a cancelled decision. */
+    CompletableFuture<Void> saveAsync(boolean interactive)
     {
         State state = view.state();
         Attempt current = requests.values().stream().filter(Objects::nonNull)
             .filter(attempt -> attempt.snapshot.owner() == owner && attempt.snapshot.revision() == state.revision() && !attempt.done.isDone()).findFirst().orElse(null);
-        if (current != null) return current.done;
-        if (acknowledging != null && !acknowledging.done.isDone()) return afterConflict(acknowledging.done);
+        if (current != null) { current.interactive |= interactive; return current.done; }
+        if (acknowledging != null && !acknowledging.done.isDone()) return afterConflict(acknowledging.done, interactive);
         if (conflict != null && conflict.isDone()) conflict = null;
         if (conflict != null)
         {
             Attempt sameRevision = attempts.get(state.revision());
             if (sameRevision != null) return sameRevision.done;
-            return afterConflict(conflict);
+            return afterConflict(conflict, interactive);
         }
         if (state.source() == null) return CompletableFuture.completedFuture(null);
         if (!state.modified())
         {
             Attempt active = requests.values().stream().filter(Objects::nonNull).filter(attempt -> !attempt.done.isDone()).findFirst().orElse(null);
-            return active == null ? CompletableFuture.completedFuture(null) : afterConflict(active.done);
+            return active == null ? CompletableFuture.completedFuture(null) : afterConflict(active.done, interactive);
         }
-        return begin(state, false).done;
+        return begin(state, false, interactive).done;
     }
 
-    private CompletableFuture<Void> afterConflict(CompletableFuture<Void> barrier)
+    private CompletableFuture<Void> afterConflict(CompletableFuture<Void> barrier, boolean interactive)
     {
         CompletableFuture<Void> result = new CompletableFuture<>(); track(result, null);
         long expected = fileLifetime;
         barrier.whenComplete((ignored, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
             if (failure != null || expected != fileLifetime)
             { result.completeExceptionally(failure != null ? failure : new IOException("Source editor changed")); return; }
-            saveAsync().whenComplete((saved, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            saveAsync(interactive).whenComplete((saved, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
                 if (error == null) result.complete(null); else result.completeExceptionally(error);
             }));
         }));
@@ -137,7 +140,7 @@ final class FlowSourceSaver
         conflict = null;
         State state = view.state();
         if (state.source() == null || (!state.modified() && attempts.isEmpty())) return;
-        Attempt attempt = begin(state, true);
+        Attempt attempt = begin(state, true, true);
         attempt.legacy = true;
         try
         {
@@ -155,18 +158,18 @@ final class FlowSourceSaver
         catch (ExecutionException failure) { IOException io = asIOException(failure); fail(attempt, io); throw io; }
     }
 
-    private Attempt begin(State state, boolean legacy)
+    private Attempt begin(State state, boolean legacy, boolean interactive)
     {
         Path path = state.source().toAbsolutePath().normalize();
         if (source != null && !source.equals(path)) reset();
         source = path;
         Attempt existing = attempts.get(state.revision());
-        if (existing != null) { if (legacy) existing.legacy = true; return existing; }
+        if (existing != null) { if (legacy) existing.legacy = true; existing.interactive |= interactive; return existing; }
         SourceSaveService.Snapshot snapshot = new SourceSaveService.Snapshot(owner, state.revision(), path,
             state.text(), state.charset(), state.diskText(), state.checkDiskChanges(), false);
         LocalHistory history = view.history();
         CompletableFuture<SourceSaveService.Result> io = view.service().save(snapshot);
-        Attempt attempt = new Attempt(snapshot, io); attempt.legacy = legacy;
+        Attempt attempt = new Attempt(snapshot, io); attempt.legacy = legacy; attempt.interactive = interactive;
         attempts.put(state.revision(), attempt);
         track(attempt.done, attempt);
         io.whenComplete((result, failure) -> {
@@ -239,6 +242,13 @@ final class FlowSourceSaver
 
     private void resolveConflict(Attempt attempt, SourceSaveService.Result result)
     {
+        if (!attempt.interactive)
+        {
+            // Neither version has been accepted. Keep the original disk baseline and dirty buffer.
+            attempt.handled = true;
+            attempt.done.completeExceptionally(new IOException("Source changed on disk; save explicitly to resolve the conflict"));
+            return;
+        }
         conflict = attempt.done;
         CompletableFuture<ConflictChoice> decision;
         try { decision = Objects.requireNonNull(view.decideConflict()); }
@@ -270,7 +280,7 @@ final class FlowSourceSaver
                 // Keep local text, but recheck the disk version explicitly accepted by the user.
                 State current = view.state();
                 State retry = new State(current.source(), current.text(), current.charset(), current.revision(), result.diskText(), true, true);
-                Attempt newer = begin(retry, false);
+                Attempt newer = begin(retry, false, true);
                 newer.done.whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() -> {
                     attempt.handled = true;
                     if (failure == null) attempt.done.complete(null); else attempt.done.completeExceptionally(failure);

@@ -74,6 +74,27 @@ public class TestFlowSourceSaver extends FXTest
         try{request.get(5,TimeUnit.SECONDS);fail("Expected explicit cancellation/failure");}
         catch(ExecutionException expected){assertTrue(expected.getCause() instanceof IOException);}
     }
+    @Test public void automaticConflictsSettleWithoutQuestionsOrChangingEitherVersion() throws Exception {
+        for(int round=0;round<5;round++) {
+            AtomicReference<CompletableFuture<Void>> request=new AtomicReference<>();fx_(() -> request.set(saver.saveAsync(false)));failed(request.get());
+        }
+        fx_(() -> {assertEquals(0,view.decisions);assertTrue(view.modified);assertEquals("local\n",view.text);assertEquals("baseline\n",view.disk);assertFalse(saver.pending());});
+        assertEquals("external\n",Files.readString(view.path));
+        var explicit=save();decisionReady();fx_(() -> view.choice.complete(FlowSourceSaver.ConflictChoice.KEEP_LOCAL));explicit.get(5,TimeUnit.SECONDS);
+        assertEquals("local\n",Files.readString(view.path));
+    }
+    @Test public void cancellingAnExplicitConflictDoesNotCauseBackgroundQuestions() throws Exception {
+        var explicit=save();decisionReady();fx_(() -> view.choice.complete(FlowSourceSaver.ConflictChoice.CANCEL));failed(explicit);
+        AtomicReference<CompletableFuture<Void>> background=new AtomicReference<>();fx_(() -> background.set(saver.saveAsync(false)));failed(background.get());
+        fx_(() -> {assertEquals(1,view.decisions);assertFalse(saver.pending());assertTrue(view.modified);});
+        assertEquals("external\n",Files.readString(view.path));
+    }
+    @Test public void anExplicitSavePromotesAnAlreadyPendingBackgroundWrite() throws Exception {
+        Gate gate=holdInspection();AtomicReference<CompletableFuture<Void>> background=new AtomicReference<>();
+        fx_(() -> background.set(saver.saveAsync(false)));var explicit=save();assertSame(background.get(),explicit);gate.release.countDown();
+        decisionReady();fx_(() -> view.choice.complete(FlowSourceSaver.ConflictChoice.KEEP_LOCAL));explicit.get(5,TimeUnit.SECONDS);
+        assertEquals("local\n",Files.readString(view.path));fx_(() -> assertEquals(1,view.decisions));
+    }
     @Test public void resetCancelsTheDecisionAndSettlesItsRequest() throws Exception {
         var request=save();decisionReady();fx_(saver::reset);failed(request);
         fx_(() -> {assertEquals(1,view.cancelled);assertFalse(saver.pending());assertEquals(0,view.failures);});
