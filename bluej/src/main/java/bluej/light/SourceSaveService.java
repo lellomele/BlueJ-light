@@ -122,7 +122,21 @@ public final class SourceSaveService implements AutoCloseable
     public CompletableFuture<DiskState> inspect(Path path, Charset charset)
     {
         Path source = path.toAbsolutePath().normalize();
-        CompletableFuture<DiskState> result = new CompletableFuture<>();
+        return submit(() -> {
+            if (!Files.exists(source)) return new DiskState(source, null, -1, 0, false);
+            String text = normalise(Files.readString(source, charset));
+            BasicFileAttributes attributes = Files.readAttributes(source, BasicFileAttributes.class);
+            return new DiskState(source, text, attributes.lastModifiedTime().toMillis(), attributes.size(), true);
+        });
+    }
+
+    @FunctionalInterface public interface IOOperation<T> { @OnThread(Tag.Any) T run() throws IOException; }
+
+    /** Ordered project-file operations; capture immutable data only, never controls or editor objects. */
+    public <T> CompletableFuture<T> submit(IOOperation<T> operation)
+    {
+        Objects.requireNonNull(operation);
+        CompletableFuture<T> result = new CompletableFuture<>();
         boolean rejected;
         synchronized (this)
         {
@@ -133,17 +147,8 @@ public final class SourceSaveService implements AutoCloseable
                 try
                 {
                     writer.execute(() -> {
-                        DiskState state = null; Throwable failure = null;
-                        try
-                        {
-                            if (!Files.exists(source)) state = new DiskState(source, null, -1, 0, false);
-                            else
-                            {
-                                String text = normalise(Files.readString(source, charset));
-                                BasicFileAttributes attributes = Files.readAttributes(source, BasicFileAttributes.class);
-                                state = new DiskState(source, text, attributes.lastModifiedTime().toMillis(), attributes.size(), true);
-                            }
-                        }
+                        T state = null; Throwable failure = null;
+                        try { state = operation.run(); }
                         catch (Throwable error) { failure = error; }
                         boolean finished;
                         synchronized (SourceSaveService.this) { pending--; finished = closing && pending == 0; }

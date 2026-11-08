@@ -334,13 +334,26 @@ public class Main
      * extensions.
      */
     @OnThread(Tag.FXPlatform)
+    private static boolean quitInProgress;
+
+    @OnThread(Tag.FXPlatform)
     public static void doQuit() {
-        if (!guiHandler.doExitCleanup()) return;
-        bluej.light.SessionRecovery.finish();
-        bluej.light.UiStallMonitor.stop();
-        ExtensionsManager extMgr = ExtensionsManager.getInstance();
-        extMgr.unloadExtensions();
-        bluej.Main.exit();
+        if (quitInProgress) return;
+        quitInProgress = true;
+        final java.util.concurrent.CompletableFuture<Boolean> cleanup;
+        try { cleanup = java.util.Objects.requireNonNull(guiHandler.doExitCleanupAsync()); }
+        catch (RuntimeException | LinkageError | AssertionError failure)
+        { quitInProgress = false; Debug.reportError("Cannot prepare application exit", failure); return; }
+        cleanup.whenComplete((ready, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            if (failure != null) { Debug.reportError("Cannot prepare application exit", failure); quitInProgress = false; }
+            else if (!Boolean.TRUE.equals(ready)) quitInProgress = false;
+            else bluej.light.SessionRecovery.finishAsync().whenComplete((ignored, historyFailure) -> JavaFXUtil.runNowOrLater(() -> {
+                if (historyFailure != null) Debug.reportError("Cannot finish session recovery", historyFailure);
+                bluej.light.UiStallMonitor.stop();
+                ExtensionsManager.getInstance().unloadExtensions();
+                bluej.Main.exit();
+            }));
+        }));
     }
 
     /**

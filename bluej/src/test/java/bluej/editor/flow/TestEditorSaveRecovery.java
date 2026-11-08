@@ -10,6 +10,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import javafx.beans.property.ReadOnlyBooleanWrapper;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
@@ -44,6 +47,20 @@ public class TestEditorSaveRecovery extends FXTest
             if (rejectSave) throw new IOException("simulated save failure");
             super.save();
         }
+        @Override public CompletableFuture<Void> saveAsync()
+        {
+            return rejectSave ? CompletableFuture.failedFuture(new IOException("simulated save failure")) : super.saveAsync();
+        }
+        @Override protected CompletableFuture<Boolean> offerRecoveryForCloseAsync(IOException failure)
+        {
+            if (!recoverForClose) return CompletableFuture.completedFuture(false);
+            return writeRecoveryCopyForCloseAsync().handle((copy, error) -> error == null);
+        }
+        @Override protected CompletableFuture<Path> writeRecoveryCopyForCloseAsync()
+        {
+            if (rejectRecovery) return CompletableFuture.failedFuture(new IOException("simulated recovery failure"));
+            return super.writeRecoveryCopyForCloseAsync().thenApply(copy -> { recoveryCopy = copy; return copy; });
+        }
         @Override protected boolean offerRecoveryForClose(IOException failure)
         {
             if (!recoverForClose) return false;
@@ -75,6 +92,13 @@ public class TestEditorSaveRecovery extends FXTest
         assertTrue(editor.showFile(source.toString(), StandardCharsets.UTF_8, false, null));
     }
 
+    private boolean prepareClose() throws Exception
+    {
+        AtomicReference<CompletableFuture<Boolean>> pending = new AtomicReference<>();
+        fx_(() -> pending.set(editor.saveForCloseAsync()));
+        return pending.get().get(5, TimeUnit.SECONDS);
+    }
+
     @Test public void failedSaveDoesNotCloseOrDiscardEditableText() throws Exception
     {
         String changed = "class Example { int changed; }\n";
@@ -87,8 +111,12 @@ public class TestEditorSaveRecovery extends FXTest
             assertEquals(0, closed.get());
             assertEquals(changed, document.getFullContent());
             assertTrue(editor.isModified());
-            editor.rejectSave = false;
-            editor.close();
+        });
+        assertFalse(prepareClose());
+        fx_(() -> editor.rejectSave = false);
+        assertTrue(prepareClose());
+        fx_(() -> {
+            editor.closePrepared();
             assertFalse(editor.isModified());
             assertEquals(1, closed.get());
         });
@@ -105,9 +133,9 @@ public class TestEditorSaveRecovery extends FXTest
             assertTrue(editor.saveForClose());
             try { editor.save(); fail("Compilation must not use the stale original"); }
             catch (IOException expected) { }
-            editor.close();
-            assertEquals(1, closed.get());
         });
+        assertTrue(prepareClose());
+        fx_(() -> { editor.closePrepared(); assertEquals(1, closed.get()); });
         assertEquals(changed, Files.readString(editor.recoveryCopy));
         assertEquals("class Example {}\n", Files.readString(source));
         Files.delete(editor.recoveryCopy);
@@ -126,6 +154,7 @@ public class TestEditorSaveRecovery extends FXTest
             assertEquals(0, closed.get());
             assertEquals(changed, document.getFullContent());
         });
+        assertFalse(prepareClose());
     }
 
     @Test public void deletedRecoveryCopyDoesNotAuthorizeClose() throws Exception
@@ -134,11 +163,13 @@ public class TestEditorSaveRecovery extends FXTest
             var document = editor.getSourcePane().getDocument();
             document.replaceText(document.getLength(), document.getLength(), "// recovered\n");
             editor.recoverForClose = true;
-            assertTrue(editor.saveForClose());
+        });
+        assertTrue(prepareClose());
+        fx_(() -> {
             editor.recoverForClose = false;
             try { Files.delete(editor.recoveryCopy); } catch (IOException ex) { throw new AssertionError(ex); }
-            assertFalse(editor.saveForClose());
         });
+        assertFalse(prepareClose());
     }
 
     @Test public void furtherEditingInvalidatesTheCloseRecoveryCopy() throws Exception
@@ -147,11 +178,15 @@ public class TestEditorSaveRecovery extends FXTest
             var document = editor.getSourcePane().getDocument();
             document.replaceText(document.getLength(), document.getLength(), "// recovered\n");
             editor.recoverForClose = true;
-            assertTrue(editor.saveForClose());
+        });
+        assertTrue(prepareClose());
+        fx_(() -> {
             editor.recoverForClose = false;
+            var document = editor.getSourcePane().getDocument();
             document.replaceText(document.getLength(), document.getLength(), "// newer\n");
             assertFalse(editor.saveForClose());
         });
+        assertFalse(prepareClose());
         Files.delete(editor.recoveryCopy);
     }
 
@@ -190,8 +225,9 @@ public class TestEditorSaveRecovery extends FXTest
         assertTrue("Continuous input must not postpone all recovery checkpoints", checkpoint.get(5, java.util.concurrent.TimeUnit.SECONDS));
         fx_(() -> {
             editor.rejectSave = false;
-            editor.close();
         });
+        assertTrue(prepareClose());
+        fx_(editor::closePrepared);
     }
 
     @Test public void openingAndSavingPreservesTabsInsideLiterals() throws Exception

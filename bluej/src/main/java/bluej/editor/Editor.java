@@ -80,6 +80,12 @@ public interface Editor
      */
     void save() throws IOException;
 
+    default boolean hasPendingSave() { return false; }
+
+    /** Versions are local to this editor lifetime; -1 denotes an unversioned editor. */
+    default long getContentRevision() { return -1; }
+    default long getSavedRevision() { return -1; }
+
     /** Finish persistence without blocking the UI; completion is delivered on the FX thread. */
     @OnThread(Tag.FXPlatform)
     default java.util.concurrent.CompletableFuture<Void> saveAsync()
@@ -99,6 +105,12 @@ public interface Editor
     {
         return saveAsync().handle((ignored, failure) -> failure == null);
     }
+
+    /** A nonblocking check of the latest close decision, invalidated by any newer edit. */
+    default boolean isPreparedForClose() { return !isModified() && !hasPendingSave(); }
+
+    /** Used only immediately after a successful close boundary. */
+    default void closePrepared() { close(); }
 
     /** A close-only save decision; must not bypass compilation saves. */
     default boolean saveForClose()
@@ -199,6 +211,12 @@ public interface Editor
      * @return True if there is a known error
      */
     boolean compileStarted(int compilationSequence);
+
+    /** The revision submitted to the compiler, which can be older than the current buffer. */
+    default boolean compileStarted(int compilationSequence, long savedRevision)
+    {
+        return compileStarted(compilationSequence);
+    }
     
     /**
      * Informs the editor that a compilation requested via the EditorWatcher interface has finished.

@@ -107,13 +107,38 @@ public class BlueJGuiHandler implements GuiHandler
     }
     
     @Override
-    public boolean doExitCleanup()
+    @OnThread(Tag.FXPlatform)
+    public java.util.concurrent.CompletableFuture<Boolean> doExitCleanupAsync()
+    {
+        return prepareExit(0);
+    }
+
+    @OnThread(Tag.FXPlatform)
+    private java.util.concurrent.CompletableFuture<Boolean> prepareExit(int round)
     {
         PkgMgrFrame[] pkgFrames = PkgMgrFrame.getAllFrames();
+        if (round >= 32) return java.util.concurrent.CompletableFuture.completedFuture(false);
+        java.util.Map<PkgMgrFrame, bluej.pkgmgr.Package> packages = new java.util.IdentityHashMap<>();
+        for (PkgMgrFrame frame : pkgFrames) packages.put(frame, frame.getPackage());
+        return bluej.editor.EditorCloseBatch.prepare(() -> java.util.Arrays.stream(pkgFrames).filter(frame -> frame.getProject() != null)
+            .flatMap(frame -> frame.getProject().getConstructedEditors().stream()).distinct().toList()).thenCompose(ready -> {
+            java.util.concurrent.CompletableFuture<Boolean> saves = java.util.concurrent.CompletableFuture.completedFuture(ready);
+            for (PkgMgrFrame frame : pkgFrames)
+                saves = saves.thenCompose(saved -> saved && frame.getPackage() == packages.get(frame) ? frame.doSaveAsync()
+                    : java.util.concurrent.CompletableFuture.completedFuture(false));
+            return saves;
+        }).thenCompose(saved -> {
+            if (!saved || java.util.Arrays.stream(pkgFrames).anyMatch(frame -> frame.getPackage() != packages.get(frame))
+                || !java.util.Set.of(pkgFrames).equals(java.util.Set.of(PkgMgrFrame.getAllFrames())))
+                return java.util.concurrent.CompletableFuture.completedFuture(false);
+            if (java.util.Arrays.stream(pkgFrames).anyMatch(frame -> !frame.prepareClose())) return prepareExit(round + 1);
+            return java.util.concurrent.CompletableFuture.completedFuture(finishExit(pkgFrames));
+        });
+    }
 
-        // Validate all projects before closing any window or unloading extensions.
-        for (PkgMgrFrame frame : pkgFrames)
-            if (!frame.prepareClose() || !frame.doSave()) return false;
+    @OnThread(Tag.FXPlatform)
+    private boolean finishExit(PkgMgrFrame[] pkgFrames)
+    {
 
         // handle open packages so they are re-opened on startup
         handleOrphanPackages(pkgFrames);

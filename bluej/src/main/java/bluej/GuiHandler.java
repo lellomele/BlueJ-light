@@ -70,7 +70,7 @@ public interface GuiHandler
     Stage initialOpenComplete(boolean projectOpen);
     
     /**
-     * Perform any cleanup/save prior to application exit. The exit cannot be cancelled at this point.
+     * Prepare all projects before closing any of them; false keeps the application available.
      */
-    boolean doExitCleanup();
+    java.util.concurrent.CompletableFuture<Boolean> doExitCleanupAsync();
 }

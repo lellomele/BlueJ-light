@@ -59,7 +59,12 @@ public class SourceSaveSmoke extends BootSmoke {
         try (var heldOpen = new java.io.FileInputStream(folder.resolve("a1.java").toFile())) {
             fx(() -> { replace.invoke(document,0,((Number)call(document,"getLength")).intValue(),unsaved); return null; });
             var complete = new java.util.concurrent.CompletableFuture<Boolean>();
-            Platform.runLater(() -> { try { complete.complete((Boolean)call(project,"prepareEditorsForClose")); }
+            Platform.runLater(() -> { try {
+                try {
+                    @SuppressWarnings("unchecked") var pending = (java.util.concurrent.CompletableFuture<Boolean>)call(project,"prepareEditorsForCloseAsync");
+                    pending.whenComplete((ready,failure) -> { if(failure==null)complete.complete(ready);else complete.completeExceptionally(failure); });
+                } catch(NoSuchMethodException legacy) { complete.complete((Boolean)call(project,"prepareEditorsForClose")); }
+            }
                 catch (Throwable ex) { complete.completeExceptionally(ex); } });
             DialogPane warning = dialog(null);
             fx(() -> {

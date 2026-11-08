@@ -219,10 +219,16 @@ public final class Package
     private DebuggerListener idleCompileListener;
     private final Map<ClassTarget, PendingCompilation> idleCompilations = new LinkedHashMap<>();
     private final Map<ClassTarget, PendingCompilation> pendingCompilations = new LinkedHashMap<>();
+    private final Map<ClassTarget, PendingCompilation> preparingCompilations = new LinkedHashMap<>();
+    private boolean preparingSources;
+    private long sourcePreparationGeneration;
+    private final Deque<CompilationRetry> compilationRetries = new ArrayDeque<>();
+    private CompilationRetry preparingRetry;
     private final Map<ClassTarget, Long> activeCompilationJobs = new HashMap<>();
     private final Map<ClassTarget, Long> checkedRevisions = new WeakHashMap<>();
     private long nextCompilationJob;
     private long activePackageJob = -1;
+    private long nextMetadataSave, appliedMetadataSave;
 
     private final List<FXCompileObserver> compileObservers = new ArrayList<>();
 
@@ -1257,15 +1263,21 @@ public final class Package
     @OnThread(Tag.FXPlatform)
     public synchronized boolean save(Properties frameProperties)
     {
-        /* create the directory if it doesn't exist */
-        File dir = getPath();
-        if (!dir.exists()) {
-            if (!dir.mkdir()) {
-                Debug.reportError("Error creating directory " + dir);
-                return false;
-            }
+        PreparedPackageSave prepared = capturePackageSave(frameProperties);
+        try
+        {
+            enqueuePackageSave(prepared).get();
+            acknowledgePackageSave(prepared); return true;
         }
+        catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); Debug.reportError("Package save interrupted", interrupted); return false; }
+        catch (java.util.concurrent.ExecutionException failure) { Debug.reportError("Cannot save package", failure.getCause()); return false; }
+    }
 
+    @OnThread(Tag.Any)
+    private record PreparedPackageSave(long revision, SortedProperties properties, PackageFile file, java.nio.file.Path directory) { }
+
+    private synchronized PreparedPackageSave capturePackageSave(Properties frameProperties)
+    {
         SortedProperties props = new SortedProperties();
         props.putAll(frameProperties);
 
@@ -1297,15 +1309,32 @@ public final class Package
             d.save(props, "dependency" + (i + 1));
         }
 
-        try {
-            packageFile.save(props);
-        }
-        catch (IOException e) {
-            Debug.reportError("Exception when saving package file : " + e);
-            return false;
-        }
-        lastSavedProps = props;
-        return true;
+        return new PreparedPackageSave(++nextMetadataSave, props, packageFile, getPath().toPath());
+    }
+
+    private java.util.concurrent.CompletableFuture<Void> enqueuePackageSave(PreparedPackageSave prepared)
+    {
+        return project.getSourceSaveService().submit(() -> {
+            java.nio.file.Files.createDirectories(prepared.directory());
+            prepared.file().save(prepared.properties()); return null;
+        });
+    }
+
+    private void acknowledgePackageSave(PreparedPackageSave prepared)
+    {
+        if (prepared.revision() >= appliedMetadataSave)
+        { appliedMetadataSave = prepared.revision(); lastSavedProps = prepared.properties(); }
+    }
+
+    public java.util.concurrent.CompletableFuture<Boolean> saveAsync(Properties frameProperties)
+    {
+        PreparedPackageSave prepared = capturePackageSave(frameProperties);
+        java.util.concurrent.CompletableFuture<Boolean> result = new java.util.concurrent.CompletableFuture<>();
+        enqueuePackageSave(prepared).whenComplete((ignored, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (failure != null) { Debug.reportError("Cannot save package", failure); result.complete(false); }
+            else { acknowledgePackageSave(prepared); result.complete(true); }
+        }));
+        return result;
     }
 
     /**
@@ -1468,6 +1497,7 @@ public final class Package
             rememberCompilation(pendingCompilations, null, false, compObserver, reason, type);
             return;
         }
+        if (!prepareCompilationSources(null, false, compObserver, reason, type)) return;
         Set<ClassTarget> toCompile = new HashSet<ClassTarget>();
 
         try
@@ -1484,7 +1514,7 @@ public final class Package
                 {
                     toCompile.add(ct);
                     ct.setQueued(true);
-                    ct.ensureSaved();
+                    requireSaved(ct);
                 }
             }
 
@@ -1561,6 +1591,7 @@ public final class Package
             awaitDebuggerIdle();
             return;
         }
+        if (!prepareCompilationSources(ct, forceQuiet, compObserver, reason, type)) return;
 
         ClassTarget assocTarget = (ClassTarget) ct.getAssociation();
         if (assocTarget != null && ! assocTarget.hasSourceCode()) {
@@ -1633,6 +1664,7 @@ public final class Package
             rememberCompilation(pendingCompilations, null, false, caller, CompileReason.REBUILD, CompileType.EXPLICIT_USER_COMPILE);
             return;
         }
+        if (!prepareCompilationSources(null, false, caller, CompileReason.REBUILD, CompileType.EXPLICIT_USER_COMPILE)) return;
         // Saving a class target can change its name; we need to copy the set of targets
         // first, and iterate through the copied list, to avoid "concurrent" modification
         // problems.
@@ -1655,7 +1687,7 @@ public final class Package
                 // we don't want to try and compile if it is a class target without src
                 if (ct.hasSourceCode()) {
                     ct.setQueued(true);
-                    ct.ensureSaved();
+                    requireSaved(ct);
                     ct.markModified();
                 }
                 else {
@@ -1725,7 +1757,7 @@ public final class Package
             List<ClassTarget> queue = new LinkedList<ClassTarget>();
             toCompile.add(t);
             t.setQueued(true);
-            t.ensureSaved();
+            requireSaved(t);
             queue.add(t);
 
             while (! queue.isEmpty()) {
@@ -1737,7 +1769,7 @@ public final class Package
                     {
                         if (!to.isCompiled() && ! to.isQueued() && toCompile.add(to)) {
                             to.setQueued(true);
-                            to.ensureSaved();
+                            requireSaved(to);
                             queue.add(to);
                         }
                     }
@@ -1811,6 +1843,7 @@ public final class Package
         {
             merge(newer.quiet, null, newer.request.reason(), newer.request.type());
             rebuild |= newer.rebuild;
+            revision = Math.max(revision, newer.revision);
             for (FXCompileObserver observer : newer.observers)
                 if (observers.stream().noneMatch(old -> old == observer)) observers.add(observer);
         }
@@ -1830,12 +1863,153 @@ public final class Package
 
     private static long editorRevision(ClassTarget target)
     {
-        return target != null && target.getEditorIfOpen() instanceof FlowEditor flowEditor ? flowEditor.getContentRevision() : -1;
+        return target != null && target.getEditorIfOpen() != null ? target.getEditorIfOpen().getContentRevision() : -1;
     }
 
     private static String sourceKey(String filename)
     {
         return new File(filename).getAbsoluteFile().toPath().normalize().toString();
+    }
+
+    /** Saving can discover new dependencies: the supplier is reevaluated after each write pass. */
+    private List<Editor> compilationEditors(ClassTarget requested)
+    {
+        List<Editor> editors = new ArrayList<>();
+        Set<ClassTarget> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        Deque<ClassTarget> queue = new ArrayDeque<>(requested == null ? getClassTargets() : List.of(requested));
+        while (!queue.isEmpty())
+        {
+            ClassTarget target = queue.removeFirst();
+            if (!seen.add(target)) continue;
+            Editor sourceEditor = target.getEditorIfOpen();
+            if (sourceEditor != null) editors.add(sourceEditor);
+            for (DependentTarget dependency : target.dependencies())
+                if (dependency instanceof ClassTarget next) queue.addLast(next);
+            if (target.getAssociation() instanceof ClassTarget associated) queue.addLast(associated);
+        }
+        return editors;
+    }
+
+    private static long editorVersion(Editor sourceEditor)
+    {
+        long revision = sourceEditor.getContentRevision();
+        return revision >= 0 ? revision : sourceEditor.isModified() ? 1 : 0;
+    }
+
+    private void mergePendingCompilation(ClassTarget target, PendingCompilation request)
+    {
+        PendingCompilation previous = pendingCompilations.putIfAbsent(target, request);
+        if (previous != null) previous.merge(request);
+    }
+
+    /** No disk access: the asynchronous source boundary must already have completed. */
+    private static void requireSaved(ClassTarget target) throws IOException
+    {
+        Editor sourceEditor = target.getEditorIfOpen();
+        if (sourceEditor != null && (sourceEditor.isModified() || sourceEditor.hasPendingSave()))
+            throw new IOException("Source changed before compilation: " + target.getIdentifierName());
+    }
+
+    private final class CompilationRetry
+    {
+        final List<ClassTarget> targets;
+        final QuietPackageCompileObserver observer;
+        final boolean wholePackage;
+        CompilationRetry(List<ClassTarget> targets, QuietPackageCompileObserver observer, boolean wholePackage)
+        { this.targets = List.copyOf(targets); this.observer = observer; this.wholePackage = wholePackage; }
+    }
+
+    private void failRetry(CompilationRetry retry)
+    {
+        for (ClassTarget target : retry.targets) if (!activeCompilationJobs.containsKey(target)) target.cancelCompilation();
+        notifyCompilerObservers(List.of(retry.observer), observer -> observer.endCompile(new CompileInputFile[0], false, CompileType.EXPLICIT_USER_COMPILE, -1));
+    }
+
+    private void runCompilationRetry(CompilationRetry retry)
+    {
+        if (retry.targets.stream().anyMatch(target -> getTarget(target.getIdentifierName()) != target || !target.hasSourceCode()))
+        { failRetry(retry); return; }
+        bluej.editor.EditorSaveBatch.Editors scope = () -> retry.targets.stream()
+            .flatMap(target -> compilationEditors(target).stream()).distinct().toList();
+        try
+        {
+            if (!bluej.editor.EditorSaveBatch.needsSave(scope))
+            {
+                doCompile(retry.targets, retry.observer, CompileReason.USER, CompileType.EXPLICIT_USER_COMPILE, retry.wholePackage);
+                return;
+            }
+            preparingRetry = retry;
+            bluej.editor.EditorSaveBatch.save(scope, CompileType.EXPLICIT_USER_COMPILE).whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() -> {
+                if (preparingRetry != retry) return;
+                preparingRetry = null;
+                if (failure == null && !project.isClosing()) compilationRetries.addFirst(retry);
+                else failRetry(retry);
+                drainPendingCompilations();
+            }));
+        }
+        catch (RuntimeException | LinkageError | AssertionError failure)
+        {
+            preparingRetry = null; failRetry(retry); Debug.reportError("Unable to prepare compilation retry", failure);
+        }
+    }
+
+    /** The request remains owned by a queue while source persistence is in progress. */
+    private boolean prepareCompilationSources(ClassTarget target, boolean quiet, FXCompileObserver observer, CompileReason reason, CompileType type)
+    {
+        bluej.editor.EditorSaveBatch.Editors scope = () -> compilationEditors(target);
+        Map<Editor, Long> revisions = new IdentityHashMap<>();
+        try
+        {
+            if (!bluej.editor.EditorSaveBatch.needsSave(scope)) return true;
+            if (!preparingSources)
+                for (Editor sourceEditor : scope.get()) revisions.put(sourceEditor, editorVersion(sourceEditor));
+        }
+        catch (RuntimeException | LinkageError | AssertionError failure)
+        {
+            if (target != null && !target.isQueued()) target.cancelCompilation();
+            if (observer != null) notifyCompilerObservers(List.of(observer), next -> next.endCompile(new CompileInputFile[0], false, type, -1));
+            Debug.reportError("Cannot inspect compilation sources", failure);
+            return false;
+        }
+        rememberCompilation(preparingCompilations, target, quiet, observer, reason, type);
+        if (preparingSources) return false;
+        preparingSources = true;
+        long generation = ++sourcePreparationGeneration;
+        bluej.editor.EditorSaveBatch.save(scope, type).whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            if (generation != sourcePreparationGeneration) return;
+            // Detach before callbacks: a failed observer may enqueue a replacement preparation.
+            Map<ClassTarget, PendingCompilation> waiting = new LinkedHashMap<>(preparingCompilations);
+            preparingCompilations.clear(); preparingSources = false;
+            PendingCompilation original = waiting.remove(target);
+            try
+            {
+                boolean valid = !project.isClosing() && (target == null || getTarget(target.getIdentifierName()) == target);
+                boolean changed = valid && scope.get().stream().anyMatch(sourceEditor -> !Objects.equals(revisions.get(sourceEditor), editorVersion(sourceEditor)));
+                boolean promoted = original != null && original.request.type().keepClasses() && !type.keepClasses();
+                if (original != null)
+                {
+                    if (valid && (failure == null || changed || promoted)) mergePendingCompilation(target, original);
+                    else
+                    {
+                        if (target != null && !target.isQueued()) target.cancelCompilation();
+                        else if (target == null)
+                            for (ClassTarget candidate : getClassTargets()) if (!candidate.isQueued()) candidate.cancelCompilation();
+                        notifyCompilerObservers(original.observers, next -> next.endCompile(new CompileInputFile[0], false, original.request.type(), -1));
+                    }
+                }
+            }
+            catch (RuntimeException | LinkageError | AssertionError unavailable)
+            {
+                if (original != null) notifyCompilerObservers(original.observers, next -> next.endCompile(new CompileInputFile[0], false, original.request.type(), -1));
+                Debug.reportError("Source preparation completion failed", unavailable);
+            }
+            finally
+            {
+                waiting.forEach(this::mergePendingCompilation);
+                drainPendingCompilations();
+            }
+        }));
+        return false;
     }
 
     private void cancelPreparation(Collection<ClassTarget> preparedTargets)
@@ -1882,6 +2056,12 @@ public final class Package
     private void drainPendingCompilations()
     {
         if (project.isClosing()) { cancelPendingCompilations(); return; }
+        if (preparingSources || preparingRetry != null) return;
+        while (!compilationRetries.isEmpty() && !currentlyCompiling && activeCompilationJobs.isEmpty() && isDebuggerIdle())
+        {
+            runCompilationRetry(compilationRetries.removeFirst());
+            if (preparingRetry != null) return;
+        }
         for (var entry : List.copyOf(pendingCompilations.entrySet())) {
             ClassTarget target = entry.getKey();
             if (currentlyCompiling || (target == null ? !activeCompilationJobs.isEmpty()
@@ -1901,23 +2081,33 @@ public final class Package
 
     public void cancelPendingCompilations()
     {
+        sourcePreparationGeneration++;
+        preparingSources = false;
         if (idleCompileListener != null) getDebugger().removeDebuggerListener(idleCompileListener);
         idleCompileListener = null;
         waitingForIdleToCompile = false;
-        for (Map<ClassTarget, PendingCompilation> pending : List.of(idleCompilations, pendingCompilations)) {
-            var requests = new LinkedHashMap<>(pending);
-            pending.clear();
-            for (var entry : requests.entrySet()) {
-                if (entry.getKey() != null) entry.getKey().cancelCompilation();
-                notifyCompilerObservers(entry.getValue().observers,
-                    observer -> observer.endCompile(new CompileInputFile[0], false, entry.getValue().request.type(), -1));
-            }
+        List<Map<ClassTarget, PendingCompilation>> detached = new ArrayList<>();
+        for (Map<ClassTarget, PendingCompilation> pending : List.of(idleCompilations, pendingCompilations, preparingCompilations)) {
+            detached.add(new LinkedHashMap<>(pending)); pending.clear();
         }
-        for (ClassTarget target : List.copyOf(activeCompilationJobs.keySet())) target.cancelCompilation();
+        List<CompilationRetry> retries = new ArrayList<>(compilationRetries); compilationRetries.clear();
+        if (preparingRetry != null) { retries.add(preparingRetry); preparingRetry = null; }
+        Set<ClassTarget> cancelled = new HashSet<>(activeCompilationJobs.keySet());
+        for (Map<ClassTarget, PendingCompilation> pending : detached)
+            for (ClassTarget target : pending.keySet()) if (target != null) cancelled.add(target);
         activeCompilationJobs.clear();
         checkedRevisions.clear();
         currentlyCompiling = false;
         activePackageJob = -1;
+        // Reset the old generation before notifying clients: callbacks may start a new job.
+        for (ClassTarget target : cancelled) target.cancelCompilation();
+        for (CompilationRetry retry : retries) failRetry(retry);
+        for (Map<ClassTarget, PendingCompilation> pending : detached) {
+            for (var entry : pending.entrySet()) {
+                notifyCompilerObservers(entry.getValue().observers,
+                    observer -> observer.endCompile(new CompileInputFile[0], false, entry.getValue().request.type(), -1));
+            }
+        }
     }
 
     /**
@@ -1946,19 +2136,31 @@ public final class Package
         if (edtObserver instanceof QuietPackageCompileObserver observer) {
             observer.job = job;
             observer.submittedTargets = new HashMap<>();
+            observer.submittedVersions = new HashMap<>();
+            // Include implicit sources in this package, without opening editors or reading files.
+            for (ClassTarget target : getClassTargets())
+            {
+                Editor sourceEditor = target.getEditorIfOpen();
+                observer.submittedVersions.put(target, new SubmittedSource(sourceEditor, sourceEditor == null ? -1 : sourceEditor.getSavedRevision()));
+            }
             for (int i = 0; i < submitted.size(); i++)
                 observer.submittedTargets.put(sourceKey(srcFiles.get(i).getJavaCompileInputFile().getPath()), submitted.get(i));
         }
         for (ClassTarget target : submitted) { target.setQueued(true); activeCompilationJobs.put(target, job); }
         if (wholePackage) { currentlyCompiling = true; activePackageJob = job; }
-        Map<ClassTarget, Long> startedRevisions = new HashMap<>();
+        Map<ClassTarget, Long> submittedRevisions = new HashMap<>();
+        Map<ClassTarget, Editor> submittedEditors = new HashMap<>();
+        for (ClassTarget target : submitted)
+        {
+            Editor sourceEditor = target.getEditorIfOpen();
+            if (sourceEditor != null && !sourceEditor.isModified())
+            { submittedRevisions.put(target, sourceEditor.getSavedRevision()); submittedEditors.put(target, sourceEditor); }
+        }
         FXCompileObserver bridge = new FXCompileObserver() {
             @Override public void startCompile(CompileInputFile[] sources, CompileReason why, CompileType kind, int sequence) {
                 if (project.isClosing()) throw new java.util.concurrent.CancellationException();
-                for (ClassTarget target : submitted) {
-                    Editor editor = target.getEditorIfOpen();
-                    if (editor != null && !editor.isModified()) startedRevisions.put(target, editorRevision(target));
-                }
+                if (submitted.stream().noneMatch(target -> Objects.equals(activeCompilationJobs.get(target), job)))
+                    throw new java.util.concurrent.CancellationException();
                 edtObserver.startCompile(sources, why, kind, sequence);
             }
             @Override public boolean compilerMessage(Diagnostic diagnostic, CompileType kind) {
@@ -1972,10 +2174,10 @@ public final class Package
                     for (ClassTarget target : submitted) {
                         if (!Objects.equals(activeCompilationJobs.get(target), job)) continue;
                         activeCompilationJobs.remove(target);
-                        Long revision = startedRevisions.get(target);
+                        Long revision = submittedRevisions.get(target);
                         Editor editor = target.getEditorIfOpen();
                         if (revision != null && revision >= 0 && revision == editorRevision(target)
-                            && editor != null && !editor.isModified() && (success || target.hasKnownError()))
+                            && editor != null && editor == submittedEditors.get(target) && !editor.isModified() && (success || target.hasKnownError()))
                             checkedRevisions.put(target, revision);
                         if (target.isQueued()) target.cancelCompilation();
                     }
@@ -1989,10 +2191,12 @@ public final class Package
                 project.getClassLoader(), project.getProjectDir(), !PrefMgr.getFlag(PrefMgr.SHOW_UNCHECKED), project.getProjectCharset(), reason, type);
         }
         catch (RuntimeException | LinkageError | AssertionError failure) {
-            for (ClassTarget target : submitted) { activeCompilationJobs.remove(target); target.cancelCompilation(); }
+            for (ClassTarget target : submitted)
+                if (Objects.equals(activeCompilationJobs.get(target), job)) { activeCompilationJobs.remove(target); target.cancelCompilation(); }
             if (activePackageJob == job) { activePackageJob = -1; currentlyCompiling = false; }
             notifyCompilerObservers(List.of(edtObserver), observer -> observer.endCompile(new CompileInputFile[0], false, type, -1));
             Debug.reportError("Unable to queue compilation", failure);
+            drainPendingCompilations();
         }
     }
 
@@ -2821,6 +3025,8 @@ public final class Package
 
     // ---- bluej.compiler.CompileObserver interfaces ----
 
+    private record SubmittedSource(Editor editor, long revision) { }
+
     /**
      * Observe compilation jobs and change the PkgMgr interface elements as
      * compilation goes through different stages, but don't display the popups
@@ -2832,6 +3038,7 @@ public final class Package
     {
         protected List<FXCompileObserver> chainedObservers;
         private Map<String, ClassTarget> submittedTargets = Map.of();
+        private Map<ClassTarget, SubmittedSource> submittedVersions = Map.of();
         private long job;
         protected Set<ClassTarget> retriedTargets = new HashSet<>();
 
@@ -2863,7 +3070,12 @@ public final class Package
             for (int i = 0; i < sources.length; i++) {
                 String fileName = sources[i].getJavaCompileInputFile().getPath();
                 ClassTarget target = targetForSource(fileName);
-                if (target != null) target.markCompiling(compilationSequence);
+                if (target != null)
+                {
+                    SubmittedSource source = submittedVersions.get(target);
+                    if (source == null) target.markCompiling(compilationSequence);
+                    else target.markCompiling(compilationSequence, source.editor(), source.revision());
+                }
             }
         }
 
@@ -3026,11 +3238,7 @@ public final class Package
                 QuietPackageCompileObserver retry = this instanceof PackageCompileObserver
                     ? new PackageCompileObserver(chainedObservers) : new QuietPackageCompileObserver(chainedObservers);
                 retry.retriedTargets = retriedTargets;
-                try {
-                    for (ClassTarget target : readyToCompileList) target.ensureSaved();
-                    doCompile(readyToCompileList, retry, CompileReason.USER, CompileType.EXPLICIT_USER_COMPILE, activePackageJob == job);
-                }
-                catch (IOException | RuntimeException failure) { cancelPreparation(readyToCompileList); Debug.reportError("Unable to prepare compilation retry", failure); }
+                compilationRetries.addLast(new CompilationRetry(readyToCompileList, retry, activePackageJob == job));
             }
 
             for (ClassTarget classTarget : targetsToAnalyse)
@@ -3157,7 +3365,8 @@ public final class Package
     /** Close open editors only after every buffer has a safe close decision. */
     public boolean closeAllEditors()
     {
-        if (!prepareEditorsForClose()) return false;
+        for (Target target : getVertices())
+            if (target instanceof EditableTarget editable && editable.getEditorIfOpen() != null && !editable.getEditorIfOpen().isPreparedForClose()) return false;
         // We take a copy here to avoid
         // ConcurrentModificationException which happened on closing
         // BlueJ main frame after renaming a class without compile.
@@ -3173,7 +3382,7 @@ public final class Package
                 EditableTarget et = (EditableTarget) target;
                 if (et.editorOpen()) {
                     Editor openEditor = et.getEditor();
-                    openEditor.close();
+                    openEditor.closePrepared();
                     if (openEditor.isOpen()) return false;
                 }
             }

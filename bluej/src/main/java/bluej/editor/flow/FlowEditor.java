@@ -171,6 +171,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private final Deque<TrackedPosition> navigationForward = new ArrayDeque<>();
     private String historyDiskText = "";
     private bluej.light.SourceSaveService standaloneSourceSaves;
+    private bluej.light.SourceSaveService standaloneRecoverySaves;
     private final FlowSourceSaver sourceSaver = new FlowSourceSaver(new FlowSourceSaver.View()
     {
         @Override public FlowSourceSaver.State state()
@@ -241,7 +242,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public List<Diagnostic> getLightDiagnostics() { return List.copyOf(lightDiagnostics); }
     public javafx.collections.ObservableList<Diagnostic> getLightDiagnosticsObservable()
     { return FXCollections.unmodifiableObservableList(lightDiagnostics); }
-    public long getContentRevision() { return contentRevision; }
+    @Override public long getContentRevision() { return contentRevision; }
+    @Override public long getSavedRevision() { return savedContentRevision; }
     SourceTypeCompletion.Cached completionTypeSnapshot;
     private long completionSourceRevision = -1;
     private ClassLoader completionSourceLoader;
@@ -723,10 +725,18 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     // package-visible:
     final UndoManager undoManager;
     private long contentRevision;
+    private long savedContentRevision;
     private long recoveryCloseRevision = -1;
     private String recoveryCloseFilename;
     private java.nio.file.Path recoveryCloseFile;
     private boolean offeringRecoveryClose;
+    private CompletableFuture<Boolean> pendingClose;
+    private CompletableFuture<Void> pendingDiskInspection;
+    private long preparedCloseRevision = -1;
+    private String preparedCloseOwner;
+    private boolean preparedCloseWithCopy;
+    private boolean closedWithRecoveryCopy;
+    private boolean closeNotified;
     private long completionRequest;
     private long snippetRequest;
     private SuggestionList activeCompletion;
@@ -1299,7 +1309,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 watcher.recordSelected();
             }
             if(PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES))
-                checkForChangeOnDisk();
+                checkForChangeOnDiskAsync();
         }
         else
         {
@@ -1437,6 +1447,39 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         return true;
     }
 
+    private void checkForChangeOnDiskAsync()
+    {
+        if (filename == null || showingChangedOnDiskDialog || sourceSaver.pending() || pendingDiskInspection != null) return;
+        CompletableFuture<Void> result = new CompletableFuture<>(); pendingDiskInspection = result;
+        String owner = sourceSaver.ownerId(); long revision = contentRevision;
+        result.whenComplete((ignored, failure) -> {
+            if (pendingDiskInspection == result) pendingDiskInspection = null;
+            if (failure != null) Debug.reportError("Cannot inspect editor source", failure);
+        });
+        sourceSaveService().inspect(java.nio.file.Path.of(filename), characterSet).whenComplete((disk, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (!owner.equals(sourceSaver.ownerId()) || revision != contentRevision || sourceSaver.pending()) { result.complete(null); return; }
+            if (failure != null || !disk.exists())
+            { info.message(Config.getString("editor.info.fileReadError")); result.complete(null); return; }
+            if (java.util.Objects.equals(disk.text(), observedDiskText))
+            { observedDiskLength = disk.byteLength(); setLastModified(disk.modifiedMillis()); result.complete(null); return; }
+            if (!isModified()) { applyDiskReload(disk); result.complete(null); return; }
+            showingChangedOnDiskDialog = true;
+            DialogManager.askQuestionFXAsync(getWindow(), "changed-on-disk").whenComplete((answer, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                showingChangedOnDiskDialog = false;
+                if (error == null && owner.equals(sourceSaver.ownerId()) && revision == contentRevision && !sourceSaver.pending())
+                {
+                    if (Integer.valueOf(0).equals(answer)) applyDiskReload(disk);
+                    else if (Integer.valueOf(1).equals(answer))
+                    {
+                        observedDiskText = disk.text(); observedDiskLength = disk.byteLength(); setLastModified(disk.modifiedMillis());
+                        if (sourceIsCode) scheduleCompilation(CompileReason.MODIFIED, CompileType.ERROR_CHECK_ONLY);
+                    }
+                }
+                result.complete(null);
+            }));
+        }));
+    }
+
 
     /**
      * Schedule compilation, if any edits have occurred since last compile.
@@ -1453,13 +1496,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             }
             else
             {
-                try
-                {
-                    save();
-                }
-                catch (IOException ioe) {}
-                // Note we can safely ignore the exception here: a message has
-                // already been displayed in the editor status bar by the save() method
+                saveAsync();
             }
         }
     }
@@ -1490,14 +1527,20 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 watcher.recordClose();
             }
 
-            // If we are closing, force a compilation in case there are pending changes:
-            if (parent == null && saveState.isChanged())
-            {
-                scheduleCompilation(CompileReason.MODIFIED, CompileType.ERROR_CHECK_ONLY);
-            }
         }
 
         this.fxTabbedEditor = parent;
+        if (parent == null && !partOfMove && !closeNotified)
+        {
+            closeNotified = true;
+            closedWithRecoveryCopy = isModified() && preparedCloseWithCopy;
+            sourceSaver.reset();
+            preparedCloseOwner = sourceSaver.ownerId();
+            if (standaloneSourceSaves != null) { standaloneSourceSaves.closeAsync(); standaloneSourceSaves = null; }
+            if (standaloneRecoverySaves != null) { standaloneRecoverySaves.closeAsync(); standaloneRecoverySaves = null; }
+            if (watcher != null) watcher.closeEvent(this);
+        }
+        else if (parent != null) { closedWithRecoveryCopy = false; closeNotified = false; }
     }
 
     /**
@@ -1562,6 +1605,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         this.filename = filename;
         this.docFilename = docFilename;
         this.characterSet = charset;
+        closeNotified = false;
 
         boolean loaded = false;
 
@@ -1620,6 +1664,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         }
 
         saveState.setState(Status.SAVED);
+        savedContentRevision = contentRevision;
         setCompileStatus(compiled);
 
         if (filename != null)
@@ -1878,11 +1923,10 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     @Override
     public void setEditorVisible(boolean vis, boolean openInNewWindow)
     {
+        if (!vis) { close(); return; }
         final FXTabbedEditor fxTabbedEditor;
         boolean becameVisible = false;
         FXTabbedEditor tabParent = fxTab.getParent();
-        if (!vis && tabParent != null && !saveForClose())
-            return;
         if (!vis && tabParent == null)
         {
             // If we already aren't in a window and are being told to hide, nothing to do:
@@ -1979,6 +2023,14 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     }
 
     @Override public java.util.concurrent.CompletableFuture<Void> saveAsync() { return sourceSaver.saveAsync(); }
+    @Override public boolean hasPendingSave() { return sourceSaver.pending(); }
+
+    @Override public CompletableFuture<Void> saveForCompilationAsync(CompileType type)
+    {
+        if (closedWithRecoveryCopy && !isOpen() && type == CompileType.ERROR_CHECK_ONLY)
+            return CompletableFuture.failedFuture(new IOException("Closed source is preserved in a recovery copy"));
+        return saveAsync();
+    }
 
     protected bluej.light.SourceSaveService sourceSaveService()
     {
@@ -1990,6 +2042,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
 
     private void applySourceSave(bluej.light.SourceSaveService.Result result)
     {
+        savedContentRevision = result.snapshot().revision();
         historyDiskText = result.snapshot().text();
         observedDiskText = result.diskText();
         observedDiskLength = result.byteLength();
@@ -2010,6 +2063,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         undoManager.compoundEdit(() -> document.replaceText(0, document.getLength(), state.text()));
         historyDiskText = state.text(); observedDiskText = state.text(); observedDiskLength = state.byteLength();
         setLastModified(state.modifiedMillis());
+        savedContentRevision = contentRevision;
         setSaved();
         if (sourceIsCode) scheduleCompilation(CompileReason.LOADED, CompileType.ERROR_CHECK_ONLY);
     }
@@ -2036,10 +2090,130 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     @OnThread(Tag.FXPlatform)
     public void close()
     {
-        cancelFreshState();
+        saveForCloseAsync().whenComplete((ready, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            if (failure != null) Debug.reportError("Cannot prepare editor close", failure);
+            else if (Boolean.TRUE.equals(ready)) closePrepared();
+        }));
+    }
 
-        if (saveForClose())
-            doClose();
+    @Override public boolean isPreparedForClose()
+    {
+        return preparedCloseRevision == contentRevision && java.util.Objects.equals(preparedCloseOwner, sourceSaver.ownerId())
+            && (preparedCloseWithCopy || (!isModified() && !hasPendingSave()));
+    }
+
+    private void approveClose(boolean copy)
+    {
+        preparedCloseRevision = contentRevision; preparedCloseOwner = sourceSaver.ownerId(); preparedCloseWithCopy = copy;
+    }
+
+    @Override public CompletableFuture<Boolean> saveForCloseAsync()
+    {
+        if (pendingClose != null && !pendingClose.isDone()) return pendingClose;
+        CompletableFuture<Boolean> result = new CompletableFuture<>(); pendingClose = result;
+        String owner = sourceSaver.ownerId();
+        result.whenComplete((ready, failure) -> { if (pendingClose == result) pendingClose = null; });
+        if (offeringRecoveryClose || showingChangedOnDiskDialog) { result.complete(false); return result; }
+        if (recoveryCloseRevision == contentRevision && java.util.Objects.equals(recoveryCloseFilename, filename) && recoveryCloseFile != null)
+        {
+            long revision = contentRevision; String text = document.getFullContent();
+            recoverySaveService().inspect(recoveryCloseFile, java.nio.charset.StandardCharsets.UTF_8).whenComplete((copy, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (!owner.equals(sourceSaver.ownerId()) || revision != contentRevision) { result.complete(false); return; }
+                if (failure == null && copy != null && copy.exists() && text.equals(copy.text()))
+                { approveClose(true); result.complete(true); }
+                else { recoveryCloseRevision = -1; prepareSourceForClose(owner, result); }
+            }));
+        }
+        else prepareSourceForClose(owner, result);
+        return result;
+    }
+
+    private void prepareSourceForClose(String owner, CompletableFuture<Boolean> result)
+    {
+        bluej.editor.EditorSaveBatch.save(() -> List.of(this), null).whenComplete((ignored, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (!owner.equals(sourceSaver.ownerId())) { result.complete(false); return; }
+            if (failure == null) { approveClose(false); result.complete(true); return; }
+            IOException error = failure instanceof IOException io ? io : new IOException("Cannot save source", failure);
+            info.messageImportant(Config.getString("editor.info.errorSaving") + " - " + error.getLocalizedMessage());
+            try
+            {
+                offerRecoveryForCloseAsync(error).whenComplete((copyReady, copyFailure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                    if (copyFailure != null) { Debug.reportError("Cannot preserve source for close", copyFailure); result.complete(false); }
+                    else if (Boolean.TRUE.equals(copyReady) && owner.equals(sourceSaver.ownerId()) && recoveryCloseRevision == contentRevision)
+                    { approveClose(true); result.complete(true); }
+                    else result.complete(false);
+                }));
+            }
+            catch (RuntimeException | LinkageError | AssertionError unavailable) { result.completeExceptionally(unavailable); }
+        }));
+    }
+
+    protected CompletableFuture<Boolean> offerRecoveryForCloseAsync(IOException failure)
+    {
+        offeringRecoveryClose = true;
+        CompletableFuture<Boolean> result = new CompletableFuture<>();
+        String owner = sourceSaver.ownerId();
+        ButtonType copyAndClose = new ButtonType(Config.getString("light.save.copyClose"));
+        ButtonType keepEditing = new ButtonType(Config.getString("light.save.keepEditing"), javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
+        Alert alert = new Alert(Alert.AlertType.WARNING,
+            Config.getString("light.save.closeFailure") + "\n\n" + filename + "\n" + failure.getLocalizedMessage(), keepEditing, copyAndClose);
+        alert.initOwner(getWindow()); alert.setTitle(Config.getString("light.save.recoveryTitle"));
+        ((javafx.scene.control.Button)alert.getDialogPane().lookupButton(copyAndClose)).setDefaultButton(false);
+        ((javafx.scene.control.Button)alert.getDialogPane().lookupButton(keepEditing)).setDefaultButton(true);
+        result.whenComplete((ready, error) -> offeringRecoveryClose = false);
+        alert.setOnHidden(event -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (alert.getResult() != copyAndClose || !owner.equals(sourceSaver.ownerId())) { result.complete(false); return; }
+            writeRecoveryCopyForCloseAsync().whenComplete((copy, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (error != null)
+                {
+                    info.messageImportant(Config.getString("light.save.copyFailed") + " - " + error.getLocalizedMessage());
+                    Debug.reportError("Cannot preserve source for close", error); result.complete(false); return;
+                }
+                info.messageImportant(Config.getString("light.save.copySaved") + " " + copy);
+                Debug.message("Unsaved source preserved for close in: " + copy);
+                Alert saved = new Alert(Alert.AlertType.INFORMATION, Config.getString("light.save.copySaved") + "\n" + copy, ButtonType.OK);
+                saved.initOwner(getWindow()); saved.setTitle(Config.getString("light.save.recoveryTitle"));
+                saved.setOnHidden(hidden -> result.complete(owner.equals(sourceSaver.ownerId()) && recoveryCloseRevision == contentRevision));
+                saved.show();
+            }));
+        }));
+        try { alert.show(); } catch (RuntimeException unavailable) { result.completeExceptionally(unavailable); }
+        return result;
+    }
+
+    protected bluej.light.SourceSaveService recoverySaveService()
+    {
+        Project project = getProject();
+        if (project != null) return project.getRecoveryCopyService();
+        if (standaloneRecoverySaves == null) standaloneRecoverySaves = new bluej.light.SourceSaveService();
+        return standaloneRecoverySaves;
+    }
+
+    protected CompletableFuture<java.nio.file.Path> writeRecoveryCopyForCloseAsync()
+    {
+        java.nio.file.Path directory = Config.getUserConfigDir().toPath().resolve("recovered-sources");
+        String name = filename == null ? "Recovered.java" : java.nio.file.Path.of(filename).getFileName().toString();
+        java.nio.file.Path copy = directory.resolve(System.currentTimeMillis() + "-" + java.util.UUID.randomUUID() + "-" + name);
+        String text = document.getFullContent(), original = filename, owner = sourceSaver.ownerId(); long revision = contentRevision;
+        var snapshot = new bluej.light.SourceSaveService.Snapshot(new bluej.light.SourceSaveService.Owner(), revision, copy, text,
+            java.nio.charset.StandardCharsets.UTF_8, null, false, true);
+        CompletableFuture<java.nio.file.Path> result = new CompletableFuture<>();
+        recoverySaveService().save(snapshot).whenComplete((saved, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (failure != null || !saved.saved()) { result.completeExceptionally(failure != null ? failure : saved.failure()); return; }
+            if (revision != contentRevision || !owner.equals(sourceSaver.ownerId()) || !java.util.Objects.equals(original, filename))
+            { result.completeExceptionally(new IOException("Source changed while preserving recovery copy: " + copy)); return; }
+            recoveryCloseRevision = revision; recoveryCloseFilename = original; recoveryCloseFile = copy;
+            result.complete(copy);
+        }));
+        return result;
+    }
+
+    @Override public void closePrepared()
+    {
+        if (!isPreparedForClose()) return;
+        FXTabbedEditor parent = fxTab.getParent();
+        if (parent != null) parent.closePrepared(fxTab);
+        else if (!closeNotified) setParent(null, false);
     }
 
     /** Saves before a tab/window closes; failures must retain the editable buffer. */
@@ -2047,16 +2221,19 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public boolean saveForClose()
     {
         if (offeringRecoveryClose || showingChangedOnDiskDialog) return false;
-        if (hasVerifiedCloseCopy()) return true;
+        if (hasVerifiedCloseCopy()) { approveClose(true); return true; }
         try
         {
             save();
+            approveClose(false);
             return true;
         }
         catch (IOException ex)
         {
             info.messageImportant(Config.getString("editor.info.errorSaving") + " - " + ex.getLocalizedMessage());
-            return offerRecoveryForClose(ex);
+            boolean recovered = offerRecoveryForClose(ex) && hasVerifiedCloseCopy();
+            if (recovered) approveClose(true);
+            return recovered;
         }
     }
 
@@ -2123,16 +2300,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
      */
     public void doClose()
     {
-        setEditorVisible(false, false);
-        if (fxTab.getParent() == null)
-        {
-            sourceSaver.reset();
-            if (standaloneSourceSaves != null) { standaloneSourceSaves.closeAsync(); standaloneSourceSaves = null; }
-        }
-        if (watcher != null && fxTab.getParent() == null)
-        {
-            watcher.closeEvent(this);
-        }
+        close();
     }
 
     @Override
@@ -2510,12 +2678,19 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     @Override
     public boolean compileStarted(int compilationSequence)
     {
-        diagnosticsRevision = contentRevision;
+        // Legacy callers do not supply a snapshot; preserve their current-buffer contract.
+        return compileStarted(compilationSequence, contentRevision);
+    }
+
+    @Override
+    public boolean compileStarted(int compilationSequence, long savedRevision)
+    {
+        diagnosticsRevision = savedRevision;
         lightDiagnostics.clear();
         compilationStarted = true;
         automaticCompilationDeferred = false;
-        // ensureSaved has supplied the latest text; an identical pending check is redundant.
-        if (!isModified())
+        // Only the submitted revision can fulfil a pending check for this buffer.
+        if (!isModified() && savedRevision == contentRevision)
         {
             compilationRequestRevision = contentRevision;
             if (requeueForCompilation && requeueType == CompileType.ERROR_CHECK_ONLY)

@@ -32,7 +32,25 @@ public final class HistoryTasks
     }
     public static void submit(Job job)
     {
-        enqueue(() -> run(job));
+        submitAsync(job);
+    }
+
+    public static java.util.concurrent.CompletableFuture<Void> submitAsync(Job job)
+    {
+        java.util.concurrent.CompletableFuture<Void> result = new java.util.concurrent.CompletableFuture<>();
+        try
+        {
+            writer.execute(() -> {
+                try { job.run(); result.complete(null); }
+                catch (Throwable failure)
+                {
+                    Debug.reportError("Local history", failure); result.completeExceptionally(failure);
+                    if (failure instanceof Error fatal) throw fatal;
+                }
+            });
+        }
+        catch (java.util.concurrent.RejectedExecutionException failure) { result.completeExceptionally(failure); Debug.reportError("History writer unavailable", failure); }
+        return result;
     }
 
     /** Replace a queued draft at the tail, never across a saved-source/history barrier. */

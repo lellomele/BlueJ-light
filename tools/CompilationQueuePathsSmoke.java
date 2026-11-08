@@ -76,6 +76,13 @@ public final class CompilationQueuePathsSmoke extends AdvancedSmoke
     static boolean idle() throws Exception {return fx(() -> {
         for(Object t:(Collection<?>)call(pkg,"getVertices")) if((Boolean)call(t,"isQueued"))return false;
         for(Object ed:List.of(schoolEditor,personEditor))for(String flag:List.of("compilationQueued","compilationStarted","requeueForCompilation"))if((Boolean)fieldValue(ed,flag))return false;
+        for(String flag:List.of("preparingSources","preparingRetry","compilationRetries","preparingCompilations","pendingCompilations","idleCompilations")) {
+            try {
+                Object state=fieldValue(pkg,flag);
+                if(Boolean.TRUE.equals(state)||(state instanceof Map<?,?> map&&!map.isEmpty())
+                    ||(state instanceof Collection<?> list&&!list.isEmpty())||(flag.equals("preparingRetry")&&state!=null))return false;
+            } catch(NoSuchFieldException legacy) { }
+        }
         return pendingEmpty("scheduledTargets")&&pendingEmpty("scheduledPkgs")&&!(Boolean)fieldValue(pkg,"currentlyCompiling")&&!(Boolean)fieldValue(pkg,"waitingForIdleToCompile");
     });}
     static boolean compiled(Object t) throws Exception {return fx(() -> (Boolean)call(t,"isCompiled"));}
@@ -154,6 +161,8 @@ public final class CompilationQueuePathsSmoke extends AdvancedSmoke
         Field editorField=findField(school,"editor");Object original=editorField.get(school);AtomicInteger cancels=new AtomicInteger(), callbacks=new AtomicInteger();
         Object wrapper=Proxy.newProxyInstance(loader,new Class<?>[]{loader.loadClass("bluej.editor.Editor")},(p,m,a) -> {
             if(m.getName().equals("save"))throw new IOException("synthetic save failure");
+            if(m.getName().equals("saveAsync")||m.getName().equals("saveForCompilationAsync"))
+                return CompletableFuture.failedFuture(new IOException("synthetic asynchronous save failure"));
             if(m.getName().equals("compileCancelled"))cancels.incrementAndGet();
             try{return m.invoke(original,a);}catch(InvocationTargetException e){throw e.getCause();}
         });
@@ -161,6 +170,7 @@ public final class CompilationQueuePathsSmoke extends AdvancedSmoke
         try {
             Object observer=observer((m,a) -> {if(m.equals("endCompile"))callbacks.incrementAndGet();});
             fx(() -> {pkg.getClass().getMethod("compile",school.getClass(),boolean.class,loader.loadClass("bluej.compiler.FXCompileObserver"),reasonUser.getClass(),explicit.getClass()).invoke(pkg,school,false,observer,reasonUser,explicit);return null;});
+            await("save failure callback", () -> callbacks.get()>0);
             if(callbacks.get()!=1||cancels.get()==0||fx(() -> (Boolean)call(school,"isQueued")||(Boolean)fieldValue(schoolEditor,"compilationQueued")))throw new AssertionError("Save failure left a queued request");
         } finally {fx(() -> {editorField.set(school,original);return null;});}
         editCompile();await("retry after save failure", () -> idle()&&compiled(school));passed("save-failure-recovery");
@@ -210,6 +220,7 @@ public final class CompilationQueuePathsSmoke extends AdvancedSmoke
     static void closeWithPendingTimer() throws Exception {
         await("idle",CompilationQueuePathsSmoke::idle);hold();replace(schoolEditor,schoolSource.replace("return 42;","return 99;"));fx(() -> null);
         fx(() -> {loader.loadClass("bluej.pkgmgr.PkgMgrFrame").getMethod("closeProject",project.getClass()).invoke(null,project);return null;});release();
+        await("project closed after asynchronous saves", () -> fx(() -> (Boolean)call(project,"isClosing")));
         if(!fx(() -> pendingEmpty("scheduledTargets")&&pendingEmpty("scheduledPkgs")))throw new AssertionError("Project timers remain");
         passed("close-cancels-timers");
     }

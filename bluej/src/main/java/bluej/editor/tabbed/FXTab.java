@@ -48,6 +48,10 @@ abstract class FXTab extends Tab
 {
     public FXTab()
     {
+        setOnCloseRequest(e -> {
+            e.consume();
+            if (getParent() != null) getParent().close(this);
+        });
         setOnSelectionChanged(e -> {
             JavaFXUtil.runAfterCurrent(this::focusWhenShown);
         });
@@ -155,6 +159,11 @@ abstract class FXTab extends Tab
     boolean canClose()
     {
         return true;
+    }
+
+    java.util.concurrent.CompletableFuture<Boolean> prepareCloseAsync()
+    {
+        return java.util.concurrent.CompletableFuture.completedFuture(canClose());
     }
 
     /**

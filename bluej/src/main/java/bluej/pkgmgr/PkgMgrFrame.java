@@ -908,7 +908,8 @@ public class PkgMgrFrame
         // open the new one
         if (this.pkg.get() != null)
         {
-            closePackage();
+            closePackageAsync().thenAccept(closed -> { if (closed) openPackage(aPkg, parentWindow); });
+            return;
         }
 
         this.pkg.set(aPkg);
@@ -1104,7 +1105,20 @@ public class PkgMgrFrame
     public boolean prepareClose()
     {
         if (isEmptyFrame()) return true;
-        return getProject().prepareEditorsForClose();
+        return getProject().editorsPreparedForClose();
+    }
+
+    @OnThread(Tag.FXPlatform)
+    public java.util.concurrent.CompletableFuture<Boolean> prepareCloseAsync()
+    {
+        return isEmptyFrame() ? java.util.concurrent.CompletableFuture.completedFuture(true) : getProject().prepareEditorsForCloseAsync();
+    }
+
+    @OnThread(Tag.FXPlatform)
+    public java.util.concurrent.CompletableFuture<Boolean> closePackageAsync()
+    {
+        Package original = getPackage();
+        return prepareCloseAsync().thenApply(ready -> ready && getPackage() == original && closePackage());
     }
 
     /**
@@ -1646,10 +1660,28 @@ public class PkgMgrFrame
     @OnThread(Tag.FXPlatform)
     public void doClose(boolean keepLastFrame, boolean doSave)
     {
-        if (!prepareClose()) return;
-        if (doSave) {
-            if (!doSave()) return;
-        }
+        Package original = getPackage();
+        prepareFrameCloseAsync(doSave, 0).whenComplete((ready, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            if (failure != null) Debug.reportError("Cannot prepare project window close", failure);
+            else if (Boolean.TRUE.equals(ready) && getPackage() == original) finishFrameClose(keepLastFrame);
+        }));
+    }
+
+    private java.util.concurrent.CompletableFuture<Boolean> prepareFrameCloseAsync(boolean saveFrame, int round)
+    {
+        if (round >= 32) return java.util.concurrent.CompletableFuture.completedFuture(false);
+        Package original = getPackage();
+        return prepareCloseAsync().thenCompose(ready -> {
+            if (!ready || getPackage() != original) return java.util.concurrent.CompletableFuture.completedFuture(false);
+            return saveFrame ? doSaveAsync() : java.util.concurrent.CompletableFuture.completedFuture(true);
+        }).thenCompose(saved -> {
+            if (!saved || getPackage() != original) return java.util.concurrent.CompletableFuture.completedFuture(false);
+            return prepareClose() ? java.util.concurrent.CompletableFuture.completedFuture(true) : prepareFrameCloseAsync(saveFrame, round + 1);
+        });
+    }
+
+    private void finishFrameClose(boolean keepLastFrame)
+    {
 
         // If only one frame and this was from the menu
         // "close", close should close existing package rather
@@ -1688,7 +1720,24 @@ public class PkgMgrFrame
         if (isEmptyFrame()) {
             return true;
         }
-        
+        boolean saved = pkg.get().save(captureFrameProperties());
+        if (!saved) setStatus(Config.getString("editor.info.errorSaving"));
+        return saved;
+    }
+
+    @OnThread(Tag.FXPlatform)
+    public java.util.concurrent.CompletableFuture<Boolean> doSaveAsync()
+    {
+        if (isEmptyFrame()) return java.util.concurrent.CompletableFuture.completedFuture(true);
+        Package savePackage = getPackage();
+        return savePackage.saveAsync(captureFrameProperties()).thenApply(saved -> {
+            if (!saved && getPackage() == savePackage) setStatus(Config.getString("editor.info.errorSaving"));
+            return saved;
+        });
+    }
+
+    private Properties captureFrameProperties()
+    {
         // store the current editor size in the bluej.pkg file
         Properties p;
         if (pkg.get().isUnnamedPackage()) {
@@ -1732,9 +1781,7 @@ public class PkgMgrFrame
             p.put("package.showUses", Boolean.toString(showUsesProperty.get()));
             p.put("package.showExtends", Boolean.toString(showInheritsProperty.get()));
         }
-        boolean saved = pkg.get().save(p);
-        if (!saved) setStatus(Config.getString("editor.info.errorSaving"));
-        return saved;
+        return p;
     }
         
     /**

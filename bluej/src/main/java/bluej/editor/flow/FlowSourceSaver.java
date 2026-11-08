@@ -57,9 +57,13 @@ final class FlowSourceSaver
     void reset()
     {
         owner.retire(); owner = new SourceSaveService.Owner(); source = null; appliedRevision = Long.MIN_VALUE;
-        List<Attempt> old = List.copyOf(attempts.values()); attempts.clear(); conflict = null;
+        List<Attempt> old = List.copyOf(attempts.values()); attempts.clear();
+        CompletableFuture<Void> oldConflict = conflict; conflict = null;
         old.forEach(attempt -> attempt.handled = true);
-        JavaFXUtil.runAfterCurrent(() -> old.forEach(attempt -> attempt.done.completeExceptionally(new IOException("Source editor changed"))));
+        JavaFXUtil.runAfterCurrent(() -> {
+            old.forEach(attempt -> attempt.done.completeExceptionally(new IOException("Source editor changed")));
+            if (oldConflict != null) oldConflict.completeExceptionally(new IOException("Source editor changed"));
+        });
     }
 
     CompletableFuture<Void> saveAsync()
@@ -196,6 +200,7 @@ final class FlowSourceSaver
     private void dispatch(Attempt attempt, bluej.utility.javafx.FXPlatformRunnable action)
     {
         JavaFXUtil.runNowOrLater(() -> {
+            if (attempt.done.isDone()) return;
             try { action.run(); }
             catch (RuntimeException | LinkageError | AssertionError failure)
             {

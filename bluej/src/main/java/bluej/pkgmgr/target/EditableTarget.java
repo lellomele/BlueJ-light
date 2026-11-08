@@ -64,6 +64,9 @@ public abstract class  EditableTarget extends Target
      */
     public abstract Editor getEditor();
 
+    /** Inspect ownership without opening an editor or reading a source file. */
+    public Editor getEditorIfOpen() { return editor; }
+
     /**
      * Ensure that the source file of this target is up-to-date (i.e.
      * that any possible unsaved changes in an open editor window are 

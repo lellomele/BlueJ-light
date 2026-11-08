@@ -141,10 +141,16 @@ public final class SessionRecovery
     @OnThread(Tag.FXPlatform)
     public static void finish()
     {
-        if (!active) return;
+        finishAsync();
+    }
+
+    @OnThread(Tag.FXPlatform)
+    public static java.util.concurrent.CompletableFuture<Void> finishAsync()
+    {
+        if (!active) return java.util.concurrent.CompletableFuture.completedFuture(null);
         active = false;
         if (cancelCheckpoint != null) { cancelCheckpoint.run(); cancelCheckpoint = null; }
         Path file = file();
-        HistoryTasks.submit(() -> Files.deleteIfExists(file));
+        return HistoryTasks.submitAsync(() -> Files.deleteIfExists(file));
     }
 }

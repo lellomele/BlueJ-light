@@ -185,7 +185,12 @@ public @OnThread(Tag.FXPlatform) class FlowFXTab extends FXTab
     @Override
     boolean canClose()
     {
-        return flowEditor.saveForClose();
+        return flowEditor.isPreparedForClose();
+    }
+
+    @Override java.util.concurrent.CompletableFuture<Boolean> prepareCloseAsync()
+    {
+        return flowEditor.saveForCloseAsync();
     }
 
     /**

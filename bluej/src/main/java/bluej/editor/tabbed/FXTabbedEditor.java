@@ -78,6 +78,7 @@ public @OnThread(Tag.FX) class FXTabbedEditor
     @OnThread(Tag.Any) private String projectTitle;
     private final StringProperty titleStatus = new SimpleStringProperty("");
     private BorderPane menuAndTabPane;
+    @OnThread(Tag.FXPlatform) private boolean preparingWindowClose;
 
     // Neither the constructor nor any initialisers should do any JavaFX work until
     // initialise is called.
@@ -161,23 +162,14 @@ public @OnThread(Tag.FX) class FXTabbedEditor
         });
 
         stage.setOnCloseRequest(e -> {
-            for (FXTab tab : getFXTabs())
-            {
-                if (!tab.canClose())
-                {
-                    e.consume();
-                    break;
-                }
-            }
+            e.consume();
+            requestWindowClose();
         });
 
         stage.setOnHidden(e -> {
-            // Close all tabs, which also trigger above code to call removeFXTabbedEditor on us
-            // Must take a copy to avoid concurrent modification:
-            List<Tab> tabs = new ArrayList<>(tabPane.getTabs());
-            tabs.forEach(t -> close((FXTab)t));
+            // A programmatic hide must preserve the same save boundary as the window close button.
             if (!tabPane.getTabs().isEmpty())
-                JavaFXUtil.runAfterCurrent(stage::show);
+                JavaFXUtil.runAfterCurrent(() -> { stage.show(); requestWindowClose(); });
         });
 
         JavaFXUtil.addChangeListenerPlatform(stage.focusedProperty(), focused -> {
@@ -405,9 +397,9 @@ public @OnThread(Tag.FX) class FXTabbedEditor
         }
         else
         {
-            if (tab instanceof FXTab editorTab && !editorTab.canClose())
-                return false;
-            return tabPane.getTabs().remove(tab);
+            boolean present = tabPane.getTabs().contains(tab);
+            if (tab instanceof FXTab editorTab) close(editorTab);
+            return present && !tabPane.getTabs().contains(tab);
         }
     }
     
@@ -449,10 +441,40 @@ public @OnThread(Tag.FX) class FXTabbedEditor
     @OnThread(Tag.FXPlatform)
     private void close(FXTab tab, boolean partOfMove)
     {
-        if (!partOfMove && !tab.canClose())
+        if (!partOfMove)
+        {
+            if (tab.getParent() != this || !tabPane.getTabs().contains(tab)) return;
+            if (tab.canClose()) { closePrepared(tab); return; }
+            tab.prepareCloseAsync().whenComplete((ready, failure) -> JavaFXUtil.runNowOrLater(() -> {
+                if (failure != null) Debug.reportError("Cannot prepare tab close", failure);
+                else if (Boolean.TRUE.equals(ready) && tab.getParent() == this) closePrepared(tab);
+            }));
             return;
+        }
         tabPane.getTabs().remove(tab);
         tab.setParent(null, partOfMove);
+    }
+
+    @OnThread(Tag.FXPlatform)
+    public void closePrepared(FXTab tab)
+    {
+        if (tab.getParent() != this || !tab.canClose() || !tabPane.getTabs().contains(tab)) return;
+        tabPane.getTabs().remove(tab);
+        tab.setParent(null, false);
+    }
+
+    @OnThread(Tag.FXPlatform)
+    private void requestWindowClose()
+    {
+        if (preparingWindowClose) return;
+        preparingWindowClose = true;
+        bluej.editor.EditorCloseBatch.prepare(() -> getFXTabs().stream().filter(tab -> tab instanceof FlowFXTab)
+            .map(tab -> (bluej.editor.Editor)((FlowFXTab)tab).getFlowEditor()).toList())
+            .whenComplete((ready, failure) -> JavaFXUtil.runNowOrLater(() -> {
+                preparingWindowClose = false;
+                if (failure != null) Debug.reportError("Cannot prepare editor window close", failure);
+                else if (Boolean.TRUE.equals(ready)) new ArrayList<>(getFXTabs()).forEach(this::closePrepared);
+            }));
     }
 
 

@@ -483,8 +483,14 @@ public class ClassTarget extends DependentTarget
      */
     public void markCompiling(int compilationSequence)
     {
+        markCompiling(compilationSequence, editor, editor == null ? -1 : editor.getSavedRevision());
+    }
+
+    public void markCompiling(int compilationSequence, Editor submittedEditor, long submittedRevision)
+    {
         // The results of compilation will be invalid if the editor contents have not been saved:
-        compilationInvalid = (editor != null) ? editor.isModified() : false; 
+        compilationInvalid = editor != submittedEditor || (editor != null
+            && (editor.isModified() || (submittedRevision >= 0 && editor.getContentRevision() != submittedRevision)));
         
         if (getState() == State.HAS_ERROR)
         {
@@ -493,7 +499,7 @@ public class ClassTarget extends DependentTarget
 
         if (editor != null)
         {
-            if (editor.compileStarted(compilationSequence))
+            if (editor.compileStarted(compilationSequence, editor == submittedEditor ? submittedRevision : Long.MIN_VALUE))
             {
                 setState(State.HAS_ERROR);
             }

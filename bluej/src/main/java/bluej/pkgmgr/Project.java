@@ -1436,11 +1436,40 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
         }
     }
 
+    public List<Editor> getConstructedEditors()
+    {
+        List<Editor> result = new ArrayList<>();
+        Set<Editor> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Package pkg : List.copyOf(packages.values()))
+            for (Target target : pkg.getVertices())
+                if (target instanceof bluej.pkgmgr.target.EditableTarget editable)
+                {
+                    Editor editor = editable.getEditorIfOpen();
+                    if (editor != null && seen.add(editor)) result.add(editor);
+                }
+        return result;
+    }
+
+    public java.util.concurrent.CompletableFuture<Void> saveAllEditorsAsync()
+    {
+        return bluej.editor.EditorSaveBatch.saveAll(this::getConstructedEditors);
+    }
+
     public boolean prepareEditorsForClose()
     {
         for (Package pkg : List.copyOf(packages.values()))
             if (!pkg.prepareEditorsForClose()) return false;
         return true;
+    }
+
+    public java.util.concurrent.CompletableFuture<Boolean> prepareEditorsForCloseAsync()
+    {
+        return bluej.editor.EditorCloseBatch.prepare(this::getConstructedEditors);
+    }
+
+    public boolean editorsPreparedForClose()
+    {
+        return getConstructedEditors().stream().allMatch(Editor::isPreparedForClose);
     }
 
     /**
