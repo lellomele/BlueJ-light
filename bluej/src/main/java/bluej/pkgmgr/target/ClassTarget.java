@@ -127,6 +127,10 @@ public class ClassTarget extends DependentTarget
 
 
     private CompletableFuture<Void> pendingSourceChange;
+    private CompletableFuture<Boolean> pendingRemoval;
+    private boolean removingSource;
+    private FlowEditor removalEditor;
+    private boolean reopenAfterRemovalFailure;
 
     // the role object represents the changing roles that are class
     // target can have ie changing from applet to an interface etc
@@ -1247,6 +1251,7 @@ public class ClassTarget extends DependentTarget
      */
     private Editor getEditor(boolean showInterface)
     {
+        if (removingSource || getPackage() == null) return null;
         // ClassTarget must have source code if it is to provide an editor
         if (editor == null) {
             final String filename;
@@ -2158,6 +2163,7 @@ public class ClassTarget extends DependentTarget
         if(editor == null)
         {
             getPackage().showError("error-open-source");
+            return;
         }
         editor.setEditorVisible(true, openInNewWindow);
     }
@@ -2300,23 +2306,115 @@ public class ClassTarget extends DependentTarget
     @Override
     public void remove()
     {
-        File javaSourceFile = getJavaSourceFile();
-        prepareForRemoval();
+        Package original = getPackage();
+        removeAsync().whenComplete((removed, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            if (failure == null) return;
+            Debug.reportError("Cannot remove class",failure);
+            PkgMgrFrame frame = original == null ? null : PkgMgrFrame.findFrame(original);
+            if (frame != null) frame.setStatus(Config.getString("light.source.removalFailed"));
+        }));
+    }
+
+    /** Model removal follows actual source retirement and recovery-copy verification, never a pending close. */
+    public CompletableFuture<Boolean> removeAsync()
+    {
+        if (pendingRemoval != null) return pendingRemoval.copy();
         Package pkg = getPackage();
-        pkg.removeTarget(this);
+        if (pkg == null) return CompletableFuture.completedFuture(true);
+        CompletableFuture<Boolean> result = new CompletableFuture<>();pendingRemoval = result;
+        CompletableFuture<Void> operation = new CompletableFuture<>();
+        result.whenComplete((removed, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            try
+            {
+                if (!Boolean.TRUE.equals(removed))
+                {
+                    removingSource = false;
+                    if (removalEditor != null) removalEditor.sourceRemovalFailed(reopenAfterRemovalFailure);
+                }
+            }
+            catch (RuntimeException | LinkageError | AssertionError unavailable) { Debug.reportError("Cannot reopen retained source after removal failure",unavailable); }
+            finally
+            {
+                removalEditor = null;reopenAfterRemovalFailure = false;
+                if (pendingRemoval == result) pendingRemoval = null;
+                operation.complete(null);
+            }
+        }));
+        try
+        {
+            pkg.prepareForSourceFileChange(operation).whenComplete((idle, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (failure != null) { result.completeExceptionally(failure);return; }
+                prepareSourceRemoval(pkg,0,result);
+            }));
+        }
+        catch (RuntimeException | LinkageError | AssertionError unavailable) { result.completeExceptionally(unavailable); }
+        return result.copy();
+    }
 
-        // Inform all listeners about the class removed
-        ClassEvent event = new ClassEvent(getPackage(), getBClass());
-        ExtensionsManager.getInstance().delegateEvent(event);
-        
-        // We must remove after the above, because it might involve saving, 
-        // and thus recording edits to the file
+    private void prepareSourceRemoval(Package pkg, int round, CompletableFuture<Boolean> result)
+    {
+        if (getPackage() != pkg || round >= 32) { result.complete(false);return; }
+        Editor sourceEditor = editor;
+        CompletableFuture<Boolean> prepared = sourceEditor == null ? CompletableFuture.completedFuture(true) : sourceEditor.saveForCloseAsync();
+        prepared.whenComplete((ready, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (failure != null) { result.completeExceptionally(failure);return; }
+            if (!Boolean.TRUE.equals(ready) || getPackage() != pkg) { result.complete(false);return; }
+            if (editor != sourceEditor || (sourceEditor != null && !sourceEditor.isPreparedForClose()))
+            { prepareSourceRemoval(pkg,round + 1,result);return; }
+            java.nio.file.Path source = getJavaSourceFile().toPath();
+            List<java.nio.file.Path> obsolete = List.of(getClassFile().toPath(),getContextFile().toPath(),getDocumentationFile().toPath());
+            java.nio.file.Path recovery = Config.getUserConfigDir().toPath().resolve("recovered-sources");
+            FlowEditor flow = sourceEditor instanceof FlowEditor javaEditor ? javaEditor : null;
+            var buffer = flow == null ? null : flow.captureSourceSnapshot();
+            boolean wasOpen = sourceEditor != null && sourceEditor.isOpen();
+            removalEditor = flow;reopenAfterRemovalFailure = wasOpen;
+            removingSource = true;
+            if (flow != null ? !flow.beginSourceRemoval() : sourceEditor != null && !closeOtherPreparedEditor(sourceEditor))
+            { removingSource = false;result.complete(false);return; }
+            bluej.light.SourceSaveService service = pkg.getProject().getSourceSaveService();
+            service.removeSource(source,buffer,recovery).whenComplete((removed, removeFailure) -> {
+                if (removeFailure != null)
+                {
+                    JavaFXUtil.runNowOrLater(() -> result.completeExceptionally(removeFailure));
+                    return;
+                }
+                service.submit(() -> cleanRenamedClassFiles(source.toAbsolutePath(),obsolete)).whenComplete((warning, cleanupFailure) -> JavaFXUtil.runNowOrLater(() -> {
+                    // Source retirement committed. A caller cancellation cannot skip the model acknowledgement.
+                    try
+                    {
+                        if (getPackage() == pkg && pkg.getTarget(getIdentifierName()) == this)
+                        {
+                            ClassEvent event = new ClassEvent(pkg,getBClass());
+                            try { detachForRemoval(pkg); }
+                            catch (RuntimeException | LinkageError | AssertionError listener) { Debug.reportError("Class removal dependency notification failed",listener); }
+                            try { pkg.removeTarget(this); }
+                            catch (RuntimeException | LinkageError | AssertionError listener) { Debug.reportError("Class removal model notification failed",listener); }
+                            try { ExtensionsManager.getInstance().delegateEvent(event); }
+                            catch (RuntimeException | LinkageError | AssertionError listener) { Debug.reportError("Class removal extension notification failed",listener); }
+                        }
+                        if (warning != null) Debug.reportError("Source removed; derived file cleanup incomplete",warning);
+                        if (cleanupFailure != null) Debug.reportError("Source removed; derived file cleanup unavailable",cleanupFailure);
+                        removed.recoveryCopies().forEach(copy -> Debug.message("Removed source preserved in: " + copy));
+                        result.complete(true);
+                    }
+                    catch (Throwable unavailable)
+                    {
+                        result.completeExceptionally(unavailable);
+                        if (unavailable instanceof Error fatal) throw fatal;
+                    }
+                }));
+            });
+        }));
+    }
 
+    private boolean closeOtherPreparedEditor(Editor sourceEditor)
+    { sourceEditor.closePrepared();return !sourceEditor.isOpen(); }
 
-        // In Greenfoot we don't do detailed dependency tracking, so we just recompile the whole
-        // package if any class is removed:
-        if (Config.isGreenfoot())
-            pkg.rebuild();
+    private void detachForRemoval(Package pkg)
+    {
+        for (Target target : pkg.getVertices())
+            if (target instanceof DependentTarget dependent && dependent.getAssociation() == this) dependent.setAssociation(null);
+        invalidate();removeAllInDependencies();removeAllOutDependencies();
     }
 
     /**

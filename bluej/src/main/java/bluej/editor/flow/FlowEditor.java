@@ -214,6 +214,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private String observedDiskText = "";
     private long observedDiskLength;
     private boolean diskConfirmationRequired;
+    private boolean sourceRemovalPending;
     private boolean recoveryPending;
     private bluej.light.LocalHistory.Draft pendingRecoveredDraft;
     private int historyGeneration;
@@ -2003,6 +2004,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     @Override
     public void setEditorVisible(boolean vis, boolean openInNewWindow)
     {
+        if (vis && sourceRemovalPending) { info.message(Config.getString("light.source.operationPending"));return; }
         if (!vis) { close(); return; }
         final FXTabbedEditor fxTabbedEditor;
         boolean becameVisible = false;
@@ -2095,6 +2097,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     @Override
     public void save() throws IOException
     {
+        if (sourceRemovalPending) throw new IOException(Config.getString("light.source.operationPending"));
         // Compatibility bridge: internal UI actions are migrated to saveAsync.
         if (isModified() && filename != null && !sourceSaver.pending()
             && PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES) && !checkForChangeOnDisk(true))
@@ -2102,11 +2105,13 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         sourceSaver.saveBlocking();
     }
 
-    @Override public java.util.concurrent.CompletableFuture<Void> saveAsync() { return sourceSaver.saveAsync(); }
+    @Override public java.util.concurrent.CompletableFuture<Void> saveAsync()
+    { return sourceRemovalPending ? CompletableFuture.failedFuture(new IOException(Config.getString("light.source.operationPending"))) : sourceSaver.saveAsync(); }
     @Override public boolean hasPendingSave() { return sourceSaver.pending(); }
 
     @Override public CompletableFuture<Void> saveForCompilationAsync(CompileType type)
     {
+        if (sourceRemovalPending) return CompletableFuture.failedFuture(new IOException(Config.getString("light.source.operationPending")));
         if (closedWithRecoveryCopy && !isOpen() && type == CompileType.ERROR_CHECK_ONLY)
             return CompletableFuture.failedFuture(new IOException("Closed source is preserved in a recovery copy"));
         return sourceSaver.saveAsync(type != CompileType.ERROR_CHECK_ONLY);
@@ -2236,6 +2241,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
 
     @Override public CompletableFuture<Boolean> saveForCloseAsync()
     {
+        if (sourceRemovalPending) return CompletableFuture.completedFuture(false);
         if (pendingClose != null && !pendingClose.isDone()) return pendingClose;
         CompletableFuture<Boolean> result = new CompletableFuture<>(); pendingClose = result;
         long lifetime = sourceSaver.lifetime();
@@ -2339,6 +2345,23 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         FXTabbedEditor parent = fxTab.getParent();
         if (parent != null) parent.closePrepared(fxTab);
         else if (!closeNotified) setParent(null, false);
+    }
+
+    /** Close only after a saved revision or verified copy, then retire every pending writer identity. */
+    public boolean beginSourceRemoval()
+    {
+        if (!isPreparedForClose()) return false;
+        closePrepared();
+        if (isOpen()) return false;
+        sourceRemovalPending = true;sourceSaver.reset();invalidateRecoveryWork();invalidateDiskInspection();
+        return true;
+    }
+
+    /** A failed deletion restores this same buffer and its undo history, never reloads it from disk. */
+    public void sourceRemovalFailed(boolean reopen)
+    {
+        sourceRemovalPending = false;
+        if (reopen) setEditorVisible(true,false);
     }
 
     /** Saves before a tab/window closes; failures must retain the editable buffer. */

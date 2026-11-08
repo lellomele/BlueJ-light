@@ -273,4 +273,16 @@ public class TestAsyncEditorSave extends FXTest
         fx_(() -> {assertFalse(editor.isModified());assertFalse(editor.hasPendingSave());assertEquals(ORIGINAL,editor.getSourcePane().getDocument().getFullContent());});
         assertEquals(ORIGINAL,Files.readString(path));
     }
+
+    @Test public void preparedRemovalRetiresTheEditorAndAFailedRemovalKeepsUndoAndSavingUsable() throws Exception
+    {
+        String changed="class Example { int retained; }\n";text(changed);saved(save());
+        CompletableFuture<Boolean> preparing=fx(() -> editor.saveForCloseAsync());assertTrue(preparing.get(5,TimeUnit.SECONDS));
+        AtomicReference<SourceSaveService.Snapshot> captured=new AtomicReference<>();
+        fx_(() -> {captured.set(editor.captureSourceSnapshot());assertTrue(editor.beginSourceRemoval());assertTrue(captured.get().owner().isRetired());});
+        try{saved(save());fail("Retired editor wrote during source removal");}catch(ExecutionException expected){assertTrue(expected.getCause() instanceof IOException);}
+        assertEquals(changed,Files.readString(path));
+        fx_(() -> {editor.sourceRemovalFailed(false);editor.getActions().getActionByName("undo").actionPerformed(false);assertEquals(ORIGINAL,editor.getSourcePane().getDocument().getFullContent());editor.getActions().getActionByName("redo").actionPerformed(false);assertEquals(changed,editor.getSourcePane().getDocument().getFullContent());});
+        text("class Example { int retry; }\n");saved(save());assertEquals("class Example { int retry; }\n",Files.readString(path));
+    }
 }

@@ -924,6 +924,7 @@ light.save.keepEditing=Continua a modificare
 light.save.stillPending=Il salvataggio sta richiedendo pi\u00f9 tempo del previsto.
 light.source.incomplete=Completa o correggi il sorgente Java prima di modificarne la dichiarazione.
 light.source.operationPending=Un'operazione su questo sorgente \u00e8 ancora in corso. Riprova al termine.
+light.source.removalFailed=Non \u00e8 stato possibile eliminare la classe. Il testo dell'editor \u00e8 conservato; puoi riprovare dopo aver controllato l'accesso ai file.
 light.project.copying=Salvataggio e copia del progetto in corso...
 light.project.copyChanged=Il progetto originale resta aperto perch\u00e9 \u00e8 cambiato o non \u00e8 stato possibile chiuderlo. La copia \u00e8 stata conservata nella destinazione scelta.
 light.project.copyFailed=Non \u00e8 stato possibile copiare il progetto. Il progetto originale resta aperto. La destinazione potrebbe contenere una copia parziale; per riprovare scegli una cartella vuota.

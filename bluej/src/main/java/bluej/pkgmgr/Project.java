@@ -2248,7 +2248,7 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
     @OnThread(Tag.FXPlatform)
     private void scheduleCompilation(boolean immediate, CompileReason reason, CompileType type, Package pkg, ClassTarget target)
     {
-        if (closing) {
+        if (closing || (target != null && target.getPackage() == null)) {
             if (target != null) target.cancelCompilation();
             return;
         }
@@ -2305,7 +2305,11 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
                     for (var entry : pkgsToCompile.entrySet())
                         entry.getKey().compileOnceIdle(null, entry.getValue().reason(), entry.getValue().type());
                     for (var entry : targetsToCompile.entrySet())
-                        entry.getKey().getPackage().compileOnceIdle(entry.getKey(), entry.getValue().reason(), entry.getValue().type());
+                    {
+                        ClassTarget queuedTarget = entry.getKey();Package queuedPackage = queuedTarget.getPackage();
+                        if (queuedPackage == null) queuedTarget.cancelCompilation();
+                        else queuedPackage.compileOnceIdle(queuedTarget, entry.getValue().reason(), entry.getValue().type());
+                    }
                 };
                 compilerTimer = new Timeline(new KeyFrame(Duration.millis(1000), listener));
                 compilerTimer.setCycleCount(1);
