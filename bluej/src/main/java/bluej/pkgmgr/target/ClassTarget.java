@@ -1384,7 +1384,7 @@ public class ClassTarget extends DependentTarget
 
     private CompletableFuture<Void> changePackageAsync(FlowEditor flow, String requestedPackage, boolean interactive)
     {
-        if (!interactive) return CompletableFuture.failedFuture(new IOException(Config.getString("light.package.explicitAction")));
+        if (!interactive) return CompletableFuture.failedFuture(new bluej.light.SourceChangeRequired(Config.getString("light.package.explicitAction")));
         if (pendingSourceChange != null && !pendingSourceChange.isDone()) return pendingSourceChange;
         Package original = getPackage(), destination = original.getProject().getPackage(requestedPackage);
         String identifier = getIdentifierName();
@@ -1401,7 +1401,7 @@ public class ClassTarget extends DependentTarget
             askPackageChange(flow,requestedPackage,canMove,destination == null ? "light.package.missing" : "light.package.occupied")
                 .whenComplete((choice, questionFailure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
                     if (questionFailure != null || choice == null || choice == 2 || choice < 0)
-                    { result.completeExceptionally(new IOException(Config.getString("light.package.explicitAction"),questionFailure));return; }
+                    { result.completeExceptionally(new bluej.light.SourceChangeRequired(Config.getString("light.package.explicitAction"),questionFailure));return; }
                     ClassInfo current = analyseSource();
                     if (getPackage() != original || editor != flow || current == null || !Objects.equals(current.getPackage(),requestedPackage))
                     { result.completeExceptionally(new IOException("Package declaration changed while deciding"));return; }
@@ -1413,7 +1413,7 @@ public class ClassTarget extends DependentTarget
                         return;
                     }
                     if (!canMove || !destination.reserveTargetName(this,identifier))
-                    { result.completeExceptionally(new IOException(Config.getString("light.package.occupied")));return; }
+                    { result.completeExceptionally(new bluej.light.SourceChangeRequired(Config.getString("light.package.occupied")));return; }
                     CompletableFuture.allOf(oldIdle,newIdle).whenComplete((idle, idleFailure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
                         if (idleFailure != null) { result.completeExceptionally(idleFailure);return; }
                         var snapshot = flow.getLastSavedSource();
@@ -2124,7 +2124,7 @@ public class ClassTarget extends DependentTarget
      * @param newName the new fully qualified package name
      */
     private void doPackageNameChange(String newName) throws IOException
-    { throw new IOException(Config.getString("light.package.explicitAction")); }
+    { throw new bluej.light.SourceChangeRequired(Config.getString("light.package.explicitAction")); }
 
     /**
      * Resizes the class so the entire classname + type parameter are visible

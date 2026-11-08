@@ -264,7 +264,8 @@ final class FlowSourceSaver
         if (failure == null) { attempt.done.complete(null); return; }
         try
         {
-            bluej.utility.Debug.reportError("Source-save acknowledgement failed", failure);
+            if (!(asIOException(failure) instanceof bluej.light.SourceChangeRequired))
+                bluej.utility.Debug.reportError("Source-save acknowledgement failed", failure);
             view.acknowledgementFailed(result, failure);
         }
         finally { attempt.done.completeExceptionally(failure); }
