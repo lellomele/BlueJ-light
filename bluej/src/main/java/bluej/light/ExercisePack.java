@@ -50,7 +50,7 @@ public final class ExercisePack
         return writer.toString();
     }
     public void save(Path project) throws IOException
-    { Files.writeString(project.resolve(MANIFEST), serialize(), StandardCharsets.UTF_8); }
+    { AtomicSourceSave.save(project.resolve(MANIFEST), serialize(), StandardCharsets.UTF_8, ".backup"); }
 
     private static boolean include(Path relative)
     {

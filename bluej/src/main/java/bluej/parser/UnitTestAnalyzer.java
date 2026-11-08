@@ -45,6 +45,9 @@ public class UnitTestAnalyzer
         utp = new UnitTestParser(r);
     }
 
+    /** Partial spans from an interrupted parse must never be used to rewrite the editor. */
+    public boolean isComplete() { return utp.isComplete(); }
+
     /**
      * Extract from the unit testing source the list of source spans
      * for the fields declared in the unit test class.

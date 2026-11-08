@@ -64,6 +64,24 @@ public class UnitTestAnalyzerTest extends junit.framework.TestCase
 "}"                                                             + "\n";  // 33
 
     private UnitTestAnalyzer uta;
+
+    public void testCompleteSourceCanBeUsedForRewriting()
+    { assertTrue(new UnitTestAnalyzer(new java.io.StringReader(testSrc)).isComplete()); }
+
+    public void testIncompleteOrMissingClassCannotBeRewrittenUsingPartialSpans()
+    {
+        for (String text : java.util.List.of("class Broken {", "public class Broken { int n = ; }", "package example;", ""))
+            assertFalse("Unsafe partial analysis for: " + text,new UnitTestAnalyzer(new java.io.StringReader(text)).isComplete());
+    }
+
+    public void testReaderFailureDoesNotPublishCompleteSpans()
+    {
+        java.io.Reader failed = new java.io.Reader() {
+            @Override public int read(char[] buffer,int start,int length) throws java.io.IOException { throw new java.io.IOException("Controlled reader failure"); }
+            @Override public void close() { }
+        };
+        assertFalse(new UnitTestAnalyzer(failed).isComplete());
+    }
     
     /**
      * Sets up the test fixture.

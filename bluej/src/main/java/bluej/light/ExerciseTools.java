@@ -4,11 +4,13 @@ package bluej.light;
 import bluej.BlueJTheme;
 import bluej.Config;
 import bluej.pkgmgr.PkgMgrFrame;
+import bluej.pkgmgr.Project;
 import bluej.utility.Utility;
 import bluej.utility.javafx.JavaFXUtil;
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.*;
@@ -18,6 +20,26 @@ import threadchecker.Tag;
 @OnThread(Tag.FXPlatform)
 public final class ExerciseTools
 {
+    private static final Map<PkgMgrFrame, CompletableFuture<?>> opening = new IdentityHashMap<>();
+    @OnThread(Tag.Any) private record ViewData(ExercisePack pack, String libraries) { }
+
+    /** Coalesce repeated opening while storage is pending or the same dialog remains open. */
+    private static <T> void prepare(PkgMgrFrame frame, Project sourceProject, SourceSaveService.IOOperation<T> read,
+        bluej.utility.javafx.FXPlatformConsumer<T> show)
+    {
+        if (opening.containsKey(frame)) return;
+        CompletableFuture<T> request = sourceProject.getSourceSaveService().submit(read);opening.put(frame,request);
+        request.whenComplete((prepared, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            try
+            {
+                if (frame.getProject() != sourceProject || sourceProject.isClosing()) return;
+                if (failure != null) error(frame.getWindow(),new IOException(failure.getLocalizedMessage(),failure));
+                else show.accept(prepared);
+            }
+            catch (RuntimeException | LinkageError | AssertionError unavailable) { bluej.utility.Debug.reportError("Exercise dialog failed",unavailable); }
+            finally { opening.remove(frame,request); }
+        }));
+    }
     public static Menu menu(PkgMgrFrame frame)
     {
         Menu menu = new Menu(Config.getString("light.exercises"));
@@ -36,7 +58,7 @@ public final class ExerciseTools
     private static void error(Window owner, Exception ex)
     {
         Alert alert = new Alert(Alert.AlertType.ERROR, ex.getMessage(), ButtonType.OK); alert.initOwner(owner);
-        BlueJTheme.setWindowIconFX(alert); alert.setHeaderText(Config.getString("light.operation.failed")); alert.showAndWait();
+        BlueJTheme.setWindowIconFX(alert); alert.initModality(Modality.WINDOW_MODAL);alert.setHeaderText(Config.getString("light.operation.failed")); alert.show();
     }
     private static void importPack(PkgMgrFrame frame)
     {
@@ -56,22 +78,23 @@ public final class ExerciseTools
     private static void create(PkgMgrFrame frame)
     {
         if (frame.getProject() == null) return;
-        Path project = frame.getProject().getProjectDir().toPath();
+        Project sourceProject = frame.getProject();Path path = sourceProject.getProjectDir().toPath();
+        prepare(frame,sourceProject,() -> Files.isRegularFile(path.resolve(ExercisePack.MANIFEST)) ? ExercisePack.load(path) : null,
+            pack -> showCreate(frame,sourceProject,path,pack));
+    }
+
+    private static void showCreate(PkgMgrFrame frame, Project sourceProject, Path project, ExercisePack pack)
+    {
         TextField titleEn = new TextField(), titleIt = new TextField(), tests = new TextField();
         TextArea instructionsEn = area("", 5), instructionsIt = area("", 5), hintsEn = area("", 3), hintsIt = area("", 3);
-        try
+        if (pack != null)
         {
-            if (Files.isRegularFile(project.resolve(ExercisePack.MANIFEST)))
-            {
-                ExercisePack pack = ExercisePack.load(project);
                 titleEn.setText(pack.text("title", Locale.ENGLISH)); titleIt.setText(pack.text("title", Locale.ITALIAN));
                 instructionsEn.setText(pack.text("instructions", Locale.ENGLISH)); instructionsIt.setText(pack.text("instructions", Locale.ITALIAN));
                 hintsEn.setText(String.join("\n", pack.hints(Locale.ENGLISH))); hintsIt.setText(String.join("\n", pack.hints(Locale.ITALIAN)));
                 tests.setText(String.join(", ", pack.tests()));
-            }
         }
-        catch (IOException ex) { error(frame.getWindow(), ex); return; }
-        Dialog<ButtonType> dialog = new Dialog<>(); dialog.initOwner(frame.getWindow()); BlueJTheme.setWindowIconFX(dialog);
+        Dialog<ButtonType> dialog = new Dialog<>(); dialog.initOwner(frame.getWindow());dialog.initModality(Modality.WINDOW_MODAL); BlueJTheme.setWindowIconFX(dialog);
         dialog.setTitle(Config.getString("light.exercise.create")); dialog.setResizable(true);
         TabPane languages = new TabPane(new Tab("English", new VBox(8, new Label(Config.getString("light.exercise.title")), titleEn,
             new Label(Config.getString("light.exercise.instructions")), instructionsEn, new Label(Config.getString("light.exercise.hints")), hintsEn)),
@@ -84,38 +107,50 @@ public final class ExerciseTools
         dialog.getDialogPane().getButtonTypes().setAll(export, ButtonType.CANCEL);
         if (dialog.showAndWait().orElse(ButtonType.CANCEL) != export) return;
         File archive = zipChooser("light.exercise.export").showSaveDialog(frame.getWindow()); if (archive == null) return;
-        try { frame.getProject().saveAllEditors(); frame.getProject().saveAll(); }
-        catch (IOException ex) { error(frame.getWindow(), ex); return; }
+        if (frame.getProject() != sourceProject || sourceProject.isClosing()) return;
         Properties values = new Properties(); values.setProperty("format", "1"); values.setProperty("tests", tests.getText());
         values.setProperty("title.en", titleEn.getText()); values.setProperty("title.it", titleIt.getText());
         values.setProperty("instructions.en", instructionsEn.getText()); values.setProperty("instructions.it", instructionsIt.getText());
         putHints(values, "en", hintsEn.getText()); putHints(values, "it", hintsIt.getText());
-        Utility.runBackground(() -> {
-            try { ExercisePack pack = new ExercisePack(values); pack.export(project, archive.toPath()); pack.save(project); }
-            catch (IOException ex) { JavaFXUtil.runNowOrLater(() -> error(frame.getWindow(), ex)); }
-        });
+        Path destination = archive.toPath();
+        sourceProject.saveAllAsync().whenComplete((saved, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            if (frame.getProject() != sourceProject || sourceProject.isClosing()) return;
+            if (failure != null) { error(frame.getWindow(),new IOException(failure.getLocalizedMessage(),failure));return; }
+            sourceProject.getSourceSaveService().submit(() -> {
+                ExercisePack exported = new ExercisePack(values);exported.export(project,destination);exported.save(project);return null;
+            }).whenComplete((exported, exportFailure) -> JavaFXUtil.runNowOrLater(() -> {
+                if (exportFailure != null && frame.getProject() == sourceProject)
+                    error(frame.getWindow(),new IOException(exportFailure.getLocalizedMessage(),exportFailure));
+            }));
+        }));
     }
     private static void putHints(Properties values, String language, String text)
     {
         List<String> hints = text.lines().filter(line -> !line.isBlank()).limit(20).toList();
         for (int i = 0; i < hints.size(); i++) values.setProperty("hint." + (i + 1) + "." + language, hints.get(i));
     }
-    private static String classpath(PkgMgrFrame frame) throws IOException
+    @OnThread(Tag.Any)
+    private static String classpath(Path libraryDirectory, List<File> dependencies) throws IOException
     {
         List<String> entries = new ArrayList<>();
         // The worker also needs BlueJ's existing JUnit runtime, not just the project dependencies.
-        try (var jars = Files.list(Config.getBlueJLibDir().toPath()))
+        try (var jars = Files.list(libraryDirectory))
         { jars.filter(path -> path.toString().endsWith(".jar")).sorted().forEach(path -> entries.add(path.toAbsolutePath().toString())); }
-        frame.getProject().getClassLoader().getClassPathAsFiles().forEach(file -> entries.add(file.getAbsolutePath()));
+        dependencies.forEach(file -> entries.add(file.getAbsolutePath()));
         return String.join(File.pathSeparator, entries);
     }
     private static void view(PkgMgrFrame frame)
     {
         if (frame.getProject() == null) return;
-        Path project = frame.getProject().getProjectDir().toPath(); ExercisePack pack; String libraries;
-        try { pack = ExercisePack.load(project); libraries = classpath(frame); }
-        catch (IOException ex) { error(frame.getWindow(), ex); return; }
-        Dialog<Void> dialog = new Dialog<>(); dialog.initOwner(frame.getWindow()); BlueJTheme.setWindowIconFX(dialog);
+        Project sourceProject = frame.getProject();Path path = sourceProject.getProjectDir().toPath(),libraryDirectory = Config.getBlueJLibDir().toPath();
+        List<File> dependencies = List.copyOf(sourceProject.getClassLoader().getClassPathAsFiles());
+        prepare(frame,sourceProject,() -> new ViewData(ExercisePack.load(path),classpath(libraryDirectory,dependencies)),
+            prepared -> showView(frame,sourceProject,path,prepared.pack(),prepared.libraries()));
+    }
+
+    private static void showView(PkgMgrFrame frame, Project sourceProject, Path project, ExercisePack pack, String libraries)
+    {
+        Dialog<Void> dialog = new Dialog<>(); dialog.initOwner(frame.getWindow());dialog.initModality(Modality.WINDOW_MODAL); BlueJTheme.setWindowIconFX(dialog);
         dialog.setTitle(pack.text("title", Config.getLocale())); dialog.setResizable(true);
         dialog.getDialogPane().setId("light-exercise-dialog");
         TextArea instructions = area(pack.text("instructions", Config.getLocale()), 10); instructions.setEditable(false);
@@ -146,26 +181,45 @@ public final class ExerciseTools
         run.setOnAction(e -> {
             Alert consent = new Alert(Alert.AlertType.CONFIRMATION, Config.getString("light.exercise.trust"), ButtonType.OK, ButtonType.CANCEL);
             consent.initOwner(dialog.getDialogPane().getScene().getWindow());
+            consent.initModality(Modality.WINDOW_MODAL);
             consent.getDialogPane().setId("light-exercise-trust");
             if (consent.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) return;
-            try { frame.getProject().saveAllEditors(); } catch (IOException ex) { error(frame.getWindow(), ex); return; }
+            if (runner[0] != null || frame.getProject() != sourceProject || sourceProject.isClosing()) return;
             ExerciseRunner job = new ExerciseRunner(); runner[0] = job;
             run.setDisable(true); stop.setDisable(false); export.setDisable(true); results.getItems().clear(); details.clear();
-            status.setText(Config.getString("light.exercise.running"));
-            Utility.runBackground(() -> {
+            status.setText(Config.getString("light.exercise.preparing"));
+            sourceProject.saveAllEditorsAsync().whenComplete((saved, saveFailure) -> JavaFXUtil.runNowOrLater(() -> {
+                if (runner[0] != job) return;
+                if (!dialog.isShowing() || frame.getProject() != sourceProject || sourceProject.isClosing() || job.isCancelled() || saveFailure != null)
+                {
+                    job.cancel();runner[0] = null;
+                    if (dialog.isShowing())
+                    {
+                        run.setDisable(false);stop.setDisable(true);
+                        status.setText(Config.getString(saveFailure == null ? "light.exercise.cancelled" : "light.operation.failed"));
+                        if (saveFailure != null) details.setText(saveFailure.getLocalizedMessage());
+                    }
+                    return;
+                }
+                status.setText(Config.getString("light.exercise.running"));
+                Utility.runBackground(() -> {
                 try { ExerciseRunner.Report feedback = job.run(project, pack.tests(), libraries); JavaFXUtil.runNowOrLater(() -> {
-                    if (!dialog.isShowing()) return;
+                    if (!dialog.isShowing() || runner[0] != job || job.isCancelled() || sourceProject.isClosing()) return;
                     report[0] = feedback; results.getItems().setAll(feedback.results()); export.setDisable(false);
                     long passed = feedback.results().stream().filter(result -> result.status().equals("SUCCESSFUL")).count();
                     status.setText(passed + " / " + feedback.results().size() + " " + Config.getString("light.test.passed"));
                     if (feedback.results().isEmpty()) details.setText(Config.getString("light.exercise.noTests") + "\n" + feedback.log());
                     else results.getSelectionModel().selectFirst();
                 }); }
-                catch (IOException | InterruptedException ex) { JavaFXUtil.runNowOrLater(() -> { if (dialog.isShowing()) { status.setText(Config.getString("light.operation.failed")); details.setText(ex.getMessage()); } }); }
-                finally { JavaFXUtil.runNowOrLater(() -> { if (dialog.isShowing()) { run.setDisable(false); stop.setDisable(true); runner[0] = null; } }); }
-            });
+                catch (IOException | InterruptedException | RuntimeException | LinkageError | AssertionError ex) {
+                    if (ex instanceof InterruptedException) Thread.currentThread().interrupt();
+                    JavaFXUtil.runNowOrLater(() -> { if (dialog.isShowing() && runner[0] == job) { status.setText(Config.getString(job.isCancelled() ? "light.exercise.cancelled" : "light.operation.failed")); details.setText(ex.getMessage()); } });
+                }
+                finally { JavaFXUtil.runNowOrLater(() -> { if (runner[0] == job) { runner[0] = null;if (dialog.isShowing()) { run.setDisable(false); stop.setDisable(true); } } }); }
+                });
+            }));
         });
-        stop.setOnAction(e -> { if (runner[0] != null) { runner[0].cancel(); stop.setDisable(true); } });
+        stop.setOnAction(e -> { if (runner[0] != null) { runner[0].cancel(); stop.setDisable(true);status.setText(Config.getString("light.exercise.cancelled")); } });
         export.setOnAction(e -> {
             FileChooser chooser = new FileChooser(); chooser.setTitle(Config.getString("light.exercise.report"));
             chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV", "*.csv")); File file = chooser.showSaveDialog(dialog.getDialogPane().getScene().getWindow());

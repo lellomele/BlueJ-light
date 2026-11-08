@@ -28,6 +28,11 @@ import bluej.compiler.CompileType;
 import bluej.debugger.DebuggerObject;
 import bluej.debugmgr.objectbench.ObjectWrapper;
 import bluej.editor.TextEditor;
+import bluej.editor.Editor;
+import bluej.editor.EditorSaveBatch;
+import bluej.compiler.FXCompileObserver;
+import bluej.compiler.CompileInputFile;
+import bluej.compiler.Diagnostic;
 import bluej.parser.SourceLocation;
 import bluej.parser.SourceSpan;
 import bluej.parser.UnitTestAnalyzer;
@@ -63,14 +68,11 @@ import org.junit.jupiter.api.RepeatedTest;
 import threadchecker.OnThread;
 import threadchecker.Tag;
 
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.Reader;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.nio.charset.Charset;
+import java.util.concurrent.CompletableFuture;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -422,8 +424,7 @@ public class UnitTestClassRole extends ClassRole
 
         // find out if the method already exists in the unit test src
         try {
-            Charset charset = pmf.getProject().getProjectCharset();
-            UnitTestAnalyzer uta = analyzeUnitTest(ct, charset);
+            UnitTestAnalyzer uta = analyzeUnitTest(ct);
 
             SourceSpan existingSpan = uta.getMethodBlockSpan(newTestName);
 
@@ -446,22 +447,17 @@ public class UnitTestClassRole extends ClassRole
         catch (IOException ioe) {
             DialogManager.showErrorWithTextFX(pmf.getWindow(), "unittest-io-error", ioe.getLocalizedMessage());
             Debug.reportError("Error reading unit test source", ioe);
-            finishTestCase(pmf, ct, newTestName);
         }
     }
 
     @OnThread(Tag.FXPlatform)
     private void finishTestCase(PkgMgrFrame pmf, ClassTarget ct, String newTestName)
     {
-        pmf.testRecordingStarted(Config.getString("pkgmgr.test.recording") + " "
-                + ct.getBaseName() + "." + newTestName + "()");
-
-        pmf.getProject().removeClassLoader();
-
-        runTestSetup(pmf, ct, false);
-
-        pmf.getObjectBench().resetRecordingInteractions();
-        pmf.setTestInfo(newTestName, ct);
+        prepareTestExecution(pmf,ct,() -> {
+            pmf.testRecordingStarted(Config.getString("pkgmgr.test.recording") + " " + ct.getBaseName() + "." + newTestName + "()");
+            pmf.getObjectBench().resetRecordingInteractions();pmf.setTestInfo(newTestName,ct);
+            runTestSetup(pmf,ct,false);
+        });
     }
 
     /**
@@ -470,33 +466,41 @@ public class UnitTestClassRole extends ClassRole
      * @return  A UnitTestAnalyzer object with information about the unit test class
      * @throws IOException  if the source file can't be saved or read
      */
-    private UnitTestAnalyzer analyzeUnitTest(ClassTarget ct, Charset fileEncoding) throws IOException
+    private UnitTestAnalyzer analyzeUnitTest(ClassTarget ct) throws IOException
     {
-        ct.ensureSaved();
-        
-        UnitTestAnalyzer uta = null;
-        FileInputStream fis = null;
-        try {
-            fis = new FileInputStream(ct.getSourceFile());
-            Reader reader = new InputStreamReader(fis, fileEncoding);
-            uta = new UnitTestAnalyzer(reader);
+        Editor sourceEditor = ct.getEditor();
+        if (sourceEditor == null || sourceEditor.assumeText() == null) throw new IOException(Config.getString("light.source.incomplete"));
+        var document = sourceEditor.assumeText().getSourceDocument();
+        try (Reader reader = document.makeReader(0,document.getLength()))
+        {
+            UnitTestAnalyzer analysis = new UnitTestAnalyzer(reader);
+            if (!analysis.isComplete()) throw new IOException(Config.getString("light.source.incomplete"));
+            return analysis;
         }
-        catch (FileNotFoundException fnfe) {
-            throw fnfe;
-        }
-        finally {
-            if (fis != null) {
-                try {
-                    fis.close();
+    }
+
+    private void prepareTestExecution(PkgMgrFrame frame, ClassTarget target, bluej.utility.javafx.FXPlatformRunnable ready)
+    {
+        if (target.getPackage() == null || frame.getPackage() != target.getPackage()) return;
+        Project sourceProject = target.getPackage().getProject();Editor sourceEditor = target.getEditor();
+        if (sourceEditor == null) return;
+        long generation = frame.beginTestPreparation();
+        EditorSaveBatch.save(() -> List.of(sourceEditor),null).whenComplete((saved, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            if (frame.getProject() != sourceProject || sourceProject.isClosing() || target.getPackage() != frame.getPackage()
+                || generation != frame.getTestRecordingGeneration()) return;
+            if (failure != null) { PkgMgrFrame.showMessageWithText(frame.getPackage(),"generic-file-save-error",failure.getLocalizedMessage());return; }
+            long revision = sourceEditor.getContentRevision();
+            target.getPackage().compile(target,true,new FXCompileObserver() {
+                @Override public void startCompile(CompileInputFile[] sources,CompileReason reason,CompileType type,int sequence) { }
+                @Override public boolean compilerMessage(Diagnostic diagnostic,CompileType type) { return false; }
+                @Override public void endCompile(CompileInputFile[] sources,boolean successful,CompileType type,int sequence)
+                {
+                    if (successful && frame.getProject() == sourceProject && !sourceProject.isClosing() && target.getPackage() == frame.getPackage()
+                        && generation == frame.getTestRecordingGeneration() && target.getEditorIfOpen() == sourceEditor
+                        && revision == sourceEditor.getContentRevision() && !sourceEditor.isModified()) ready.run();
                 }
-                catch (IOException ioe) {
-                    // shouldn't happen
-                    Debug.reportError(ioe);
-                }
-            }
-        }
-        
-        return uta;
+            },CompileReason.MODIFIED,CompileType.INTERNAL_COMPILE);
+        }));
     }
     
     /**
@@ -507,16 +511,23 @@ public class UnitTestClassRole extends ClassRole
     private void runTestSetup(final PkgMgrFrame pmf, final ClassTarget ct, final boolean recordAsFixtureToBench)
     {
         Project project = pmf.getProject();
+        String qualifiedName = ct.getQualifiedName();long sourceRevision = ct.getEditorIfOpen() == null ? -1 : ct.getEditorIfOpen().getContentRevision();
+        long recordingGeneration = pmf.getTestRecordingGeneration();bluej.pkgmgr.Package sourcePackage = ct.getPackage();
 
         // Avoid running test setup (which is user code) on the event thread.
         // Run it on a new thread instead.
-        new Thread("Run test setup") {
+        Thread worker = new Thread("Run test setup") {
             @OnThread(value = Tag.Worker, ignoreParent = true)
             public void run() {
 
-                final FXPlatformSupplier<Map<String, DebuggerObject>> dobs = project.getDebugger().runTestSetUp(ct.getQualifiedName());
+                try
+                {
+                final FXPlatformSupplier<Map<String, DebuggerObject>> dobs = project.getDebugger().runTestSetUp(qualifiedName);
                 
                 Platform.runLater(() -> {
+                    if (pmf.getProject() != project || project.isClosing() || ct.getPackage() != sourcePackage
+                        || ct.getEditorIfOpen() == null || sourceRevision != ct.getEditorIfOpen().getContentRevision()
+                        || (!recordAsFixtureToBench && (recordingGeneration != pmf.getTestRecordingGeneration() || !project.inTestMode()))) return;
                     Iterator<Map.Entry<String,DebuggerObject>> it = dobs.get().entrySet().iterator();
 
                     while(it.hasNext()) {
@@ -529,8 +540,11 @@ public class UnitTestClassRole extends ClassRole
                     }
 
                 });
+                }
+                catch (RuntimeException | LinkageError | AssertionError failure) { Debug.reportError("Unit test setup failed",failure); }
             }
-        }.start();
+        };
+        worker.setDaemon(true);worker.start();
     }
 
     private static final String spaces = "                                 ";
@@ -556,11 +570,17 @@ public class UnitTestClassRole extends ClassRole
      */
     public void doEndMakeTestCase(PkgMgrFrame pmf, ClassTarget ct, String name)
     {
+        endTestCaseAsync(pmf,ct,name).whenComplete((saved, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            if (failure != null && pmf.getPackage() != null) PkgMgrFrame.showMessageWithText(pmf.getPackage(),"generic-file-save-error",failure.getLocalizedMessage());
+        }));
+    }
+
+    public CompletableFuture<Void> endTestCaseAsync(PkgMgrFrame pmf, ClassTarget ct, String name)
+    {
         TextEditor ed = ct.getEditor().assumeText();
         String ts = getIndentString();
         try {
-            Charset charset = pmf.getProject().getProjectCharset();
-            UnitTestAnalyzer uta = analyzeUnitTest(ct, charset);
+            UnitTestAnalyzer uta = analyzeUnitTest(ct);
 
             SourceSpan existingSpan = uta.getMethodBlockSpan(name);
 
@@ -593,10 +613,10 @@ public class UnitTestClassRole extends ClassRole
                 }
             }
             
-            ed.save();
+            return EditorSaveBatch.save(() -> List.of(ed),null);
         }
         catch (IOException ioe) {
-            PkgMgrFrame.showMessageWithText(pmf.getPackage(), "generic-file-save-error", ioe.getLocalizedMessage());
+            return CompletableFuture.failedFuture(ioe);
         }
     }
     
@@ -618,8 +638,7 @@ public class UnitTestClassRole extends ClassRole
         ExistingFixtureInvokerRecord existing = new ExistingFixtureInvokerRecord();
         
         try {
-            Charset charset = pmf.getProject().getProjectCharset();
-            UnitTestAnalyzer uta = analyzeUnitTest(ct, charset);
+            UnitTestAnalyzer uta = analyzeUnitTest(ct);
 
             // iterate through all the declarations of fields (fixture items) in the class
             List<SourceSpan> fixtureSpans = uta.getFieldSpans();
@@ -646,11 +665,9 @@ public class UnitTestClassRole extends ClassRole
         }
         catch (IOException ioe) {
             PkgMgrFrame.showMessageWithText(pmf.getPackage(), "generic-file-save-error", ioe.getLocalizedMessage());
+            return;
         }
-        
-        runTestSetup(pmf, ct, true);
-        
-        pmf.getObjectBench().addInteraction(existing);
+        prepareTestExecution(pmf,ct,() -> { runTestSetup(pmf,ct,true);pmf.getObjectBench().addInteraction(existing); });
     }   
     
     /**
@@ -664,8 +681,7 @@ public class UnitTestClassRole extends ClassRole
                 
         TextEditor ed = ct.getEditor().assumeText();
         try {
-            Charset charset = pmf.getProject().getProjectCharset();
-            UnitTestAnalyzer uta = analyzeUnitTest(ct, charset);
+            UnitTestAnalyzer uta = analyzeUnitTest(ct);
 
             // find all the fields declared in this unit test class
             List<SourceSpan> variables = uta.getFieldSpans();
@@ -676,6 +692,8 @@ public class UnitTestClassRole extends ClassRole
 
                 if (!shouldContinue)
                     return;
+                // A question runs a nested event loop: never reuse spans captured before it.
+                uta = analyzeUnitTest(ct);variables = uta.getFieldSpans();
             }
 
             // if we have fields, we need to nuke them
@@ -695,7 +713,7 @@ public class UnitTestClassRole extends ClassRole
                 }
                 
                 // to get correct locations for rewriting setUp(), we need to reparse
-                uta = analyzeUnitTest(ct, charset);
+                uta = analyzeUnitTest(ct);
             }
 
             // find a location to insert new methods
@@ -745,17 +763,19 @@ public class UnitTestClassRole extends ClassRole
                 new SourceLocation(fixtureInsertLocation.getLine(), fixtureInsertLocation.getColumn() + 1));
                 
             ed.insertText("{\n" + pmf.getObjectBench().getFixtureDeclaration(ts), false);
-            ed.save();
+            EditorSaveBatch.save(() -> List.of(ed),null).whenComplete((saved, failure) -> JavaFXUtil.runNowOrLater(() -> {
+                if (failure != null) {
+                    if (pmf.getPackage() != null) PkgMgrFrame.showMessageWithText(pmf.getPackage(),"generic-file-save-error",failure.getLocalizedMessage());
+                }
+                else if (ct.getPackage() != null && !ct.getPackage().getProject().isClosing())
+                    ct.getPackage().compileQuiet(ct,CompileReason.MODIFIED,CompileType.INTERNAL_COMPILE);
+            }));
         }
         catch (IOException ioe) {
             PkgMgrFrame.showMessageWithText(pmf.getPackage(),
                     "generic-file-save-error", ioe.getLocalizedMessage());
         }
         
-        pmf.getPackage().compileQuiet(ct, CompileReason.MODIFIED, CompileType.INTERNAL_COMPILE);
-        
-        pmf.getProject().removeClassLoader();
-        pmf.getProject().newRemoteClassLoaderLeavingBreakpoints();
     }
     
     /**

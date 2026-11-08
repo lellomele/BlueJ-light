@@ -139,6 +139,9 @@ public class PkgMgrFrame
     @OnThread(Tag.Any) private final EndTestRecordAction endTestRecordAction = new EndTestRecordAction(this);
     @OnThread(Tag.Any) private final CancelTestRecordAction cancelTestRecordAction = new CancelTestRecordAction(this);
     private ClassTarget testTarget = null;
+    private long testRecordingGeneration;
+    public long getTestRecordingGeneration() { return testRecordingGeneration; }
+    public long beginTestPreparation() { return ++testRecordingGeneration; }
     private String testTargetMethod;
     private int testIdentifier = 0;
     @OnThread(Tag.FX)
@@ -2476,17 +2479,15 @@ public class PkgMgrFrame
             if (testTarget.getRole() instanceof UnitTestClassRole) {
                 UnitTestClassRole utcr = (UnitTestClassRole) testTarget.getRole();
                 
-                utcr.doEndMakeTestCase(this, testTarget, testTargetMethod);
+                ClassTarget finishedTarget = testTarget;Project recordingProject = getProject();
+                utcr.endTestCaseAsync(this,finishedTarget,testTargetMethod).whenComplete((saved, failure) -> JavaFXUtil.runNowOrLater(() -> {
+                    if (failure != null) { if (getProject() == recordingProject && getPackage() != null) showMessageWithText(getPackage(),"generic-file-save-error",failure.getLocalizedMessage());return; }
+                    if (getProject() == recordingProject && !recordingProject.isClosing() && finishedTarget.getPackage() != null)
+                        finishedTarget.getPackage().compileQuiet(finishedTarget,CompileReason.MODIFIED,CompileType.INDIRECT_USER_COMPILE);
+                }));
             }
             
-            // try to compile the test class we have just changed. Do this before
-            // installing the new class loader, because that causes a short machine
-            // execution during which compilation fails with an error message
-            getPackage().compileQuiet(testTarget, CompileReason.MODIFIED, CompileType.INDIRECT_USER_COMPILE);
-
-            // remove objects from object bench
-            getProject().removeClassLoader();
-            getProject().newRemoteClassLoaderLeavingBreakpoints();
+            // The compiler resets the class loader only after source preparation has completed.
             
             testTarget = null;
         }
@@ -2514,6 +2515,7 @@ public class PkgMgrFrame
      */
     public void testRecordingStarted(String message)
     {
+        testRecordingGeneration++;
         testStatusMessage.setText(message);
         recordingLabel.setDisable(false);
         endTestRecordAction.setEnabled(true);
@@ -2527,6 +2529,7 @@ public class PkgMgrFrame
      */
     private void testRecordingEnded()
     {
+        testRecordingGeneration++;
         testStatusMessage.setText("");
         recordingLabel.setDisable(true);
         endTestRecordAction.setEnabled(false);

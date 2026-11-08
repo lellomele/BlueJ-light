@@ -45,6 +45,7 @@ public class UnitTestParser extends JavaParser
     private LocatableToken methodBegin;
     private boolean isPublic = false;
     private boolean haveClassInfo = false;
+    private boolean parsedSuccessfully;
     
     private List<SourceSpan> fieldSpans = new LinkedList<SourceSpan>();
     private SourceLocation methodInsertLocation;
@@ -58,10 +59,13 @@ public class UnitTestParser extends JavaParser
         super(r);
         try {
             parseCU();
+            parsedSuccessfully = true;
         }
         catch (Exception e) {
         }
     }
+
+    public boolean isComplete() { return parsedSuccessfully && haveClassInfo && classLevel == 0; }
     
     public List<SourceSpan> getFieldSpans()
     {

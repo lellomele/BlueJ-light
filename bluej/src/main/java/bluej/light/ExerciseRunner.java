@@ -18,6 +18,7 @@ public final class ExerciseRunner
     public record Report(Instant time, List<Result> results, String log) {}
     private volatile Process active;
     private final AtomicBoolean cancelled = new AtomicBoolean();
+    public boolean isCancelled() { return cancelled.get(); }
     public void cancel()
     {
         cancelled.set(true); Process process = active;
@@ -25,6 +26,7 @@ public final class ExerciseRunner
     }
     public Report run(Path project, List<String> tests, String libraries) throws IOException, InterruptedException
     {
+        if (cancelled.get()) throw new IOException("Cancelled");
         if (tests.isEmpty()) throw new IOException("No test classes configured");
         Path work = Files.createTempDirectory("bluej-exercise-");
         StringBuilder log = new StringBuilder();
