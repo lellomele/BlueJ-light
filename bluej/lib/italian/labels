@@ -925,6 +925,7 @@ light.save.stillPending=Il salvataggio sta richiedendo pi\u00f9 tempo del previs
 light.source.incomplete=Completa o correggi il sorgente Java prima di modificarne la dichiarazione.
 light.source.operationPending=Un'operazione su questo sorgente \u00e8 ancora in corso. Riprova al termine.
 light.source.removalFailed=Non \u00e8 stato possibile eliminare la classe. Il testo dell'editor \u00e8 conservato; puoi riprovare dopo aver controllato l'accesso ai file.
+light.file.removalFailed=Non \u00e8 stato possibile eliminare il file. Il testo \u00e8 conservato; puoi riprovare dopo aver controllato l'accesso ai file.
 light.package.explicitAction=La dichiarazione di package non corrisponde alla posizione della classe. Salva esplicitamente (Ctrl+S) per scegliere lo spostamento o ripristinare la dichiarazione.
 light.package.title=Package della classe
 light.package.question=La dichiarazione indica ora il package riportato sotto. Scegli se spostare la classe, ripristinare la dichiarazione precedente oppure continuare a modificare.

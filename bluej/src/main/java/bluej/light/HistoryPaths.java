@@ -79,6 +79,16 @@ final class HistoryPaths
 
     void abort(Move move) throws IOException { synchronized (lock) { Files.deleteIfExists(journal(move)); } }
 
+    void retire(Path source) throws IOException
+    {
+        synchronized (lock)
+        {
+            // Queued jobs in the retired editor keep their old identity; a new editor at this name does not.
+            folder(source);
+            link(source,LocalHistory.hash(UUID.randomUUID().toString()),null,null);
+        }
+    }
+
     private Path journal(Move move) { return root.resolve("path-transactions").resolve(move.id() + ".properties"); }
 
     private void publish(Move move) throws IOException

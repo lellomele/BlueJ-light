@@ -66,15 +66,24 @@ public final class SourceSaveService implements AutoCloseable
     public record DiskState(Path source, String text, long modifiedMillis, long byteLength, boolean exists) { }
 
     public record Relocation(DiskState disk, IOException historyWarning) { }
-    public record Removal(List<Path> recoveryCopies)
+    public record Removal(List<Path> recoveryCopies, IOException historyWarning)
     { public Removal { recoveryCopies = List.copyOf(recoveryCopies); } }
 
     /** Retire the editor before calling. Preserve verified copies before unlinking the primary source. */
     public CompletableFuture<Removal> removeSource(Path path, Snapshot buffer, Path recoveryDirectory)
+    { return removeSource(path,buffer,recoveryDirectory,null); }
+
+    public CompletableFuture<Removal> removeSource(Path path, Snapshot buffer, Path recoveryDirectory, LocalHistory history)
+    { return removeFile(path,buffer,recoveryDirectory,history,true); }
+
+    public CompletableFuture<Removal> removeTextFile(Path path, Snapshot buffer, Path recoveryDirectory, LocalHistory history)
+    { return removeFile(path,buffer,recoveryDirectory,history,false); }
+
+    private CompletableFuture<Removal> removeFile(Path path, Snapshot buffer, Path recoveryDirectory, LocalHistory history, boolean javaSource)
     {
         Path source = path.toAbsolutePath().normalize(), recovery = recoveryDirectory.toAbsolutePath().normalize();
-        if (source.getParent() == null || source.getFileName() == null || !source.getFileName().toString().endsWith(".java"))
-            return CompletableFuture.failedFuture(new IOException("Class removal requires a Java source path"));
+        if (source.getParent() == null || source.getFileName() == null || (javaSource && !source.getFileName().toString().endsWith(".java")))
+            return CompletableFuture.failedFuture(new IOException("File removal requires a regular source path"));
         if (buffer != null && !source.equals(buffer.source()))
             return CompletableFuture.failedFuture(new IOException("Removal buffer belongs to another source"));
         if (buffer != null && !buffer.owner().isRetired())
@@ -87,18 +96,20 @@ public final class SourceSaveService implements AutoCloseable
             try
             {
                 Charset charset = buffer == null ? java.nio.charset.StandardCharsets.UTF_8 : buffer.charset();
-                String before = Files.exists(source) ? normalise(Files.readString(source,charset)) : null;
+                boolean existed = Files.exists(source);
+                String before = existed && buffer != null ? normalise(Files.readString(source,charset)) : null;
                 if (buffer != null && buffer.checkDiskChanges() && before != null && !Objects.equals(before,normalise(buffer.expectedDiskText())))
                     throw new IOException("Source changed on disk before removal");
                 List<Path> copies = new ArrayList<>();
-                if (before != null || buffer != null) Files.createDirectories(recovery);
-                if (before != null)
+                Path diskCopy = null;
+                if (existed || buffer != null) Files.createDirectories(recovery);
+                if (existed)
                 {
                     Path copy = recovery.resolve(System.currentTimeMillis() + "-" + UUID.randomUUID() + "-removed-" + source.getFileName());
                     Files.copy(source,copy);
                     try (var channel = java.nio.channels.FileChannel.open(copy,StandardOpenOption.WRITE)) { channel.force(true); }
                     if (Files.mismatch(source,copy) != -1) throw new IOException("Source removal recovery copy could not be verified");
-                    copies.add(copy);
+                    copies.add(copy);diskCopy = copy;
                 }
                 if (buffer != null && !Objects.equals(before,normalise(buffer.text())))
                 {
@@ -108,10 +119,13 @@ public final class SourceSaveService implements AutoCloseable
                         throw new IOException("Source buffer recovery copy could not be verified");
                     copies.add(copy);
                 }
-                String current = Files.exists(source) ? normalise(Files.readString(source,charset)) : null;
-                if (!Objects.equals(before,current)) throw new IOException("Source changed while preserving it for removal");
+                if (diskCopy == null ? Files.exists(source) : !Files.exists(source) || Files.mismatch(source,diskCopy) != -1)
+                    throw new IOException("Source changed while preserving it for removal");
                 Files.deleteIfExists(source);written.remove(canonical);
-                return new Removal(copies);
+                IOException warning = null;
+                try { if (history != null) history.retirePath(source); }
+                catch (IOException unavailable) { warning = unavailable; }
+                return new Removal(copies,warning);
             }
             finally
             {

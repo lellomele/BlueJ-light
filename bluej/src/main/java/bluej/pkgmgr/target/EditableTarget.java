@@ -23,6 +23,8 @@ package bluej.pkgmgr.target;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import bluej.Config;
 import bluej.editor.Editor;
@@ -48,6 +50,10 @@ public abstract class  EditableTarget extends Target
     public final static String editStr = Config.getString("pkgmgr.classmenu.edit");
     public final static String removeStr = Config.getString("pkgmgr.classmenu.remove");
     protected Editor editor;
+    protected boolean fileRemovalPending;
+    private CompletableFuture<Boolean> pendingFileRemoval;
+    private bluej.editor.flow.FlowEditor fileRemovalEditor;
+    private boolean reopenFileAfterFailure;
 
     protected EditableTarget(Package pkg, String name, String accessibleTargetType)
     {
@@ -66,6 +72,64 @@ public abstract class  EditableTarget extends Target
 
     /** Inspect ownership without opening an editor or reading a source file. */
     public Editor getEditorIfOpen() { return editor; }
+
+    /** Text resources obey the same save/retirement boundary as Java sources. */
+    protected CompletableFuture<Boolean> removeTextFileAsync(File file)
+    {
+        if (pendingFileRemoval != null) return pendingFileRemoval.copy();
+        Package sourcePackage = getPackage();
+        if (sourcePackage == null) return CompletableFuture.completedFuture(true);
+        CompletableFuture<Boolean> result = new CompletableFuture<>();pendingFileRemoval = result;
+        CompletableFuture<Void> operation = new CompletableFuture<>();
+        result.whenComplete((removed, failure) -> bluej.utility.javafx.JavaFXUtil.runNowOrLater(() -> {
+            try
+            {
+                if (!Boolean.TRUE.equals(removed))
+                {
+                    fileRemovalPending = false;
+                    if (fileRemovalEditor != null) fileRemovalEditor.sourceRemovalFailed(reopenFileAfterFailure);
+                }
+            }
+            catch (RuntimeException | LinkageError | AssertionError unavailable) { bluej.utility.Debug.reportError("Cannot reopen retained text after removal failure",unavailable); }
+            finally { fileRemovalEditor = null;reopenFileAfterFailure = false;pendingFileRemoval = null;operation.complete(null); }
+        }));
+        try
+        {
+            sourcePackage.prepareForSourceFileChange(operation).whenComplete((idle, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (failure != null) { result.completeExceptionally(failure);return; }
+                bluej.editor.EditorCloseBatch.prepare(() -> editor == null ? List.of() : List.of(editor))
+                    .whenComplete((ready, prepareFailure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                        if (prepareFailure != null) { result.completeExceptionally(prepareFailure);return; }
+                        if (!Boolean.TRUE.equals(ready) || getPackage() != sourcePackage) { result.complete(false);return; }
+                        bluej.editor.flow.FlowEditor flow = editor instanceof bluej.editor.flow.FlowEditor textEditor ? textEditor : null;
+                        var buffer = flow == null ? null : flow.captureSourceSnapshot();
+                        fileRemovalEditor = flow;reopenFileAfterFailure = editor != null && editor.isOpen();fileRemovalPending = true;
+                        if (flow != null && !flow.beginSourceRemoval()) { result.complete(false);return; }
+                        if (editor != null && flow == null) { editor.closePrepared();if (editor.isOpen()) { result.complete(false);return; } }
+                        var preferences = Config.getUserConfigDir().toPath();
+                        var history = flow == null ? new bluej.light.LocalHistory(preferences) : flow.getLocalHistory();
+                        sourcePackage.getProject().getSourceSaveService().removeTextFile(file.toPath(),buffer,preferences.resolve("recovered-sources"),history)
+                            .whenComplete((removed, removeFailure) -> bluej.utility.javafx.JavaFXUtil.runNowOrLater(() -> {
+                                if (removeFailure != null) { result.completeExceptionally(removeFailure);return; }
+                                try
+                                {
+                                    if (getPackage() == sourcePackage && sourcePackage.getTarget(getIdentifierName()) == this) sourcePackage.removeTarget(this);
+                                    if (removed.historyWarning() != null) bluej.utility.Debug.reportError("Text removed with history identity warning",removed.historyWarning());
+                                    removed.recoveryCopies().forEach(copy -> bluej.utility.Debug.message("Removed text preserved in: " + copy));
+                                    result.complete(true);
+                                }
+                                catch (Throwable unavailable)
+                                {
+                                    result.completeExceptionally(unavailable);
+                                    if (unavailable instanceof Error fatal) throw fatal;
+                                }
+                            }));
+                    }));
+            }));
+        }
+        catch (RuntimeException | LinkageError | AssertionError unavailable) { result.completeExceptionally(unavailable); }
+        return result.copy();
+    }
 
     /**
      * Ensure that the source file of this target is up-to-date (i.e.

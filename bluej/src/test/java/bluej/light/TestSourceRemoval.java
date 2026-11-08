@@ -85,4 +85,24 @@ public class TestSourceRemoval
         }
         finally{release.countDown();}
     }
+
+    @Test public void aClosedSourceIsArchivedAsBytesWithoutAssumingUtf8() throws Exception
+    {
+        Path file=source();byte[] original="// citt\u00e0\r\nclass Example {}\r\n".getBytes(StandardCharsets.ISO_8859_1);Files.write(file,original);
+        try(var service=new SourceSaveService())
+        {
+            var removed=service.removeSource(file,null,recovery()).get(5,TimeUnit.SECONDS);
+            assertFalse(Files.exists(file));assertEquals(1,removed.recoveryCopies().size());assertArrayEquals(original,Files.readAllBytes(removed.recoveryCopies().getFirst()));
+        }
+    }
+    @Test public void aNewClassAtTheDeletedNameHasAnIndependentHistoryIdentity() throws Exception
+    {
+        Path file=source(),preferences=folder.getRoot().toPath().resolve("preferences");LocalHistory oldHistory=new LocalHistory(preferences);
+        oldHistory.draft(file,"old unsaved\n",LocalHistory.hash("original\n"),"old editor",2);
+        try(var service=new SourceSaveService())
+        {var removed=service.removeSource(file,buffer(file,"old unsaved\n"),recovery(),oldHistory).get(5,TimeUnit.SECONDS);assertNull(removed.historyWarning());}
+        Files.writeString(file,"new unrelated class\n");
+        assertTrue(new LocalHistory(preferences).recover(file,"new unrelated class\n").isEmpty());
+        assertEquals("old unsaved\n",oldHistory.recover(file,"original\n").orElseThrow().text());
+    }
 }

@@ -30,6 +30,7 @@ public final class LocalHistory
     synchronized void commitPathChange(HistoryPaths.Move move) throws IOException { paths.commit(move); }
     synchronized void abortPathChange(HistoryPaths.Move move) throws IOException { paths.abort(move); }
     public synchronized Path effectiveSource(Path source) throws IOException { return paths.effectiveSource(source); }
+    synchronized void retirePath(Path source) throws IOException { paths.retire(source); }
 
     public static String hash(String value)
     {

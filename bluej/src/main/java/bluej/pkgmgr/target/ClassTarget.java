@@ -2401,7 +2401,8 @@ public class ClassTarget extends DependentTarget
             if (flow != null ? !flow.beginSourceRemoval() : sourceEditor != null && !closeOtherPreparedEditor(sourceEditor))
             { removingSource = false;result.complete(false);return; }
             bluej.light.SourceSaveService service = pkg.getProject().getSourceSaveService();
-            service.removeSource(source,buffer,recovery).whenComplete((removed, removeFailure) -> {
+            bluej.light.LocalHistory history = flow == null ? new bluej.light.LocalHistory(Config.getUserConfigDir().toPath()) : flow.getLocalHistory();
+            service.removeSource(source,buffer,recovery,history).whenComplete((removed, removeFailure) -> {
                 if (removeFailure != null)
                 {
                     JavaFXUtil.runNowOrLater(() -> result.completeExceptionally(removeFailure));
@@ -2423,6 +2424,7 @@ public class ClassTarget extends DependentTarget
                         }
                         if (warning != null) Debug.reportError("Source removed; derived file cleanup incomplete",warning);
                         if (cleanupFailure != null) Debug.reportError("Source removed; derived file cleanup unavailable",cleanupFailure);
+                        if (removed.historyWarning() != null) Debug.reportError("Source removed with history identity warning",removed.historyWarning());
                         removed.recoveryCopies().forEach(copy -> Debug.message("Removed source preserved in: " + copy));
                         result.complete(true);
                     }

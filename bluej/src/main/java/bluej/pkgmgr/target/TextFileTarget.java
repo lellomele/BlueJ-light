@@ -82,8 +82,13 @@ public class TextFileTarget extends NonCodeEditableTarget
     @Override
     public void remove()
     {
-        getPackage().removeTarget(this);
-        file.delete();
+        Package sourcePackage = getPackage();
+        removeTextFileAsync(file).whenComplete((removed, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            if (failure == null) return;
+            bluej.utility.Debug.reportError("Cannot remove text file",failure);
+            var frame = sourcePackage == null ? null : bluej.pkgmgr.PkgMgrFrame.findFrame(sourcePackage);
+            if (frame != null) frame.setStatus(bluej.Config.getString("light.file.removalFailed"));
+        }));
     }
 
     @Override
@@ -95,6 +100,7 @@ public class TextFileTarget extends NonCodeEditableTarget
     @Override
     public Editor getEditor()
     {
+        if (fileRemovalPending || getPackage() == null) return null;
         if(editor == null) {
             FlowEditor flowEditor = new FlowEditor(newWindow -> {
                 if (newWindow)
