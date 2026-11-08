@@ -65,6 +65,28 @@ public final class SourceSaveService implements AutoCloseable
 
     public record DiskState(Path source, String text, long modifiedMillis, long byteLength, boolean exists) { }
 
+    public record Relocation(DiskState disk, IOException historyWarning) { }
+
+    /** The history intent precedes the physical move; a crash can resolve its identity at the new name. */
+    public CompletableFuture<Relocation> relocate(Snapshot saved, Path destination, LocalHistory history)
+    {
+        Path target = destination.toAbsolutePath().normalize();
+        return submit(() -> {
+            HistoryPaths.Move change = history.preparePathChange(saved.source(), target);
+            DiskState state;
+            try { state = relocateNow(saved, target); }
+            catch (IOException | RuntimeException failure)
+            {
+                try { history.abortPathChange(change); } catch (IOException cleanup) { failure.addSuppressed(cleanup); }
+                throw failure;
+            }
+            IOException warning = null;
+            try { history.commitPathChange(change); } catch (IOException unavailable) { warning = unavailable; }
+            // An already moved source must always be acknowledged at its actual destination.
+            return new Relocation(state, warning);
+        });
+    }
+
     /** A path change consumes the old writer identity; the UI must create a fresh identity after acknowledgement. */
     public CompletableFuture<DiskState> relocate(Snapshot saved, Path destination)
     {

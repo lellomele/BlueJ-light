@@ -16,14 +16,18 @@ public final class LocalHistory
 {
     public record Revision(Path file, Instant time, String kind) {}
     public record Draft(String text, String baseHash) {}
-    private final Path root;
+    private final HistoryPaths paths;
     public static final int MAX_BYTES = 5 * 1024 * 1024;
-    public LocalHistory(Path preferences) { root = preferences.resolve("local-history"); }
+    public LocalHistory(Path preferences) { paths = new HistoryPaths(preferences.resolve("local-history")); }
 
     private Path folder(Path source) throws IOException
     {
-        return root.resolve(hash(source.toAbsolutePath().normalize().toString()));
+        return paths.folder(source);
     }
+
+    synchronized HistoryPaths.Move preparePathChange(Path source, Path destination) throws IOException { return paths.prepare(source, destination); }
+    synchronized void commitPathChange(HistoryPaths.Move move) throws IOException { paths.commit(move); }
+    synchronized void abortPathChange(HistoryPaths.Move move) throws IOException { paths.abort(move); }
 
     public static String hash(String value)
     {
