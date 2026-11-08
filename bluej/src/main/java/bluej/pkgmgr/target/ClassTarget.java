@@ -1354,7 +1354,6 @@ public class ClassTarget extends DependentTarget
         if (info != null) {
             updateTargetFile(info);
         }
-        determineRole(null);
     }
 
     @Override
@@ -1611,22 +1610,22 @@ public class ClassTarget extends DependentTarget
         }
 
         analysing = true;
+        try
+        {
+            ClassInfo info = editor instanceof FlowEditor flow
+                ? sourceInfo.getInfoFromText(flow.getSourcePane().getDocument().getFullContent(), getPackage())
+                : sourceInfo.getInfo(getJavaSourceFile(), getPackage());
 
-        ClassInfo info = sourceInfo.getInfo(getJavaSourceFile(), getPackage());
-
-        // info will be null if the source was unparseable
-        if (info != null) {
-            // the following may update the package display but it
-            // will not modify the classes source code
-            determineRole(null);
-            setTypeParameters(info);
-            analyseDependencies(info);
+            // The following updates the diagram, not the source text.
+            if (info != null)
+            {
+                determineRole(null);
+                setTypeParameters(info);
+                analyseDependencies(info);
+            }
+            return info;
         }
-
-        // getPackage().repaint();
-
-        analysing = false;
-        return info;
+        finally { analysing = false; }
     }
     
     /**

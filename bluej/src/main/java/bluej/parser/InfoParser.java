@@ -172,12 +172,18 @@ public class InfoParser extends EditorParser
     {
         FileInputStream fis = new FileInputStream(f);
         try {
-            EntityResolver resolver = new PackageResolver(pkg.getProject().getEntityResolver(),
-                pkg.getQualifiedName());
             Reader reader = new BufferedReader(new InputStreamReader(fis, pkg.getProject().getProjectCharset()));
-            return parse(reader, resolver, pkg.getQualifiedName());
+            return parseWithPkg(reader, pkg);
         }
         finally { try { fis.close(); } catch (IOException ioe) { } }
+    }
+
+    /** Parse an already captured source without reopening its file on the UI thread. */
+    @OnThread(Tag.FXPlatform)
+    public static ClassInfo parseWithPkg(Reader reader, Package pkg)
+    {
+        EntityResolver resolver = new PackageResolver(pkg.getProject().getEntityResolver(), pkg.getQualifiedName());
+        return parse(reader, resolver, pkg.getQualifiedName());
     }
 
     /**

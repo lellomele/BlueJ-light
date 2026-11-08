@@ -66,6 +66,12 @@ public final class SourceInfo
         return info;
     }
 
+    public ClassInfo getInfoFromText(String sourceText, Package pkg)
+    {
+        if (info == null) info = InfoParser.parseWithPkg(new java.io.StringReader(sourceText), pkg);
+        return info;
+    }
+
     /**
      * Similar to getInfo, but do not parse if info is not available.
      * Instead, return null, if we got no info.
