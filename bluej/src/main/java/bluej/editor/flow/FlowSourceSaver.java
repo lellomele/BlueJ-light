@@ -27,6 +27,7 @@ final class FlowSourceSaver
         void saved(SourceSaveService.Result result);
         default CompletableFuture<Void> savedAsync(SourceSaveService.Result result)
         { saved(result); return CompletableFuture.completedFuture(null); }
+        default CompletableFuture<Void> savedAsync(SourceSaveService.Result result, boolean interactive) { return savedAsync(result); }
         default void acknowledgementFailed(SourceSaveService.Result result, Throwable failure) { failed(asIOException(failure)); }
         void failed(IOException failure);
         CompletableFuture<ConflictChoice> decideConflict();
@@ -35,6 +36,7 @@ final class FlowSourceSaver
         void reloaded(SourceSaveService.DiskState state);
         default CompletableFuture<Void> reloadedAsync(SourceSaveService.DiskState state)
         { reloaded(state);return CompletableFuture.completedFuture(null); }
+        default CompletableFuture<Void> reloadedAsync(SourceSaveService.DiskState state, boolean interactive) { return reloadedAsync(state); }
     }
 
     private static final class Attempt
@@ -103,7 +105,7 @@ final class FlowSourceSaver
             disk.text(),disk.modifiedMillis(),disk.byteLength(),null);
         try
         {
-            Objects.requireNonNull(view.reloadedAsync(disk)).whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() ->
+            Objects.requireNonNull(view.reloadedAsync(disk,attempt.interactive)).whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() ->
                 finishAcknowledgement(attempt,result,lifetime,failure)));
         }
         catch (RuntimeException | LinkageError | AssertionError failure) { finishAcknowledgement(attempt,result,lifetime,failure); }
@@ -237,7 +239,7 @@ final class FlowSourceSaver
                     else
                     {
                         acknowledging = attempt;
-                        Objects.requireNonNull(view.savedAsync(result)).whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() ->
+                        Objects.requireNonNull(view.savedAsync(result,attempt.interactive)).whenComplete((ignored, failure) -> JavaFXUtil.runNowOrLater(() ->
                             finishAcknowledgement(attempt, result, lifetime, failure)));
                         return;
                     }

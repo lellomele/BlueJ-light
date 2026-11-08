@@ -10,4 +10,5 @@ import threadchecker.Tag;
 public interface AsyncEditorWatcher extends EditorWatcher
 {
     CompletableFuture<Void> saveEventAsync(Editor editor);
+    default CompletableFuture<Void> saveEventAsync(Editor editor, boolean interactive) { return saveEventAsync(editor); }
 }

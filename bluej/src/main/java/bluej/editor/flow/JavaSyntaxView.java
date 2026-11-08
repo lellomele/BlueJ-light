@@ -2453,6 +2453,10 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
         finally { notifyParsed(ParseStatus.SUSPENDED); }
     }
 
+    /** Resolve the unchanged buffer in a new package without replacing its document or undo stack. */
+    public void refreshResolver()
+    { suspendParser("Source package changed",null);enableParser(true); }
+
     public ReparseableDocument.Element getDefaultRootElement()
     {
         // This is a different kind of element, which is only there to return a wrapper for the paragraphs:

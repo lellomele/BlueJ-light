@@ -285,4 +285,28 @@ public class TestAsyncEditorSave extends FXTest
         fx_(() -> {editor.sourceRemovalFailed(false);editor.getActions().getActionByName("undo").actionPerformed(false);assertEquals(ORIGINAL,editor.getSourcePane().getDocument().getFullContent());editor.getActions().getActionByName("redo").actionPerformed(false);assertEquals(changed,editor.getSourcePane().getDocument().getFullContent());});
         text("class Example { int retry; }\n");saved(save());assertEquals("class Example { int retry; }\n",Files.readString(path));
     }
+
+    @Test public void restoringAPackageUsesTheCurrentIncompleteBufferAndIsOneUndoableEdit() throws Exception
+    {
+        String current="// retained header\npackage /* retained directive comment */ child;\nclass Example { int unfinished( }\n";text(current);
+        fx_(() -> {
+            assertTrue(editor.restorePackageDeclaration("child",""));String restored=editor.getSourcePane().getDocument().getFullContent();
+            assertTrue(restored.contains("retained header"));assertTrue(restored.contains("retained directive comment"));assertTrue(restored.contains("int unfinished( }"));assertFalse(restored.contains("package"));
+            editor.getActions().getActionByName("undo").actionPerformed(false);assertEquals(current,editor.getSourcePane().getDocument().getFullContent());
+            editor.getActions().getActionByName("redo").actionPerformed(false);assertEquals(restored,editor.getSourcePane().getDocument().getFullContent());
+        });
+    }
+    @Test public void restoringARemovedPackageDirectivePreservesHeaderBodyAndUndo() throws Exception
+    {
+        String current="// retained header\nclass Example { int current; }\n";text(current);
+        fx_(() -> {
+            assertTrue(editor.restorePackageDeclaration("","child"));String restored=editor.getSourcePane().getDocument().getFullContent();
+            assertTrue(restored.contains("package child;"));assertTrue(restored.contains("retained header"));assertTrue(restored.contains("int current;"));
+            editor.getActions().getActionByName("undo").actionPerformed(false);assertEquals(current,editor.getSourcePane().getDocument().getFullContent());
+        });
+    }
+    @Test public void aStalePackageDecisionCannotRewriteANewerDeclaration() throws Exception
+    {
+        String current="package newer; class Example {}\n";text(current);fx_(() -> {assertFalse(editor.restorePackageDeclaration("older",""));assertEquals(current,editor.getSourcePane().getDocument().getFullContent());});
+    }
 }

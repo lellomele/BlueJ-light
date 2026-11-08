@@ -615,9 +615,10 @@ public final class Package
     @OnThread(Tag.FXPlatform)
     private void fireChangedEvent()
     {
-        for (PackageListener l : listeners)
+        for (PackageListener l : List.copyOf(listeners))
         {
-            l.graphChanged();
+            try { l.graphChanged(); }
+            catch (RuntimeException | LinkageError | AssertionError failure) { Debug.reportError("Package graph listener failed",failure); }
         }
     }
 
@@ -2454,6 +2455,23 @@ public final class Package
         targets.remove(oldName); target.setIdentifierName(newName); targets.add(newName,target);
         if (target instanceof ClassTarget ct) checkedRevisions.remove(ct);
         project.completionSourcesChanged();
+    }
+
+    /** Transfer the existing target/editor identity; notify the old graph before attaching its node to the new graph. */
+    public synchronized void commitTargetPackage(ClassTarget target, Package destination) throws IOException
+    {
+        synchronized (destination)
+        {
+            String name = target.getIdentifierName();
+            if (project != destination.project || getTarget(name) != target || target.getPackage() != this
+                || destination.getTarget(name) != null || destination.reservedTargetNames.get(targetNameKey(name)) != target)
+                throw new IOException("Class package ownership changed during source transfer");
+            targets.remove(name);checkedRevisions.remove(target);
+            target.setPackageAfterMove(this,destination);destination.targets.add(name,target);destination.checkedRevisions.remove(target);
+            project.completionSourcesChanged();
+        }
+        if (getEditor() != null) getEditor().clearSelection();
+        fireChangedEvent();destination.fireChangedEvent();
     }
 
     /** Register before starting file I/O; completion includes the UI model acknowledgement. */

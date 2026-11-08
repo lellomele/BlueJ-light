@@ -183,6 +183,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         @Override public bluej.light.LocalHistory history() { return localHistory; }
         @Override public void saved(bluej.light.SourceSaveService.Result result) { applySourceSave(result); }
         @Override public CompletableFuture<Void> savedAsync(bluej.light.SourceSaveService.Result result) { return applySourceSaveAsync(result); }
+        @Override public CompletableFuture<Void> savedAsync(bluej.light.SourceSaveService.Result result, boolean interactive) { return applySourceSaveAsync(result,interactive); }
         @Override public void acknowledgementFailed(bluej.light.SourceSaveService.Result result, Throwable failure)
         {
             saveState.setState(Status.CHANGED);
@@ -210,6 +211,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         }
         @Override public void reloaded(bluej.light.SourceSaveService.DiskState state) { applyDiskReload(state); }
         @Override public CompletableFuture<Void> reloadedAsync(bluej.light.SourceSaveService.DiskState state) { return applyDiskReload(state); }
+        @Override public CompletableFuture<Void> reloadedAsync(bluej.light.SourceSaveService.DiskState state, boolean interactive) { return applyDiskReload(state,interactive); }
     });
     private String observedDiskText = "";
     private long observedDiskLength;
@@ -2131,10 +2133,13 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     }
 
     private CompletableFuture<Void> applySourceSaveAsync(bluej.light.SourceSaveService.Result result)
+    { return applySourceSaveAsync(result,true); }
+
+    private CompletableFuture<Void> applySourceSaveAsync(bluej.light.SourceSaveService.Result result, boolean interactive)
     {
         if (!updateSourceSaveState(result)) return CompletableFuture.completedFuture(null);
         saveState.setState(Status.SAVED);
-        if (watcher instanceof bluej.editor.AsyncEditorWatcher asynchronous) return asynchronous.saveEventAsync(this);
+        if (watcher instanceof bluej.editor.AsyncEditorWatcher asynchronous) return asynchronous.saveEventAsync(this,interactive);
         if (watcher != null) watcher.saveEvent(this);
         return CompletableFuture.completedFuture(null);
     }
@@ -2143,10 +2148,12 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public bluej.light.LocalHistory getLocalHistory() { return localHistory; }
 
     /** Immutable buffer content for project-copy verification; obtaining it performs no file I/O. */
+    public java.nio.file.Path getSourcePath() { return filename == null ? null : java.nio.file.Path.of(filename).toAbsolutePath().normalize(); }
+
     public bluej.light.SourceSaveService.Snapshot captureSourceSnapshot()
     {
         return filename == null ? null : new bluej.light.SourceSaveService.Snapshot(sourceSaver.owner(),contentRevision,
-            java.nio.file.Path.of(filename),document.getFullContent(),characterSet,observedDiskText,true,false);
+            getSourcePath(),document.getFullContent(),characterSet,observedDiskText,true,false);
     }
 
     /** Apply a committed path change without changing the text or undo history. */
@@ -2181,6 +2188,9 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     }
 
     private CompletableFuture<Void> applyDiskReload(bluej.light.SourceSaveService.DiskState state)
+    { return applyDiskReload(state,true); }
+
+    private CompletableFuture<Void> applyDiskReload(bluej.light.SourceSaveService.DiskState state, boolean interactive)
     {
         diskConfirmationRequired = false;
         invalidateRecoveryWork();
@@ -2194,7 +2204,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         lastSavedSource = new bluej.light.SourceSaveService.Snapshot(sourceSaver.owner(),contentRevision,source,state.text(),characterSet,state.text(),
             PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES),false);
         CompletableFuture<Void> metadata;
-        if (watcher instanceof bluej.editor.AsyncEditorWatcher asynchronous) metadata = asynchronous.saveEventAsync(this);
+        if (watcher instanceof bluej.editor.AsyncEditorWatcher asynchronous) metadata = asynchronous.saveEventAsync(this,interactive);
         else { if (watcher != null) watcher.saveEvent(this);metadata = CompletableFuture.completedFuture(null); }
         if (sourceIsCode) scheduleCompilation(CompileReason.LOADED, CompileType.ERROR_CHECK_ONLY);
         return metadata;
@@ -3374,6 +3384,40 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     {
         if (selection == null) throw new IllegalArgumentException("Incomplete class declaration");
         setSelection(selection.getStartLocation(),selection.getEndLocation());insertText(text,false);
+    }
+
+    /** Restore only the package directive from current text, as one undoable edit; the caller owns the save batch. */
+    public boolean restorePackageDeclaration(String expectedPackage, String originalPackage)
+    {
+        if (isReadOnly()) return false;
+        ClassInfo current = InfoParser.parse(new java.io.StringReader(document.getFullContent()),javaSyntaxView.getEntityResolver(),null);
+        if (current == null || !Objects.equals(current.getPackage(),expectedPackage)) return false;
+        Selection semi = current.getPackageSemiSelection(),name = current.getPackageNameSelection(),statement = current.getPackageStatementSelection();
+        if (semi == null || name == null || statement == null) return false;
+        undoManager.compoundEdit(() -> {
+            if (originalPackage.isEmpty())
+            { replaceDeclaration(semi,"");replaceDeclaration(name,"");replaceDeclaration(statement,""); }
+            else if (current.hasPackageStatement()) replaceDeclaration(name,originalPackage);
+            else
+            { replaceDeclaration(semi,";\n\n");replaceDeclaration(name,originalPackage);replaceDeclaration(statement,"package "); }
+        });
+        return true;
+    }
+
+    /** A package transfer keeps document/undo ownership but invalidates cached name resolution. */
+    public void sourcePackageChanged(String name)
+    {
+        completionRequest++;snippetRequest++;completionTypeSnapshot = null;
+        if (javaSyntaxView.getEntityResolver() instanceof bluej.parser.entity.PackageResolver resolver) resolver.setPackageName(name);
+        javaSyntaxView.refreshResolver();
+    }
+
+    public void saveFromAction()
+    {
+        bluej.editor.EditorSaveBatch.save(() -> List.of(this),null).whenComplete((saved, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            if (failure != null) { info.message(Config.getString("editor.info.errorSaving") + " - " + failure.getLocalizedMessage());return; }
+            if (sourceIsCode) scheduleCompilation(CompileReason.USER,CompileType.ERROR_CHECK_ONLY);
+        }));
     }
 
     @Override

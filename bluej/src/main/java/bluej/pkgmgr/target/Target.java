@@ -114,8 +114,8 @@ public abstract class Target
     // this package (must be unique within this
     // package)
     private String displayName; // displayed name of the target
-    @OnThread(value = Tag.Any, requireSynchronized = true)
-    private Package pkg; // the package this target belongs to
+    @OnThread(Tag.Any)
+    private volatile Package pkg; // FX changes ownership; readers may resolve its current package.
 
     // Is the current node selected?
     @OnThread(Tag.Any)
@@ -150,9 +150,9 @@ public abstract class Target
      * Create a new target with default size.
      */
     @OnThread(Tag.FXPlatform)
-    public Target(Package pkg, String identifierName, String accessibleTargetType)
+    public Target(Package initialPackage, String identifierName, String accessibleTargetType)
     {
-        this.pkg = pkg;
+        this.pkg = initialPackage;
         this.identifierName = identifierName;
         this.displayName = identifierName;
 
@@ -169,7 +169,7 @@ public abstract class Target
         updateAccessibleName(accessibleTargetType, null);
         pane.setAccessibleRole(AccessibleRole.BUTTON);
         JavaFXUtil.addFocusListener(pane, hasFocus -> {
-            PackageEditor pkgEditor = pkg.getEditor();
+            PackageEditor pkgEditor = pkg == null ? null : pkg.getEditor();
 
             // Editor can be null if we lose focus because window is closing,
             // in which case don't try to do anything with it:
@@ -197,6 +197,7 @@ public abstract class Target
         });
 
         pane.setOnMouseClicked(e -> {
+            if (pkg == null || pkg.getEditor() == null) return;
 
             if (e.getClickCount() > 1 && e.getButton() == MouseButton.PRIMARY && !e.isPopupTrigger())
             {
@@ -228,13 +229,16 @@ public abstract class Target
             e.consume();
         });
         pane.setOnMouseMoved(e -> {
+            if (pkg == null || pkg.getEditor() == null) return;
             updateCursor(e, false);
             pkg.getEditor().setMouseIn(this);
         });
         pane.setOnMouseExited(e -> {
+            if (pkg == null || pkg.getEditor() == null) return;
             pkg.getEditor().setMouseLeft(this);
         });
         pane.setOnMousePressed(e -> {
+            if (pkg == null || pkg.getEditor() == null) return;
 
             // Need position relative to the editor to set new position:
             pressDeltaX = e.getX();
@@ -261,6 +265,7 @@ public abstract class Target
             e.consume();
         });
         pane.setOnMouseDragged(e -> {
+            if (pkg == null || pkg.getEditor() == null) return;
             if (e.getButton() == MouseButton.PRIMARY && !pkg.getEditor().isCreatingExtends() && !e.isControlDown())
             {
                 if (isSelected() && isResizable() && resizing && !moving)
@@ -295,13 +300,14 @@ public abstract class Target
             e.consume();
         });
         pane.setOnMouseReleased(e -> {
-            if (e.getButton() == MouseButton.PRIMARY && !e.isPopupTrigger()) {
+            if (pkg != null && pkg.getEditor() != null && e.getButton() == MouseButton.PRIMARY && !e.isPopupTrigger()) {
                 pkg.getEditor().endResize();
             }
             resizing = false;
             moving = false;
         });
         pane.setOnKeyTyped(e -> {
+            if (pkg == null || pkg.getEditor() == null || e.getCharacter().isEmpty()) return;
             // + or - on the keyboard do a resize:
             if (e.getCharacter().length() > 0 && "+-".contains(e.getCharacter()) && isResizable())
             {
@@ -324,6 +330,7 @@ public abstract class Target
             }
         });
         pane.setOnKeyPressed(e -> {
+            if (pkg == null || pkg.getEditor() == null) return;
             // Don't allow keyboard navigation around the class graph if the menu is showing:
             if (showingContextMenu != null)
                 return;
@@ -382,6 +389,7 @@ public abstract class Target
         });
 
         JavaFXUtil.listenForContextMenu(pane, (x, y) -> {
+            if (pkg == null || pkg.getEditor() == null) return false;
             // If we are not in the current selection, make us the selection:
             if (!pkg.getEditor().getSelection().contains(Target.this))
             {
@@ -519,6 +527,14 @@ public abstract class Target
     public synchronized Package getPackage()
     {
         return pkg;
+    }
+
+    /** Used only by the owning packages after the corresponding physical source move committed. */
+    @OnThread(Tag.FXPlatform)
+    public synchronized void setPackageAfterMove(Package previous, Package destination)
+    {
+        if (pkg != previous || previous.getProject() != destination.getProject()) throw new IllegalStateException("Target package ownership changed");
+        pkg = destination;
     }
 
     /**

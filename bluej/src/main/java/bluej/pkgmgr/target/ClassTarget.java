@@ -76,6 +76,10 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.ButtonBar;
 import javafx.scene.image.Image;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.StackPane;
@@ -131,6 +135,7 @@ public class ClassTarget extends DependentTarget
     private boolean removingSource;
     private FlowEditor removalEditor;
     private boolean reopenAfterRemovalFailure;
+    private CompletableFuture<Integer> pendingPackageQuestion;
 
     // the role object represents the changing roles that are class
     // target can have ie changing from applet to an interface etc
@@ -1352,27 +1357,135 @@ public class ClassTarget extends DependentTarget
 
     @Override
     public CompletableFuture<Void> saveEventAsync(Editor sourceEditor)
+    { return saveEventAsync(sourceEditor,true); }
+
+    @Override
+    public CompletableFuture<Void> saveEventAsync(Editor sourceEditor, boolean interactive)
     {
         Package pkg = getPackage();
         if (pkg == null || sourceEditor != editor) return CompletableFuture.failedFuture(new IOException("Class editor changed"));
         ClassInfo info = analyseSource();
         if (info == null) return CompletableFuture.completedFuture(null);
-        if (!(sourceEditor instanceof FlowEditor flow) || !analyseClassName(info))
-        {
-            if (analysePackageName(info)) doPackageNameChange(info.getPackage());
-            return CompletableFuture.completedFuture(null);
-        }
+        if (!(sourceEditor instanceof FlowEditor flow)) return CompletableFuture.completedFuture(null);
         var saved = flow.getLastSavedSource();
         if (saved == null || saved.revision() != flow.getContentRevision())
-            return CompletableFuture.failedFuture(new IOException("Class rename has no current saved source"));
+            return CompletableFuture.failedFuture(new IOException("Class update has no current saved source"));
         CompletableFuture<Void> result = new CompletableFuture<>();
-        renameClassAsync(flow,saved,info.getName()).whenComplete((ignored, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+        CompletableFuture<Void> renamed = analyseClassName(info) ? renameClassAsync(flow,saved,info.getName()) : CompletableFuture.completedFuture(null);
+        renamed.whenComplete((ignored, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
             if (failure != null) { result.completeExceptionally(failure); return; }
-            if (getPackage() == pkg && analysePackageName(info)) doPackageNameChange(info.getPackage());
-            result.complete(null);
+            if (getPackage() != pkg || !analysePackageName(info)) { result.complete(null);return; }
+            changePackageAsync(flow,info.getPackage(),interactive).whenComplete((moved, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (error == null) result.complete(null);else result.completeExceptionally(error);
+            }));
         }));
         return result;
     }
+
+    private CompletableFuture<Void> changePackageAsync(FlowEditor flow, String requestedPackage, boolean interactive)
+    {
+        if (!interactive) return CompletableFuture.failedFuture(new IOException(Config.getString("light.package.explicitAction")));
+        if (pendingSourceChange != null && !pendingSourceChange.isDone()) return pendingSourceChange;
+        Package original = getPackage(), destination = original.getProject().getPackage(requestedPackage);
+        String identifier = getIdentifierName();
+        boolean canMove = destination != null && !destination.isTargetNameInUse(identifier);
+        CompletableFuture<Void> result = new CompletableFuture<>();pendingSourceChange = result;
+        result.whenComplete((moved, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            if (destination != null) destination.releaseTargetName(this,identifier);
+            if (pendingSourceChange == result) pendingSourceChange = null;
+        }));
+        try
+        {
+            CompletableFuture<Void> oldIdle = original.prepareForSourceFileChange(result);
+            CompletableFuture<Void> newIdle = destination == null ? CompletableFuture.completedFuture(null) : destination.prepareForSourceFileChange(result);
+            askPackageChange(flow,requestedPackage,canMove,destination == null ? "light.package.missing" : "light.package.occupied")
+                .whenComplete((choice, questionFailure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                    if (questionFailure != null || choice == null || choice == 2 || choice < 0)
+                    { result.completeExceptionally(new IOException(Config.getString("light.package.explicitAction"),questionFailure));return; }
+                    ClassInfo current = analyseSource();
+                    if (getPackage() != original || editor != flow || current == null || !Objects.equals(current.getPackage(),requestedPackage))
+                    { result.completeExceptionally(new IOException("Package declaration changed while deciding"));return; }
+                    if (choice == 1)
+                    {
+                        if (!flow.restorePackageDeclaration(requestedPackage,original.getQualifiedName()))
+                            result.completeExceptionally(new IOException(Config.getString("light.source.incomplete")));
+                        else result.complete(null);
+                        return;
+                    }
+                    if (!canMove || !destination.reserveTargetName(this,identifier))
+                    { result.completeExceptionally(new IOException(Config.getString("light.package.occupied")));return; }
+                    CompletableFuture.allOf(oldIdle,newIdle).whenComplete((idle, idleFailure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                        if (idleFailure != null) { result.completeExceptionally(idleFailure);return; }
+                        var snapshot = flow.getLastSavedSource();
+                        if (getPackage() != original || editor != flow || snapshot == null || !snapshot.source().equals(getJavaSourceFile().toPath().toAbsolutePath().normalize()))
+                        { result.completeExceptionally(new IOException("Source identity changed before package transfer"));return; }
+                        java.nio.file.Path source = snapshot.source(),target = destination.getPath().toPath().resolve(identifier + ".java");
+                        java.nio.file.Path projectRoot = original.getProject().getProjectDir().toPath();
+                        List<java.nio.file.Path> obsolete = List.of(getClassFile().toPath(),getContextFile().toPath(),getDocumentationFile().toPath());
+                        String documentation = original.getProject().getDocumentationFile(target.toString());
+                        String previousQualifiedName = getQualifiedName();
+                        bluej.light.SourceSaveService service = original.getProject().getSourceSaveService();
+                        service.movePackage(snapshot,target,projectRoot,flow.getLocalHistory()).whenComplete((moved, moveFailure) -> {
+                            if (moveFailure != null) { JavaFXUtil.runNowOrLater(() -> result.completeExceptionally(moveFailure));return; }
+                            service.submit(() -> cleanRenamedClassFiles(source,obsolete)).whenComplete((warning, cleanupFailure) -> JavaFXUtil.runNowOrLater(() -> {
+                                // The path committed. Always adopt its actual location, including for cancelled callers.
+                                try
+                                {
+                                    try { detachForRemoval(original); }
+                                    catch (RuntimeException | LinkageError | AssertionError listener) { Debug.reportError("Package transfer dependency notification failed",listener); }
+                                    original.commitTargetPackage(this,destination);
+                                    flow.acceptSourceRelocation(snapshot,moved.disk(),identifier,documentation);
+                                    flow.sourcePackageChanged(destination.getQualifiedName());
+                                    sourceInfo.setSourceModified();setState(State.NEEDS_COMPILE);analyseSource();
+                                    try { ExtensionBridge.changeBClassLocation(getBClass(),destination,getQualifiedName()); }
+                                    catch (RuntimeException | LinkageError | AssertionError listener) { Debug.reportError("Class extension package transfer failed",listener); }
+                                    try { ExtensionsManager.getInstance().delegateEvent(new ClassEvent(destination,getBClass(),previousQualifiedName)); }
+                                    catch (RuntimeException | LinkageError | AssertionError listener) { Debug.reportError("Package transfer notification failed",listener); }
+                                    if (warning != null) Debug.reportError("Package transferred; old derived file cleanup incomplete",warning);
+                                    if (cleanupFailure != null) Debug.reportError("Package transferred; old derived file cleanup unavailable",cleanupFailure);
+                                    if (moved.historyWarning() != null) Debug.reportError("Package transferred with history warning",moved.historyWarning());
+                                    bluej.light.SessionRecovery.changed();result.complete(null);
+                                }
+                                catch (Throwable unavailable)
+                                {
+                                    result.completeExceptionally(unavailable);
+                                    if (unavailable instanceof Error fatal) throw fatal;
+                                }
+                            }));
+                        });
+                    }));
+                }));
+        }
+        catch (RuntimeException | LinkageError | AssertionError unavailable) { result.completeExceptionally(unavailable); }
+        return result;
+    }
+
+    private CompletableFuture<Integer> askPackageChange(FlowEditor flow, String name, boolean canMove, String problem)
+    {
+        if (flow.getWindow() == null || !flow.getWindow().isShowing()) return CompletableFuture.completedFuture(2);
+        CompletableFuture<Integer> result = new CompletableFuture<>();pendingPackageQuestion = result;
+        ButtonType move = new ButtonType(Config.getString("light.package.move"));
+        ButtonType restore = new ButtonType(Config.getString("light.package.restore"));
+        ButtonType keep = new ButtonType(Config.getString("light.save.keepEditing"),ButtonBar.ButtonData.CANCEL_CLOSE);
+        Alert question = new Alert(Alert.AlertType.CONFIRMATION,Config.getString("light.package.question") + "\n\n" + name
+            + (canMove ? "" : "\n\n" + Config.getString(problem)),move,restore,keep);
+        question.getDialogPane().setId("light-package-question");question.initOwner(flow.getWindow());question.initModality(javafx.stage.Modality.WINDOW_MODAL);
+        question.setTitle(Config.getString("light.package.title"));question.setHeaderText(null);bluej.BlueJTheme.setWindowIconFX(question);
+        ((Button)question.getDialogPane().lookupButton(move)).setDisable(!canMove);
+        ((Button)question.getDialogPane().lookupButton(move)).setDefaultButton(false);
+        ((Button)question.getDialogPane().lookupButton(restore)).setDefaultButton(false);
+        ((Button)question.getDialogPane().lookupButton(keep)).setDefaultButton(true);
+        question.setOnHidden(event -> result.complete(question.getResult() == move ? 0 : question.getResult() == restore ? 1 : 2));
+        result.whenComplete((choice, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            if (pendingPackageQuestion == result) pendingPackageQuestion = null;
+            if (result.isCancelled()) { question.setResult(keep);question.close(); }
+        }));
+        try { question.show(); } catch (RuntimeException unavailable) { result.completeExceptionally(unavailable); }
+        return result;
+    }
+
+    @Override public void closeEvent(Editor sourceEditor)
+    { if (sourceEditor == editor && pendingPackageQuestion != null) pendingPackageQuestion.cancel(false); }
 
     private CompletableFuture<Void> renameClassAsync(FlowEditor flow, bluej.light.SourceSaveService.Snapshot saved, String newName)
     {
@@ -2010,49 +2123,8 @@ public class ClassTarget extends DependentTarget
      * 
      * @param newName the new fully qualified package name
      */
-    private void doPackageNameChange(String newName)
-    {
-        Project proj = getPackage().getProject();
-
-        Package dstPkg = proj.getPackage(newName);
-
-        boolean packageInvalid = dstPkg == null;
-        boolean packageNameClash = dstPkg != null && dstPkg.getTarget(getBaseName()) != null;
-
-        if (packageInvalid)
-        {
-            DialogManager.showErrorFX(null, "package-name-invalid");
-        }
-        else
-        {
-            // fix for bug #382. Potentially could clash with a package
-            // in the destination package with the same name
-            if (packageNameClash)
-            {
-                DialogManager.showErrorFX(null, "package-name-clash");
-                // fall through to enforcePackage, below.
-            }
-            else if (DialogManager.askQuestionFX(null, "package-name-changed") == 0)
-            {
-                dstPkg.importFile(getSourceFile());
-                prepareForRemoval();
-                getPackage().removeTarget(this);
-                close();
-                return;
-            }
-        }
-
-        // all non working paths lead here.. lets fix the package line
-        // up so it is back to what we expect
-        try
-        {
-            enforcePackage(getPackage().getQualifiedName());
-            getEditor().reloadFile();
-        }
-        catch (IOException ioe)
-        {
-        }
-    }
+    private void doPackageNameChange(String newName) throws IOException
+    { throw new IOException(Config.getString("light.package.explicitAction")); }
 
     /**
      * Resizes the class so the entire classname + type parameter are visible
@@ -2252,49 +2324,6 @@ public class ClassTarget extends DependentTarget
             });
         }
         return new ImagePattern(redStripeImage, 0, 0, size, size, false);
-    }
-
-    /**
-     * Prepares this ClassTarget for removal from a Package. It removes
-     * dependency arrows and calls prepareFilesForRemoval() to remove applicable
-     * files.
-     */
-    private void prepareForRemoval()
-    {
-        if (editor != null) {
-            editor.close();
-        }
-
-        // if this target is the assocation for another Target, remove
-        // the association
-        for (Target o : getPackage().getVertices())
-        {
-            if (o instanceof DependentTarget) {
-                DependentTarget d = (DependentTarget) o;
-                if (this.equals(d.getAssociation())) {
-                    d.setAssociation(null);
-                }
-            }
-        }
-
-        // flag dependent Targets as invalid
-        invalidate();
-        removeAllInDependencies();
-        removeAllOutDependencies();
-        // remove associated files (.frame, .class, .java and .ctxt)
-        prepareFilesForRemoval();
-    }
-
-    /**
-     * Removes applicable files (.class, .java and .ctxt) prior to this
-     * ClassTarget being removed from a Package.
-     */
-    public void prepareFilesForRemoval()
-    {
-        List<File> allFiles = getRole().getAllFiles(this);
-        for(Iterator<File> i = allFiles.iterator(); i.hasNext(); ) {
-            i.next().delete();
-        }
     }
 
     @Override

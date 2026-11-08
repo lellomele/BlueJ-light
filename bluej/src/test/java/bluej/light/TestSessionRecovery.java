@@ -64,4 +64,13 @@ public class TestSessionRecovery
         var session=List.of(new SessionRecovery.Entry(root,List.of("Example","../outside","Renamed","Renamed")));
         assertEquals(List.of(new SessionRecovery.Entry(root,List.of("Example","Renamed"))),SessionRecovery.resolveEntries(session,new LocalHistory(preferences)));
     }
+
+    @Test public void interruptedPackageTransferRestoresTheClassInItsActualPackage() throws Exception
+    {
+        Path root=folder.getRoot().toPath(),child=Files.createDirectory(root.resolve("child")),preferences=root.resolve("preferences");Files.writeString(root.resolve("package.bluej"),"");Files.writeString(child.resolve("package.bluej"),"");
+        Path source=root.resolve("Example.java"),destination=child.resolve("Example.java");Files.writeString(source,"package child; class Example {}\n");
+        LocalHistory history=new LocalHistory(preferences);history.preparePathChange(source,destination,root);Files.move(source,destination);
+        var session=List.of(new SessionRecovery.Entry(root,List.of("Example")));
+        assertEquals(List.of(new SessionRecovery.Entry(root,List.of()),new SessionRecovery.Entry(child,List.of("Example"))),SessionRecovery.resolveEntries(session,new LocalHistory(preferences)));
+    }
 }

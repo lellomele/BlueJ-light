@@ -1156,8 +1156,7 @@ public final class FlowActions
 
     private FlowAbstractAction saveAction()
     {
-        // cancelFreshState() handles scheduling a compilation after the save:
-        return action("save", Category.CLASS, () -> getClearedEditor().cancelFreshState());
+        return action("save", Category.CLASS, () -> getClearedEditor().saveFromAction());
     }
     // --------------------------------------------------------------------
 

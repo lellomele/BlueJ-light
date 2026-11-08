@@ -117,6 +117,19 @@ public final class SessionRecovery
                 Path path = pkg.getPath().toPath().toAbsolutePath().normalize();
                 entries.put(path, new Entry(path, classes));
             }
+            // Source tabs may belong to a package whose diagram has no open window (or to an orphan target).
+            for (bluej.pkgmgr.Project project : bluej.pkgmgr.Project.getProjects())
+                for (bluej.editor.Editor editor : project.getConstructedEditors())
+                    if (editor instanceof bluej.editor.flow.FlowEditor flow && editor.isOpen())
+                    {
+                        Path source = flow.getSourcePath();
+                        if (source == null || !source.startsWith(project.getProjectDir().toPath().toAbsolutePath().normalize())
+                            || !source.getFileName().toString().endsWith(".java")) continue;
+                        Entry previous = entries.get(source.getParent());Set<String> names = new LinkedHashSet<>();
+                        if (previous != null) names.addAll(previous.classes());
+                        String fileName = source.getFileName().toString();names.add(fileName.substring(0,fileName.length() - 5));
+                        entries.put(source.getParent(),new Entry(source.getParent(),List.copyOf(names)));
+                    }
             Path file = file();
             List<Entry> snapshot = List.copyOf(entries.values());
             HistoryTasks.submitDraft(file, retainedBytes(snapshot), () -> write(file, snapshot));
@@ -148,10 +161,10 @@ public final class SessionRecovery
     /** Resolve a name journalled before a crash midway through its physical rename. No UI work here. */
     static List<Entry> resolveEntries(List<Entry> entries, LocalHistory history)
     {
-        List<Entry> result = new ArrayList<>();
+        Map<Path, Set<String>> result = new LinkedHashMap<>();
         for (Entry entry : entries)
         {
-            Set<String> classes = new LinkedHashSet<>();
+            Set<String> classes = result.computeIfAbsent(entry.packageDirectory(),ignored -> new LinkedHashSet<>());
             for (String name : entry.classes())
             {
                 if (name == null || name.isBlank() || !Character.isJavaIdentifierStart(name.codePointAt(0))
@@ -161,30 +174,44 @@ public final class SessionRecovery
                 {
                     Path actual = history.effectiveSource(source);
                     String file = actual.getFileName().toString();
-                    classes.add(file.endsWith(".java") ? file.substring(0,file.length() - 5) : name);
+                    result.computeIfAbsent(actual.getParent(),ignored -> new LinkedHashSet<>()).add(file.endsWith(".java") ? file.substring(0,file.length() - 5) : name);
                 }
                 catch (IOException | RuntimeException unavailable) { Debug.reportError("Cannot resolve recovered class: " + name,unavailable);classes.add(name); }
             }
-            result.add(new Entry(entry.packageDirectory(),List.copyOf(classes)));
         }
-        return List.copyOf(result);
+        return result.entrySet().stream().map(entry -> new Entry(entry.getKey(),List.copyOf(entry.getValue()))).toList();
     }
 
     @OnThread(Tag.FXPlatform)
     private static void restoreResolvedEditors(List<Entry> entries)
     {
         for (Entry entry : entries)
+        {
+            bluej.pkgmgr.Package restoredPackage = null;
             for (PkgMgrFrame frame : PkgMgrFrame.getAllFrames())
             {
                 var pkg = frame.getPackage();
                 if (pkg == null || !pkg.getPath().toPath().toAbsolutePath().normalize().equals(entry.packageDirectory())) continue;
-                for (String name : entry.classes())
-                    if (pkg.getTarget(name) instanceof ClassTarget ct)
-                    {
-                        try { ct.open(); }
-                        catch (RuntimeException ex) { Debug.reportError("Cannot restore editor: " + name, ex); }
-                    }
+                restoredPackage = pkg;break;
             }
+            if (restoredPackage == null && !entry.classes().isEmpty())
+                for (bluej.pkgmgr.Project project : bluej.pkgmgr.Project.getProjects())
+                {
+                    Path projectRoot = project.getProjectDir().toPath().toAbsolutePath().normalize();
+                    if (!entry.packageDirectory().startsWith(projectRoot)) continue;
+                    String name = projectRoot.relativize(entry.packageDirectory()).toString().replace(java.io.File.separatorChar,'.');
+                    try
+                    {
+                        restoredPackage = project.getPackage(name);
+                        if (restoredPackage != null) { PkgMgrFrame frame = PkgMgrFrame.createFrame(restoredPackage,null);frame.setVisible(true); }
+                    }
+                    catch (RuntimeException unavailable) { Debug.reportError("Cannot restore package diagram",unavailable); }
+                    break;
+                }
+            if (restoredPackage != null) for (String name : entry.classes())
+                if (restoredPackage.getTarget(name) instanceof ClassTarget ct)
+                    try { ct.open(); } catch (RuntimeException unavailable) { Debug.reportError("Cannot restore editor: " + name,unavailable); }
+        }
     }
 
     @OnThread(Tag.FXPlatform)

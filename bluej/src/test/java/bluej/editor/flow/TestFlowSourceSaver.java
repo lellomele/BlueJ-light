@@ -36,6 +36,7 @@ public class TestFlowSourceSaver extends FXTest
         CompletableFuture<Void> acknowledgement;
         CompletableFuture<Void> reloadAcknowledgement;
         boolean acknowledgementDelivered;
+        boolean lastInteractive;
         final LocalHistory history=new LocalHistory(folder.getRoot().toPath().resolve("history"));
         @Override public FlowSourceSaver.State state(){return new FlowSourceSaver.State(path,text,StandardCharsets.UTF_8,revision,disk,modified,true);}
         @Override public SourceSaveService service(){return service;}
@@ -45,6 +46,8 @@ public class TestFlowSourceSaver extends FXTest
             saved(result);acknowledgementDelivered=true;CompletableFuture<Void> pending=acknowledgement;acknowledgement=null;
             return pending==null?CompletableFuture.completedFuture(null):pending;
         }
+        @Override public CompletableFuture<Void> savedAsync(SourceSaveService.Result result,boolean interactive)
+        {lastInteractive=interactive;return savedAsync(result);}
         @Override public void acknowledgementFailed(SourceSaveService.Result result,Throwable error){modified=true;failures++;}
         @Override public void failed(IOException error){failures++;}
         @Override public CompletableFuture<FlowSourceSaver.ConflictChoice> decideConflict(){decisions++;choice=new CompletableFuture<>();return choice;}
@@ -55,6 +58,8 @@ public class TestFlowSourceSaver extends FXTest
             reloaded(state);acknowledgementDelivered=true;CompletableFuture<Void> pending=reloadAcknowledgement;reloadAcknowledgement=null;
             return pending==null?CompletableFuture.completedFuture(null):pending;
         }
+        @Override public CompletableFuture<Void> reloadedAsync(SourceSaveService.DiskState state,boolean interactive)
+        {lastInteractive=interactive;return reloadedAsync(state);}
     }
     @Override public void start(Stage stage) throws Exception {
         super.start(stage);InitConfig.init();stage.setScene(new Scene(new Pane(),500,300));stage.show();
@@ -87,6 +92,11 @@ public class TestFlowSourceSaver extends FXTest
         assertEquals("external\n",Files.readString(view.path));
         var explicit=save();decisionReady();fx_(() -> view.choice.complete(FlowSourceSaver.ConflictChoice.KEEP_LOCAL));explicit.get(5,TimeUnit.SECONDS);
         assertEquals("local\n",Files.readString(view.path));
+    }
+    @Test public void modelAcknowledgementsRetainExplicitBackgroundAndReloadIntent() throws Exception {
+        Files.writeString(view.path,"baseline\n");var automatic=fx(() -> saver.saveAsync(false));automatic.get(5,TimeUnit.SECONDS);fx_(() -> assertFalse(view.lastInteractive));
+        fx_(() -> {view.text="explicit\n";view.revision++;view.modified=true;});save().get(5,TimeUnit.SECONDS);fx_(() -> assertTrue(view.lastInteractive));
+        var disk=new SourceSaveService.DiskState(view.path,"reloaded\n",0,9,true);fx(() -> saver.reload(disk)).get(5,TimeUnit.SECONDS);fx_(() -> assertFalse(view.lastInteractive));
     }
     @Test public void cancellingAnExplicitConflictDoesNotCauseBackgroundQuestions() throws Exception {
         var explicit=save();decisionReady();fx_(() -> view.choice.complete(FlowSourceSaver.ConflictChoice.CANCEL));failed(explicit);

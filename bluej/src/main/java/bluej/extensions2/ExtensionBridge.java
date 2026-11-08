@@ -89,6 +89,9 @@ public final class ExtensionBridge
         bClass.nameChanged(newName);
     }
 
+    public static void changeBClassLocation(BClass bClass, bluej.pkgmgr.Package destination, String qualifiedName)
+    { bClass.locationChanged(destination,qualifiedName); }
+
     public static List<MenuItem> getMenuItems(BlueJ aBluej, ExtensionMenu attachedObject)
     {
         return aBluej.getMenuItems(attachedObject);

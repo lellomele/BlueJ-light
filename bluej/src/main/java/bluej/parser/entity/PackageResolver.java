@@ -33,7 +33,7 @@ import bluej.debugger.gentype.Reflective;
 public class PackageResolver implements EntityResolver
 {
     private EntityResolver parentResolver;
-    private final String pkg;
+    private volatile String pkg;
     
     /**
      * Constructor a PackageResolver for the specified package and with the specified parent resolver.
@@ -43,6 +43,8 @@ public class PackageResolver implements EntityResolver
         this.parentResolver = parentResolver;
         this.pkg = pkg;
     }
+
+    public void setPackageName(String name) { pkg = java.util.Objects.requireNonNull(name); }
     
     /* (non-Javadoc)
      * @see bluej.parser.entity.EntityResolver#getValueEntity(java.lang.String, java.lang.String)
@@ -57,7 +59,8 @@ public class PackageResolver implements EntityResolver
      */
     public PackageOrClass resolvePackageOrClass(String name, Reflective querySource)
     {
-        String fqName = (pkg.length() == 0) ? name : pkg + "." + name;
+        String currentPackage = pkg;
+        String fqName = (currentPackage.length() == 0) ? name : currentPackage + "." + name;
         TypeEntity tent = parentResolver.resolveQualifiedClass(fqName);
         if (tent != null) {
             // TODO check the returned class isn't private

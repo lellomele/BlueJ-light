@@ -101,6 +101,16 @@ public class BClass
         catch (PackageNotFoundException pnfe) { }
     }
 
+    void locationChanged(Package destination, String qualifiedName)
+    {
+        synchronized (BClass.class)
+        {
+            externalClasses.remove(classId);
+            classId = new Identifier(destination.getProject(),destination,qualifiedName);
+            externalClasses.put(classId,this);
+        }
+    }
+
     /**
      * Returns the name of this BClass.
      *
