@@ -1,6 +1,6 @@
-# BlueJ light
+[Italiano](README.it.md) | [English](README.md)
 
-[English](README.md) | Italiano
+# BlueJ light
 
 Ambiente Java indipendente basato su BlueJ 5.5.0, con editor ottimizzato,
 completamento automatico, snippet ricercabili, riordino del diagramma delle
@@ -20,6 +20,7 @@ Rispetto a BlueJ 5.5.0, light privilegia editing e compilazione Java su progetti
 | Ambiente Java | Scelta di un JDK 21 x64 compatibile dalle preferenze, anche tornando a quello incluso; la modifica si applica al riavvio. |
 | Uso portable | Preferenze, snippet e scelta del JDK restano nella cartella `data` dell'applicazione. |
 | Navigazione e recupero | Elenco metodi ricercabile, posizioni seguite durante le modifiche, cronologia dei salvataggi e recupero delle bozze. |
+| Salvataggio | Scritture ordinate in background consentono di modificare il testo anche con storage lento. Compilazione e chiusura attendono la revisione richiesta; i cambiamenti esterni richiedono una scelta esplicita. |
 | Didattica | Esercizi ZIP bilingui, suggerimenti progressivi, spiegazioni degli errori e risultati JUnit in processo separato, con valori attesi e ottenuti. |
 
 ## Installazione
@@ -120,7 +121,8 @@ caricate dal progetto o posizionate manualmente.
 La cronologia conserva fino a 50 versioni o 20 MiB per file nelle preferenze, e bozze
 fino a 5 MiB. Il checkpoint viene richiesto 1,5 secondi dopo l'inizio delle modifiche,
 anche durante la digitazione continua; un crash prima della scrittura può perdere le ultime modifiche.
-Non sostituisce un backup; file copiati o spostati hanno cronologie distinte.
+Non sostituisce un backup. Rinominare o spostare una classe all'interno del progetto
+conserva la cronologia; le copie hanno cronologie distinte.
 Le anteprime sono limitate a 200.000 caratteri,
 ma il ripristino usa il testo completo. I sorgenti rimangono solo sul computer,
 senza invii; dopo il ripristino restano attivi i normali salvataggi BlueJ.
@@ -128,6 +130,11 @@ Se un salvataggio fallisce durante la chiusura, puoi continuare a modificare opp
 salvare una copia UTF-8 verificata in `recovered-sources`, nella cartella delle
 preferenze, e chiudere. Il percorso viene mostrato. La copia non sostituisce il file
 originale; per compilare occorre comunque salvare il sorgente originale.
+Se il salvataggio del progetto resta in attesa, la chiusura conserva le finestre aperte
+e si può riprovare. Un'operazione di I/O già iniziata può ancora concludersi. Un guasto
+dello storage può impedire il salvataggio originale anche con l'editor utilizzabile.
+Le estensioni legacy che richiedono un salvataggio sincrono possono ancora bloccare
+il thread che le esegue.
 Dopo una chiusura anomala, progetti e classi Java aperte vengono riaperti se il relativo automatismo
 è attivo nelle Preferenze. Il registro locale conserva fino a 200 package e 1000 classi per package.
 I file mancanti non vengono ricreati. Il recupero richiede preferenze scrivibili e non riprende lo stato

@@ -1,6 +1,6 @@
-# BlueJ light
+[Italiano](README.it.md) | [English](README.md)
 
-English | [Italiano](README.it.md)
+# BlueJ light
 
 An independent Java IDE based on BlueJ 5.5.0, with an optimized editor,
 code completion, searchable snippets, automatic class-diagram layout and
@@ -20,6 +20,7 @@ Compared with BlueJ 5.5.0, light focuses on local Java editing and compilation.
 | Java runtime | Select any compatible installed JDK 21 x64 in Preferences, including a return to the bundled JDK; apply the choice at restart. |
 | Portable use | Preferences, snippets and JDK selection stay in the application's `data` folder. |
 | Navigation and recovery | Searchable method outline, tracked back/forward locations, local saved versions and recovery of unsaved drafts. |
+| Saving | Ordered background writes keep editing available during slow storage. Compilation and closing wait for the required source revision; external changes require an explicit decision. |
 | Teaching | Bilingual exercise ZIPs, progressive hints, explained compiler diagnostics and separate-process JUnit feedback with expected/actual values. |
 
 ## Installation
@@ -116,12 +117,17 @@ and may cross. New-only layout leaves loaded or manually positioned classes unch
 Local history keeps up to 50 revisions or 20 MiB per file in the preferences folder, and drafts
 up to 5 MiB. Draft checkpoints are requested 1.5 seconds after editing starts, including during
 continuous input; the most recent changes may be lost if a crash occurs before the write completes.
-It is not a backup service; copied/moved files have separate histories. Preview text is limited
+It is not a backup service. Renaming or moving a class within its project preserves its history;
+copies have separate histories. Preview text is limited
 to 200,000 characters; restoration uses the full text.
 History stores source text locally and never uploads it. Normal BlueJ saves/compilation still apply after restoration.
 After a failed close-time save, a verified copy can be kept in `recovered-sources`
 inside the preferences folder. This is a separate UTF-8 file, not a successful save
 of the original; compilation still requires saving the original file.
+If a project save remains pending, closing keeps the windows open and can be retried.
+An operating-system I/O operation already in progress may still finish. Storage failures
+can prevent saving the original even while the editor remains usable. Legacy extensions
+that request synchronous saving can still block their calling thread.
 After an abnormal exit, open projects and Java classes are reopened if automatic reopening is enabled
 in Preferences. The local session register tracks up to 200 packages and 1000 classes per package.
 Missing files are not recreated. Recovery requires writable preferences and does not resume the state

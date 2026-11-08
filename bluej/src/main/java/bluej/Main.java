@@ -351,7 +351,9 @@ public class Main
             // after the windows have closed. Time out an observation, never the real accepted checkpoint operation.
             else bluej.light.SessionRecovery.finishAsync().copy().orTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
                 .whenComplete((ignored, historyFailure) -> JavaFXUtil.runNowOrLater(() -> {
-                if (historyFailure != null) Debug.reportError("Cannot finish session recovery", historyFailure);
+                if (historyFailure instanceof java.util.concurrent.TimeoutException)
+                    Debug.message("Local history cleanup is still pending at exit; confirmed source saves are retained.");
+                else if (historyFailure != null) Debug.reportError("Cannot finish session recovery", historyFailure);
                 bluej.light.UiStallMonitor.stop();
                 ExtensionsManager.getInstance().unloadExtensions();
                 bluej.Main.exit();
