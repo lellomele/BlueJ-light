@@ -901,9 +901,13 @@ public class PkgMgrFrame
     }
 
     public static java.util.concurrent.CompletableFuture<Boolean> closeProjectIfUnchangedAsync(Project project, long revision)
+    { return closeProjectIfUnchangedAsync(project,revision,() -> true); }
+
+    public static java.util.concurrent.CompletableFuture<Boolean> closeProjectIfUnchangedAsync(Project project, long revision,
+        bluej.utility.javafx.FXPlatformSupplier<Boolean> unchanged)
     {
         if (projectCloseRequests.containsKey(project)) return java.util.concurrent.CompletableFuture.completedFuture(false);
-        return beginProjectClose(project,() -> project.getCompletionSourceRevision() == revision);
+        return beginProjectClose(project,() -> project.getCompletionSourceRevision() == revision && unchanged.get());
     }
 
     private static java.util.concurrent.CompletableFuture<Boolean> beginProjectClose(Project project, bluej.utility.javafx.FXPlatformSupplier<Boolean> unchanged)
@@ -1787,6 +1791,12 @@ public class PkgMgrFrame
     }
 
     private Properties captureFrameProperties()
+    { return captureFrameProperties(true); }
+
+    Properties capturePersistenceProperties()
+    { return getPackage().capturePersistenceProperties(captureFrameProperties(false)); }
+
+    private Properties captureFrameProperties(boolean cacheImports)
     {
         // store the current editor size in the bluej.pkg file
         Properties p;
@@ -1794,7 +1804,7 @@ public class PkgMgrFrame
             // The unnamed package also contains project properties
             p = getProject().getProjectPropertiesCopy();
             getProject().saveEditorLocations(p);
-            getProject().getImportScanner().saveCachedImports();
+            if (cacheImports) getProject().getImportScanner().saveCachedImports();
         }
         else {
             p = new Properties();

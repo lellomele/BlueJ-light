@@ -120,6 +120,7 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
     private final File projectDir;
     private bluej.editor.flow.ProjectTypeIndex completionTypeIndex;
     private long completionSourceRevision;
+    private CompletableFuture<SavedCopy> pendingCopy;
     public void completionSourcesChanged() { completionSourceRevision++; }
     public long getCompletionSourceRevision() { return completionSourceRevision; }
 
@@ -1417,6 +1418,65 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
     {
         java.util.concurrent.CompletableFuture<Void> result = new java.util.concurrent.CompletableFuture<>();
         saveProjectPass(0,result);return result;
+    }
+
+    /** Captured UI state is rechecked before closing the original after Save as. */
+    public final class SavedCopy
+    {
+        private final long revision = completionSourceRevision;
+        private final Map<PkgMgrFrame, Properties> windows = new IdentityHashMap<>();
+        private final Map<Editor, Long> sources = new IdentityHashMap<>();
+        private SavedCopy()
+        {
+            PkgMgrFrame[] openFrames = PkgMgrFrame.getAllProjectFrames(Project.this);
+            if (openFrames != null) for (PkgMgrFrame frame : openFrames) windows.put(frame,frame.capturePersistenceProperties());
+            for (Editor source : getConstructedEditors()) sources.put(source,source.getContentRevision());
+        }
+        public long revision() { return revision; }
+        public boolean isCurrent()
+        {
+            if (closing || revision != completionSourceRevision || bluej.editor.EditorSaveBatch.needsSave(Project.this::getConstructedEditors)) return false;
+            PkgMgrFrame[] openFrames = PkgMgrFrame.getAllProjectFrames(Project.this);
+            if (openFrames == null || !windows.keySet().equals(Set.of(openFrames))) return false;
+            for (var entry : windows.entrySet())
+                if (entry.getKey().getProject() != Project.this || !entry.getValue().equals(entry.getKey().capturePersistenceProperties())) return false;
+            List<Editor> current = getConstructedEditors();
+            return sources.size() == current.size() && current.stream().allMatch(source -> Objects.equals(sources.get(source),source.getContentRevision()));
+        }
+    }
+
+    /** Save, wait for existing compilers, then copy on the ordered project worker. */
+    public CompletableFuture<SavedCopy> copyProjectAsync(java.nio.file.Path destination)
+    {
+        if (pendingCopy != null && !pendingCopy.isDone())
+            return CompletableFuture.failedFuture(new IOException(Config.getString("light.source.operationPending")));
+        CompletableFuture<SavedCopy> result = new CompletableFuture<>();pendingCopy = result;
+        java.nio.file.Path original = projectDir.toPath(), target = destination.toAbsolutePath().normalize();
+        result.whenComplete((copied, failure) -> JavaFXUtil.runNowOrLater(() -> { if (pendingCopy == result) pendingCopy = null; }));
+        saveAllAsync().whenComplete((saved, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (failure != null || closing) { result.completeExceptionally(failure != null ? failure : new IOException("Project closed during copying"));return; }
+            CompletableFuture<Void> operation = new CompletableFuture<>();
+            result.whenComplete((copied, error) -> operation.complete(null));
+            List<Package> scope = List.copyOf(packages.values());
+            CompletableFuture<?>[] idle = scope.stream().map(pkg -> pkg.prepareForSourceFileChange(operation)).toArray(CompletableFuture[]::new);
+            CompletableFuture.allOf(idle).whenComplete((ready, idleFailure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (idleFailure != null || closing)
+                { operation.complete(null);result.completeExceptionally(idleFailure != null ? idleFailure : new IOException("Project closed during copying"));return; }
+                SavedCopy captured;
+                try { captured = new SavedCopy(); }
+                catch (RuntimeException | LinkageError | AssertionError unavailable) { operation.complete(null);throw unavailable; }
+                List<bluej.light.SourceSaveService.Snapshot> buffers = getConstructedEditors().stream()
+                    .filter(bluej.editor.flow.FlowEditor.class::isInstance).map(bluej.editor.flow.FlowEditor.class::cast)
+                    .map(bluej.editor.flow.FlowEditor::captureSourceSnapshot).filter(Objects::nonNull).toList();
+                getSourceSaveService().submit(() -> { bluej.light.ProjectCopy.copy(original,target,buffers);return null; })
+                    .whenComplete((copied, copyFailure) -> JavaFXUtil.runNowOrLater(() -> {
+                        operation.complete(null);
+                        if (copyFailure == null) result.complete(captured);else result.completeExceptionally(copyFailure);
+                    }));
+            }));
+        }));
+        // Cancelling a caller's view must not abandon the file gate of an accepted copy.
+        return result.copy();
     }
 
     private void saveProjectPass(int round, java.util.concurrent.CompletableFuture<Void> result)

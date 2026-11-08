@@ -2137,6 +2137,13 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public bluej.light.SourceSaveService.Snapshot getLastSavedSource() { return lastSavedSource; }
     public bluej.light.LocalHistory getLocalHistory() { return localHistory; }
 
+    /** Immutable buffer content for project-copy verification; obtaining it performs no file I/O. */
+    public bluej.light.SourceSaveService.Snapshot captureSourceSnapshot()
+    {
+        return filename == null ? null : new bluej.light.SourceSaveService.Snapshot(sourceSaver.owner(),contentRevision,
+            java.nio.file.Path.of(filename),document.getFullContent(),characterSet,observedDiskText,true,false);
+    }
+
     /** Apply a committed path change without changing the text or undo history. */
     public void acceptSourceRelocation(bluej.light.SourceSaveService.Snapshot saved,
         bluej.light.SourceSaveService.DiskState disk, String title, String documentation) throws IOException

@@ -22,16 +22,16 @@
 package bluej.pkgmgr.actions;
 
 import java.io.File;
-import java.io.IOException;
 
 import bluej.Config;
 import bluej.pkgmgr.Package;
 import bluej.pkgmgr.PkgMgrFrame;
 import bluej.pkgmgr.Project;
-import bluej.pkgmgr.ProjectUtils;
 import bluej.utility.Debug;
-import bluej.utility.DialogManager;
 import bluej.utility.FileUtility;
+import bluej.utility.javafx.JavaFXUtil;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonType;
 
 /**
  * User chooses "save project as". This allows saving the project under a
@@ -62,23 +62,29 @@ final public class SaveProjectAsAction extends PkgMgrAction
             return;
         }
         
-        try {
-            project.saveAll();
-            project.saveAllEditors();
-        }
-        catch (IOException ioe)
-        {
-            DialogManager.showErrorFX(frame.getWindow(), "cannot-save-project");
-            return;
-        }
-        
-        if (! ProjectUtils.saveProjectCopy(project, newName, frame.getWindow()))
-        {
-            return;
-        }
-        
-        // Copy successful: close the current project and open the new one
-        PkgMgrFrame.closeProject(project);
+        frame.setStatus(Config.getString("light.project.copying"));
+        project.copyProjectAsync(newName.toPath()).whenComplete((copy, failure) -> JavaFXUtil.runNowOrLater(() -> {
+            if (failure != null)
+            { Debug.reportError("Cannot copy project to " + newName,failure);showCopyWarning(frame,newName,"light.project.copyFailed");return; }
+            if (!copy.isCurrent()) { showCopyWarning(frame,newName,"light.project.copyChanged");return; }
+            PkgMgrFrame.closeProjectIfUnchangedAsync(project,copy.revision(),copy::isCurrent).whenComplete((closed, error) -> JavaFXUtil.runNowOrLater(() -> {
+                if (error != null) Debug.reportError("Cannot close original after project copy",error);
+                if (error != null || !Boolean.TRUE.equals(closed)) { showCopyWarning(frame,newName,"light.project.copyChanged");return; }
+                openCopy(newName);
+            }));
+        }));
+    }
+
+    private void showCopyWarning(PkgMgrFrame frame, File destination, String message)
+    {
+        frame.setStatus(Config.getString(message));
+        Alert warning = new Alert(Alert.AlertType.WARNING,Config.getString(message) + "\n\n" + destination,ButtonType.OK);
+        warning.initOwner(frame.getWindow());warning.setTitle(Config.getString("pkgmgr.saveAs.title"));
+        bluej.BlueJTheme.setWindowIconFX(warning);warning.show();
+    }
+
+    private void openCopy(File newName)
+    {
         Project openProj = Project.openProject(newName.getAbsolutePath());
 
         if (openProj != null)

@@ -1281,6 +1281,11 @@ public final class Package
 
     private synchronized PreparedPackageSave capturePackageSave(Properties frameProperties)
     {
+        return new PreparedPackageSave(++nextMetadataSave, capturePersistenceProperties(frameProperties), packageFile, getPath().toPath());
+    }
+
+    synchronized SortedProperties capturePersistenceProperties(Properties frameProperties)
+    {
         SortedProperties props = new SortedProperties();
         props.putAll(frameProperties);
 
@@ -1312,7 +1317,7 @@ public final class Package
             d.save(props, "dependency" + (i + 1));
         }
 
-        return new PreparedPackageSave(++nextMetadataSave, props, packageFile, getPath().toPath());
+        return props;
     }
 
     private java.util.concurrent.CompletableFuture<Void> enqueuePackageSave(PreparedPackageSave prepared)
