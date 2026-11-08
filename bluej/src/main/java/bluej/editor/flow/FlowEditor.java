@@ -177,7 +177,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         @Override public FlowSourceSaver.State state()
         {
             return new FlowSourceSaver.State(filename == null ? null : java.nio.file.Path.of(filename), document.getFullContent(),
-                characterSet, contentRevision, observedDiskText, isModified(), PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES));
+                characterSet, contentRevision, observedDiskText, isModified(), diskConfirmationRequired || PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES));
         }
         @Override public bluej.light.SourceSaveService service() { return sourceSaveService(); }
         @Override public bluej.light.LocalHistory history() { return localHistory; }
@@ -213,6 +213,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     });
     private String observedDiskText = "";
     private long observedDiskLength;
+    private boolean diskConfirmationRequired;
     private boolean recoveryPending;
     private bluej.light.LocalHistory.Draft pendingRecoveredDraft;
     private int historyGeneration;
@@ -1432,6 +1433,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         }
         catch (IOException ex)
         {
+            if (!file.exists()) sourceDisappeared();
             info.message(Config.getString("editor.info.fileReadError"));
             return false;
         }
@@ -1480,10 +1482,18 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         });
         sourceSaveService().inspect(java.nio.file.Path.of(filename), characterSet).whenComplete((disk, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
             if (!owner.equals(sourceSaver.ownerId()) || revision != contentRevision || sourceSaver.pending()) { result.complete(null); return; }
-            if (failure != null || !disk.exists())
+            if (failure != null)
             { info.message(Config.getString("editor.info.fileReadError")); result.complete(null); return; }
+            if (!disk.exists()) { sourceDisappeared();result.complete(null);return; }
             if (java.util.Objects.equals(disk.text(), observedDiskText))
-            { observedDiskLength = disk.byteLength(); setLastModified(disk.modifiedMillis()); result.complete(null); return; }
+            {
+                if (diskConfirmationRequired && document.getFullContent().equals(disk.text()) && savedContentRevision == contentRevision)
+                {
+                    diskConfirmationRequired = false;saveState.setState(Status.SAVED);info.clear();
+                    if (cancelDraft != null) { cancelDraft.run();cancelDraft = null; }
+                }
+                observedDiskLength = disk.byteLength(); setLastModified(disk.modifiedMillis()); result.complete(null); return;
+            }
             if (!isModified())
             {
                 sourceSaver.reload(disk).whenComplete((loaded, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
@@ -1501,6 +1511,15 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     {
         showingChangedOnDiskDialog = legacyDiskQuestionActive
             || (pendingConflictQuestion != null && !pendingConflictQuestion.isDone());
+    }
+
+    private void sourceDisappeared()
+    {
+        if (!diskConfirmationRequired)
+        {
+            diskConfirmationRequired = true;saveState.setState(Status.CHANGED);setChanged();
+        }
+        info.message(Config.getString("editor.info.fileDisappeared"));
     }
 
     private void invalidateDiskInspection()
@@ -1703,6 +1722,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         }
 
         saveState.setState(Status.SAVED);
+        diskConfirmationRequired = false;
         savedContentRevision = contentRevision;
         setCompileStatus(compiled);
 
@@ -1934,6 +1954,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             observedDiskText = text;
             observedDiskLength = disk.byteLength();
             setLastModified(disk.modifiedMillis());
+            diskConfirmationRequired = false;
 
             if (sourceIsCode)
             {
@@ -1954,7 +1975,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             scheduleCompilation(CompileReason.LOADED, CompileType.ERROR_CHECK_ONLY);
         }
         catch (FileNotFoundException ex) {
-            info.message (Config.getString("editor.info.fileDisappeared"));
+            sourceDisappeared();
         }
         catch (IOException ex) {
             info.message (Config.getString("editor.info.fileReadError"));
@@ -2123,6 +2144,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
 
     private boolean updateSourceSaveState(bluej.light.SourceSaveService.Result result)
     {
+        diskConfirmationRequired = false;
         lastSavedSource = result.snapshot();
         savedContentRevision = result.snapshot().revision();
         historyDiskText = result.snapshot().text();
@@ -2142,6 +2164,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
 
     private CompletableFuture<Void> applyDiskReload(bluej.light.SourceSaveService.DiskState state)
     {
+        diskConfirmationRequired = false;
         invalidateRecoveryWork();
         java.nio.file.Path source = java.nio.file.Path.of(filename);String previous = document.getFullContent();
         bluej.light.HistoryTasks.submit(() -> localHistory.snapshot(source,previous,"before reload"));

@@ -244,4 +244,33 @@ public class TestAsyncEditorSave extends FXTest
         String incomplete="class Example extends ";text(incomplete);fx_(() -> {editor.setExtendsClass("Base",null);editor.addImplements("Runnable",null);assertEquals(incomplete,editor.getSourcePane().getDocument().getFullContent());});
         saved(save());assertEquals(incomplete,Files.readString(path));
     }
+
+    private void inspectDisk() throws Exception
+    {
+        AtomicReference<CompletableFuture<?>> pending=new AtomicReference<>();
+        fx_(() -> {
+            try {
+                var inspect=FlowEditor.class.getDeclaredMethod("checkForChangeOnDiskAsync");inspect.setAccessible(true);inspect.invoke(editor);
+                var field=FlowEditor.class.getDeclaredField("pendingDiskInspection");field.setAccessible(true);pending.set((CompletableFuture<?>)field.get(editor));
+            } catch(ReflectiveOperationException failure){throw new AssertionError(failure);}
+        });
+        if(pending.get()!=null)pending.get().get(5,TimeUnit.SECONDS);
+    }
+    @Test public void missingCleanSourceIsPreservedAndBackgroundChecksDoNotRecreateItEvenWithDiskChecksDisabled() throws Exception
+    {
+        boolean previous=fx(() -> bluej.prefmgr.PrefMgr.getFlag(bluej.prefmgr.PrefMgr.CHECK_DISKFILECHANGES));
+        try {
+            fx_(() -> bluej.prefmgr.PrefMgr.setFlag(bluej.prefmgr.PrefMgr.CHECK_DISKFILECHANGES,false));Files.delete(path);inspectDisk();
+            fx_(() -> {assertTrue(editor.isModified());assertEquals(ORIGINAL,editor.getSourcePane().getDocument().getFullContent());});
+            AtomicReference<CompletableFuture<Void>> check=new AtomicReference<>();fx_(() -> check.set(editor.saveForCompilationAsync(bluej.compiler.CompileType.ERROR_CHECK_ONLY)));
+            try{check.get().get(5,TimeUnit.SECONDS);fail("Missing file requires an explicit decision");}catch(ExecutionException expected){assertTrue(expected.getCause() instanceof IOException);}
+            assertFalse(Files.exists(path));fx_(() -> {assertTrue(editor.isModified());assertFalse(editor.hasPendingSave());assertEquals(ORIGINAL,editor.getSourcePane().getDocument().getFullContent());});
+        } finally {fx_(() -> bluej.prefmgr.PrefMgr.setFlag(bluej.prefmgr.PrefMgr.CHECK_DISKFILECHANGES,previous));}
+    }
+    @Test public void anExternallyRestoredIdenticalSourceClearsTheMissingFileStateWithoutEditingOrWriting() throws Exception
+    {
+        Files.delete(path);inspectDisk();fx_(() -> assertTrue(editor.isModified()));Files.writeString(path,ORIGINAL);inspectDisk();
+        fx_(() -> {assertFalse(editor.isModified());assertFalse(editor.hasPendingSave());assertEquals(ORIGINAL,editor.getSourcePane().getDocument().getFullContent());});
+        assertEquals(ORIGINAL,Files.readString(path));
+    }
 }
