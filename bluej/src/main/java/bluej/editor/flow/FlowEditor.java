@@ -170,6 +170,31 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private final Deque<TrackedPosition> navigationBack = new ArrayDeque<>();
     private final Deque<TrackedPosition> navigationForward = new ArrayDeque<>();
     private String historyDiskText = "";
+    private bluej.light.SourceSaveService standaloneSourceSaves;
+    private final FlowSourceSaver sourceSaver = new FlowSourceSaver(new FlowSourceSaver.View()
+    {
+        @Override public FlowSourceSaver.State state()
+        {
+            return new FlowSourceSaver.State(filename == null ? null : java.nio.file.Path.of(filename), document.getFullContent(),
+                characterSet, contentRevision, observedDiskText, isModified(), PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES));
+        }
+        @Override public bluej.light.SourceSaveService service() { return sourceSaveService(); }
+        @Override public bluej.light.LocalHistory history() { return localHistory; }
+        @Override public void saved(bluej.light.SourceSaveService.Result result) { applySourceSave(result); }
+        @Override public void failed(IOException failure)
+        { info.message(Config.getString("editor.info.errorSaving") + " - " + failure.getLocalizedMessage()); }
+        @Override public java.util.concurrent.CompletableFuture<FlowSourceSaver.ConflictChoice> decideConflict()
+        {
+            if (getWindow() == null || !getWindow().isShowing())
+                return java.util.concurrent.CompletableFuture.completedFuture(FlowSourceSaver.ConflictChoice.CANCEL);
+            showingChangedOnDiskDialog = true;
+            return DialogManager.askQuestionFXAsync(getWindow(), "changed-on-disk").thenApply(answer ->
+                answer == 0 ? FlowSourceSaver.ConflictChoice.RELOAD : answer == 1
+                    ? FlowSourceSaver.ConflictChoice.KEEP_LOCAL : FlowSourceSaver.ConflictChoice.CANCEL);
+        }
+        @Override public void conflictFinished() { showingChangedOnDiskDialog = false; }
+        @Override public void reloaded(bluej.light.SourceSaveService.DiskState state) { applyDiskReload(state); }
+    });
     private String observedDiskText = "";
     private long observedDiskLength;
     private boolean recoveryPending;
@@ -330,7 +355,9 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             java.nio.file.Path source = java.nio.file.Path.of(filename);
             String text = document.getFullContent();
             String base = bluej.light.LocalHistory.hash(historyDiskText);
-            bluej.light.HistoryTasks.submitDraft(source, () -> localHistory.draft(source, text, base));
+            String owner = sourceSaver.ownerId();
+            long revision = contentRevision;
+            bluej.light.HistoryTasks.submitDraft(source, () -> localHistory.draft(source, text, base, owner, revision));
         });
     }
     // version number
@@ -1531,6 +1558,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public boolean showFile(String filename, Charset charset, boolean compiled, String docFilename)
     {
         invalidateRecoveryWork();
+        sourceSaver.reset();
         this.filename = filename;
         this.docFilename = docFilename;
         this.characterSet = charset;
@@ -1591,6 +1619,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             return false;
         }
 
+        saveState.setState(Status.SAVED);
         setCompileStatus(compiled);
 
         if (filename != null)
@@ -1942,58 +1971,47 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     @Override
     public void save() throws IOException
     {
-        IOException failureException = null;
-        if (saveState.isChanged() && filename != null)
+        // Compatibility bridge: internal UI actions are migrated to saveAsync.
+        if (isModified() && filename != null && !sourceSaver.pending()
+            && PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES) && !checkForChangeOnDisk(true))
+            throw new IOException(Config.getString("editor.info.fileReadError"));
+        sourceSaver.saveBlocking();
+    }
+
+    @Override public java.util.concurrent.CompletableFuture<Void> saveAsync() { return sourceSaver.saveAsync(); }
+
+    protected bluej.light.SourceSaveService sourceSaveService()
+    {
+        Project project = getProject();
+        if (project != null) return project.getSourceSaveService();
+        if (standaloneSourceSaves == null) standaloneSourceSaves = new bluej.light.SourceSaveService();
+        return standaloneSourceSaves;
+    }
+
+    private void applySourceSave(bluej.light.SourceSaveService.Result result)
+    {
+        historyDiskText = result.snapshot().text();
+        observedDiskText = result.diskText();
+        observedDiskLength = result.byteLength();
+        setLastModified(result.modifiedMillis());
+        historyGeneration++; recoveryPending = false;
+        if (contentRevision == result.snapshot().revision())
         {
-            // Play it safe and avoid overwriting code that has been changed outside BlueJ (or at least,
-            // outside *this* instance of BlueJ):
-            if (PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES) && !checkForChangeOnDisk(true))
-                throw new IOException(Config.getString("editor.info.fileReadError"));
-            if (!saveState.isChanged())
-            {
-                return;
-            }
-
-            try
-            {
-                String afterSave = document.getFullContent();
-                bluej.light.AtomicSourceSave.save(java.nio.file.Path.of(filename), afterSave, characterSet, CRASHFILE_SUFFIX);
-                setLastModified(new File(filename).lastModified());
-
-                if (cancelDraft != null) { cancelDraft.run(); cancelDraft = null; }
-                java.nio.file.Path historySource = java.nio.file.Path.of(filename);
-                String beforeSave = historyDiskText;
-                historyDiskText = afterSave;
-                observedDiskText = afterSave;
-                observedDiskLength = new File(filename).length();
-                historyGeneration++;
-                recoveryPending = false;
-                bluej.light.HistoryTasks.submit(() -> {
-                    localHistory.snapshot(historySource, beforeSave, "before save");
-                    localHistory.snapshot(historySource, afterSave, "saved");
-                    localHistory.clearDraft(historySource);
-                });
-
-                // Do this last, as it may trigger further actions in the watcher:
-                recoveryCloseRevision = -1;
-                setSaved();
-            }
-            catch (IOException ex)
-            {
-                failureException = ex;
-                info.message (Config.getString("editor.info.errorSaving") + " - " + ex.getLocalizedMessage());
-            }
-
+            if (cancelDraft != null) { cancelDraft.run(); cancelDraft = null; }
+            recoveryCloseRevision = -1;
+            setSaved();
         }
+        else if (isModified()) scheduleDraft();
+    }
 
-        // If an error occurred, set a message in the editor status bar, and
-        // re-throw the exception.
-        if (failureException != null)
-        {
-            info.message(Config.getString("editor.info.errorSaving")
-                    + " - " + failureException.getLocalizedMessage());
-            throw failureException;
-        }
+    private void applyDiskReload(bluej.light.SourceSaveService.DiskState state)
+    {
+        sourceSaver.reset(); invalidateRecoveryWork();
+        undoManager.compoundEdit(() -> document.replaceText(0, document.getLength(), state.text()));
+        historyDiskText = state.text(); observedDiskText = state.text(); observedDiskLength = state.byteLength();
+        setLastModified(state.modifiedMillis());
+        setSaved();
+        if (sourceIsCode) scheduleCompilation(CompileReason.LOADED, CompileType.ERROR_CHECK_ONLY);
     }
 
     /**
@@ -2106,6 +2124,11 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public void doClose()
     {
         setEditorVisible(false, false);
+        if (fxTab.getParent() == null)
+        {
+            sourceSaver.reset();
+            if (standaloneSourceSaves != null) { standaloneSourceSaves.closeAsync(); standaloneSourceSaves = null; }
+        }
         if (watcher != null && fxTab.getParent() == null)
         {
             watcher.closeEvent(this);
@@ -2429,11 +2452,12 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     public void changeName(String title, String filename, String javaFilename, String docFilename)
     {
         invalidateRecoveryWork();
+        sourceSaver.reset();
         this.filename = filename;
         this.docFilename = docFilename;
         windowTitle = title;
         setWindowTitle();
-        observedDiskLength = filename == null ? 0 : new File(filename).length();
+        observedDiskLength = filename == null ? 0 : -1;
         bluej.light.SessionRecovery.changed();
         if (isModified()) scheduleDraft();
     }

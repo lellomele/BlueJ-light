@@ -198,6 +198,11 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
 
     private BProject singleBProject;  // Every Project has none or one BProject
     private boolean closing = false;
+    private final bluej.light.SourceSaveService sourceSaves = new bluej.light.SourceSaveService();
+    private final bluej.light.SourceSaveService recoveryCopies = new bluej.light.SourceSaveService();
+
+    public bluej.light.SourceSaveService getSourceSaveService() { return sourceSaves; }
+    public bluej.light.SourceSaveService getRecoveryCopyService() { return recoveryCopies; }
     /** The scanner for available imports.  May be null if not requested yet. */
     @OnThread(value = Tag.Any,requireSynchronized = true)
     private ImportScanner importScanner;
@@ -573,6 +578,8 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
     {
         if (project.completionTypeIndex != null) project.completionTypeIndex.close();
         project.closing = true;
+        project.sourceSaves.closeAsync();
+        project.recoveryCopies.closeAsync();
         if (project.compilerTimer != null) project.compilerTimer.stop();
         project.scheduledPkgs.clear();
         project.scheduledTargets.clear();

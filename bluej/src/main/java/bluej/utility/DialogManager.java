@@ -234,6 +234,27 @@ public class DialogManager
      * the second is assumed to be NO.  With three buttons, the first two
      * are assumed to be yes, the third is NO.
      */
+    public static java.util.concurrent.CompletableFuture<Integer> askQuestionFXAsync(javafx.stage.Window parent, String msgID)
+    {
+        java.util.concurrent.CompletableFuture<Integer> answer = new java.util.concurrent.CompletableFuture<>();
+        MessageAndButtons message = new MessageAndButtons(getMessage(msgID));
+        if (message.getMessage() == null) { answer.complete(-1); return answer; }
+        List<ButtonType> buttons = new ArrayList<>();
+        for (int i = 0; i < message.getOptions().size(); i++)
+            buttons.add(new ButtonType(message.getOptions().get(i), i == message.getOptions().size() - 1
+                ? ButtonBar.ButtonData.NO : ButtonBar.ButtonData.YES));
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, message.getMessage(), buttons.toArray(new ButtonType[0]));
+        alert.setHeaderText(""); alert.initOwner(parent);
+        alert.initModality(parent == null ? Modality.APPLICATION_MODAL : Modality.WINDOW_MODAL);
+        alert.setTitle(Config.getApplicationName() + ":  " + Config.getString("dialogmgr.question"));
+        alert.setOnHidden(event -> {
+            int selected = buttons.indexOf(alert.getResult());
+            answer.complete(selected);
+        });
+        alert.show();
+        return answer;
+    }
+
     public static int askQuestionFX(javafx.stage.Window parent, String msgID)
     {
         MessageAndButtons messageAndButtons = new MessageAndButtons(getMessage(msgID));

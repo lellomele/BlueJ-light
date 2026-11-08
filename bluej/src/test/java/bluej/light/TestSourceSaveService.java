@@ -142,4 +142,18 @@ public class TestSourceSaveService
             assertEquals(SourceSaveService.Outcome.CONFLICT,await(two).outcome());assertEquals("first project\n",Files.readString(path));
         } finally {release.countDown();}
     }
+
+    @Test public void inspectionFollowsPendingWriteAndReportsTheCommittedVersion() throws Exception
+    {
+        Path path=source();CountDownLatch entered=new CountDownLatch(1),release=new CountDownLatch(1);
+        try(SourceSaveService service=new SourceSaveService(8,(snapshot,replacement)->{
+            entered.countDown();waitFor(release);AtomicSourceSave.save(snapshot.source(),snapshot.text(),snapshot.charset(),"#",replacement);
+        })) {
+            var write=service.save(snapshot(new SourceSaveService.Owner(),1,path,"written α\n","original\n"));
+            assertTrue(entered.await(5,TimeUnit.SECONDS));var inspect=service.inspect(path,StandardCharsets.UTF_8);
+            assertFalse(inspect.isDone());release.countDown();assertTrue(await(write).saved());
+            var state=inspect.get(5,TimeUnit.SECONDS);assertTrue(state.exists());assertEquals("written α\n",state.text());
+            assertTrue(state.byteLength()>0);assertTrue(state.modifiedMillis()>0);
+        } finally {release.countDown();}
+    }
 }

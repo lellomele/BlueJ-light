@@ -80,6 +80,26 @@ public interface Editor
      */
     void save() throws IOException;
 
+    /** Finish persistence without blocking the UI; completion is delivered on the FX thread. */
+    @OnThread(Tag.FXPlatform)
+    default java.util.concurrent.CompletableFuture<Void> saveAsync()
+    {
+        try { save(); return java.util.concurrent.CompletableFuture.completedFuture(null); }
+        catch (IOException failure) { return java.util.concurrent.CompletableFuture.failedFuture(failure); }
+    }
+
+    @OnThread(Tag.FXPlatform)
+    default java.util.concurrent.CompletableFuture<Void> saveForCompilationAsync(CompileType type)
+    {
+        return saveAsync();
+    }
+
+    @OnThread(Tag.FXPlatform)
+    default java.util.concurrent.CompletableFuture<Boolean> saveForCloseAsync()
+    {
+        return saveAsync().handle((ignored, failure) -> failure == null);
+    }
+
     /** A close-only save decision; must not bypass compilation saves. */
     default boolean saveForClose()
     {

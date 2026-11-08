@@ -52,6 +52,8 @@ public final class SourceSaveService implements AutoCloseable
         public boolean saved() { return outcome == Outcome.SAVED; }
     }
 
+    public record DiskState(Path source, String text, long modifiedMillis, long byteLength, boolean exists) { }
+
     @FunctionalInterface interface Storage
     {
         void save(Snapshot snapshot, AtomicSourceSave.Replacement replacement) throws IOException;
@@ -113,6 +115,47 @@ public final class SourceSaveService implements AutoCloseable
         }
         // A consumer may reenter the service; never notify while holding its monitor.
         if (rejected != null) result.complete(rejected);
+        return result;
+    }
+
+    /** Content and metadata checks share the ordered worker; callers must not perform them on FX. */
+    public CompletableFuture<DiskState> inspect(Path path, Charset charset)
+    {
+        Path source = path.toAbsolutePath().normalize();
+        CompletableFuture<DiskState> result = new CompletableFuture<>();
+        boolean rejected;
+        synchronized (this)
+        {
+            rejected = closing || pending >= capacity;
+            if (!rejected)
+            {
+                pending++;
+                try
+                {
+                    writer.execute(() -> {
+                        DiskState state = null; Throwable failure = null;
+                        try
+                        {
+                            if (!Files.exists(source)) state = new DiskState(source, null, -1, 0, false);
+                            else
+                            {
+                                String text = normalise(Files.readString(source, charset));
+                                BasicFileAttributes attributes = Files.readAttributes(source, BasicFileAttributes.class);
+                                state = new DiskState(source, text, attributes.lastModifiedTime().toMillis(), attributes.size(), true);
+                            }
+                        }
+                        catch (Throwable error) { failure = error; }
+                        boolean finished;
+                        synchronized (SourceSaveService.this) { pending--; finished = closing && pending == 0; }
+                        if (failure == null) result.complete(state); else result.completeExceptionally(failure);
+                        if (finished) drained.complete(null);
+                        if (failure instanceof Error error) throw error;
+                    });
+                }
+                catch (RejectedExecutionException failure) { pending--; rejected = true; }
+            }
+        }
+        if (rejected) result.completeExceptionally(new IOException("Source writer is unavailable"));
         return result;
     }
 
