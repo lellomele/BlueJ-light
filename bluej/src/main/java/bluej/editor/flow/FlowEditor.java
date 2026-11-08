@@ -745,6 +745,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private java.nio.file.Path recoveryCloseFile;
     private boolean offeringRecoveryClose;
     private CompletableFuture<Boolean> pendingClose;
+    private CompletableFuture<Void> preparingInterface;
+    private long interfaceViewRequest;
     private CompletableFuture<Void> pendingDiskInspection;
     private CompletableFuture<Integer> pendingConflictQuestion;
     private boolean legacyDiskQuestionActive;
@@ -1526,6 +1528,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     {
         if (parent == null && !partOfMove)
         {
+            interfaceViewRequest++;
+            BlueJEvent.removeListener(this);
             invalidateRecoveryWork();
             completionRequest++;
             snippetRequest++;
@@ -2430,7 +2434,9 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
 
     private void switchToSourceView()
     {
+        interfaceViewRequest++;
         if (!viewingHTML.get()) {
+            if (interfaceToggle != null) interfaceToggle.getSelectionModel().selectFirst();
             return;
         }
         resetMenuToolbar(true);
@@ -2447,43 +2453,33 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
      */
     private void switchToInterfaceView()
     {
-        if (viewingHTML.get()) {
-            return;
-        }
-        resetMenuToolbar(false);
-        getHtmlPane();
-        //NAVIFX
-        //dividerPanel.beginTemporaryHide();
-        try {
-            save();
-            info.message(Config.getString("editor.info.loadingDoc"));
-            boolean generateDoc = !docUpToDate();
-
-            if (generateDoc)
-            {
-                // interface needs to be re-generated
-                info.message(Config.getString("editor.info.generatingDoc"));
-                BlueJEvent.addListener(this);
-                if (watcher != null) {
-                    watcher.generateDoc();
+        if (viewingHTML.get()) return;
+        if (preparingInterface != null && !preparingInterface.isDone()) preparingInterface.complete(null);
+        CompletableFuture<Void> result = new CompletableFuture<>(); preparingInterface = result;
+        long request = ++interfaceViewRequest,lifetime = sourceSaver.lifetime();
+        result.whenComplete((ignored, failure) -> {
+            if (preparingInterface == result) preparingInterface = null;
+            if (failure != null) { switchToSourceView();info.message(Config.getString("editor.info.docAborted"));Debug.reportError("Cannot prepare documentation view",failure); }
+        });
+        info.message(Config.getString("editor.info.loadingDoc"));
+        bluej.editor.EditorSaveBatch.save(() -> List.of(this),null).whenComplete((saved, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (failure != null) { info.message(Config.getString("editor.info.errorSaving"));result.complete(null);return; }
+            if (request != interfaceViewRequest || lifetime != sourceSaver.lifetime()) { result.complete(null);return; }
+            String source = filename,documentation = docFilename;long revision = contentRevision;
+            sourceSaveService().submit(() -> docUpToDate(source,documentation)).whenComplete((current, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (request != interfaceViewRequest || lifetime != sourceSaver.lifetime()) { result.complete(null);return; }
+                if (error != null || revision != contentRevision || !Objects.equals(source,filename) || !Objects.equals(documentation,docFilename))
+                { interfaceToggle.getSelectionModel().selectFirst();result.complete(null);return; }
+                resetMenuToolbar(false);getHtmlPane();viewingHTML.set(true);interfaceToggle.getSelectionModel().selectLast();
+                if (watcher != null) watcher.showingInterface(true);
+                if (!current && watcher != null)
+                {
+                    info.message(Config.getString("editor.info.generatingDoc"));BlueJEvent.addListener(this);watcher.generateDoc();
                 }
-            }
-            else
-            {
-                // Only bother to refresh if we're not about to generate
-                // (if we do generate, we will refresh once completed)
-                refreshHtmlDisplay();
-            }
-
-            interfaceToggle.getSelectionModel().selectLast();
-            viewingHTML.set(true);
-            watcher.showingInterface(true);
-        }
-        catch (IOException ioe) {
-            // Could display a dialog here. However, the error message
-            // (from save() call) will already be displayed in the editor
-            // status bar.
-        }
+                else refreshHtmlDisplay();
+                result.complete(null);
+            }));
+        }));
     }
 
     /**
@@ -2492,6 +2488,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     @Override
     public void blueJEvent(int eventId, Object arg, Project prj)
     {
+        if (arg instanceof String generated && docFilename != null
+            && !java.nio.file.Path.of(generated).toAbsolutePath().normalize().equals(java.nio.file.Path.of(docFilename).toAbsolutePath().normalize())) return;
         switch(eventId) {
             case BlueJEvent.DOCU_GENERATED :
                 BlueJEvent.removeListener(this);
@@ -2509,14 +2507,15 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
      *
      * @return True is the currently existing documentation is up-to-date.
      */
-    private boolean docUpToDate()
+    @OnThread(Tag.Any)
+    private static boolean docUpToDate(String sourceName, String documentationPath)
     {
-        if (filename == null) {
+        if (sourceName == null) {
             return true;
         }
         try {
-            File src = new File(filename);
-            File doc = new File(docFilename);
+            File src = new File(sourceName);
+            File doc = new File(documentationPath);
 
             if (!doc.exists() || (src.exists() && (src.lastModified() > doc.lastModified()))) {
                 return false;
@@ -2534,8 +2533,20 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
      */
     private void refreshHtmlDisplay()
     {
+        String documentation = docFilename;long request = interfaceViewRequest,lifetime = sourceSaver.lifetime();
+        if (documentation == null) return;
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        sourceSaveService().submit(() -> Files.isRegularFile(java.nio.file.Path.of(documentation))).whenComplete((exists, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (failure == null && Boolean.TRUE.equals(exists) && request == interfaceViewRequest && lifetime == sourceSaver.lifetime()
+                && Objects.equals(documentation,docFilename) && viewingHTML.get()) loadHtmlDisplay(documentation);
+            result.complete(null);
+        }));
+    }
+
+    private void loadHtmlDisplay(String documentation)
+    {
         try {
-            File urlFile = new File(docFilename);
+            File urlFile = new File(documentation);
 
             // Check if docs file exists before attempting to load it.  There is a JDK behaviour where
             // if you load a non-existent file in a webview, all future attempts to reload the page will
@@ -2547,11 +2558,6 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             //    docs won't be regenerated, so no race hazard there.
             //  - The other case is when the doc generation has definitely finished, so again we won't be in a
             //    race with the generation:
-            if (!urlFile.exists())
-            {
-                return;
-            }
-
             URL myURL = urlFile.toURI().toURL();
 
             // We must use reload here if applicable, as that forces reloading the stylesheet.css asset

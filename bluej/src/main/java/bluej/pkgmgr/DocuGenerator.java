@@ -32,21 +32,18 @@ import javafx.application.Platform;
 import threadchecker.OnThread;
 import threadchecker.Tag;
 
-import javax.tools.DocumentationTool;
-import javax.tools.ToolProvider;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.PrintWriter;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.*;
 
 /**
  * This class handles documentation generation from inside BlueJ.
@@ -61,6 +58,10 @@ import java.util.List;
  */
 public class DocuGenerator
 {
+    private static final Set<String> pending = new HashSet<>();
+    @OnThread(Tag.Any) private static final ThreadPoolExecutor documentation = new ThreadPoolExecutor(1,1,0,TimeUnit.SECONDS,
+        new ArrayBlockingQueue<>(8),work -> { Thread thread = new Thread(work,"BlueJ documentation");thread.setDaemon(true);thread.setPriority(Thread.MIN_PRIORITY);return thread; });
+    static { Runtime.getRuntime().addShutdownHook(new Thread(() -> documentation.shutdownNow(),"BlueJ documentation shutdown")); }
     // static fields - tool-independent
     /** The name of the directory where project documentation is written to. */
     private static String docDirName =
@@ -114,11 +115,16 @@ public class DocuGenerator
     private static void generateDoc(String[] call, File result, File log, 
                                     String header, boolean openBrowser)
     {
-        // start the call in a separate thread to allow fast return to GUI.
-        Thread starterThread = new DocuRunStarter(call, result, log, header, openBrowser);
-        starterThread.setPriority(Thread.MIN_PRIORITY);
-        starterThread.start();
-        BlueJEvent.raiseEvent(BlueJEvent.GENERATING_DOCU, null);
+        String key = result.getAbsoluteFile().toPath().normalize().toString();
+        if (!pending.add(key)) return;
+        int timeout = Math.max(10,Math.min(300,Config.getPropInteger("bluej.light.documentation.timeoutSeconds",120)));
+        try
+        {
+            documentation.execute(new DocuRunStarter(call,result,log,header,openBrowser,key,timeout));
+            BlueJEvent.raiseEvent(BlueJEvent.GENERATING_DOCU,key);
+        }
+        catch (RejectedExecutionException full)
+        { pending.remove(key);BlueJEvent.raiseEvent(BlueJEvent.DOCU_ABORTED,key);Debug.message("Documentation queue is full"); }
     }
 
 
@@ -130,24 +136,25 @@ public class DocuGenerator
      * HTML file that should be opened by a web browser if the documentation
      * generation was successful.
      */
-    private static class DocuRunStarter extends Thread
+    private static class DocuRunStarter implements Runnable
     {
         private String[] docuCall;
         private File showFile;
         private File logFile;
         private String logHeader;
         private boolean openBrowser;
-        private static final Object mutex = new Object();
+        private final String key;
+        private final int timeout;
 
         public DocuRunStarter(String[] call, File result, File log, 
-                              String header, boolean browse)
+                              String header, boolean browse, String key, int timeout)
         {
-            super("DocuRun");
-            docuCall = call;
+            docuCall = call.clone();
             showFile = result;
             logFile = log;
             logHeader = header;
             openBrowser = browse;
+            this.key = key;this.timeout = timeout;
         }
 
         /**
@@ -158,131 +165,51 @@ public class DocuGenerator
         @OnThread(value = Tag.Worker, ignoreParent = true)
         public void run()
         {
-            // Process docuRun;
-            PrintWriter logWriter = null;
+            Process process = null;
             int exitValue = -1;
-            try {
-                synchronized (mutex) {
-                    // We synchronize because Javadoc can run into problems if several
-                    // instances are running at the same time. Also, this prevents the
-                    // logfile from being written by two threads at once.
-                    OutputStream logStream = new FileOutputStream(logFile);
-                    logWriter = new PrintWriter(logStream,true);
-                    
-                    String[] docuCall2 = new String[docuCall.length-1];
+            Throwable failure = null;
+            File actual = showFile;
+            try
+            {
+                java.nio.file.Files.createDirectories(logFile.toPath().getParent());
+                java.nio.file.Files.deleteIfExists(logFile.toPath().getParent().resolve("stylesheet.css"));
+                try (PrintWriter logWriter = new PrintWriter(new FileOutputStream(logFile),true,java.nio.charset.StandardCharsets.UTF_8))
+                {
                     logWriter.println(logHeader);
                     logWriter.println("<---- javadoc command: ---->");
-                    
-                    int i;
-                    for(i=0; i < docuCall.length; i++) {
-                        logWriter.println(docuCall[i]);
-                        if(i != 0)
-                            docuCall2[i-1] = docuCall[i];
-                    }
-                    
+                    for (String argument : docuCall) logWriter.println(argument);
                     logWriter.println("<---- end of javadoc command ---->");
-                    logWriter.flush();
-
-                    DocumentationTool docTool = ToolProvider.getSystemDocumentationTool();
-                    
-                    if (docTool != null)
-                    {
-                        exitValue = docTool.run(null, logStream, logStream, docuCall2);
-                    }
-                    else
-                    // If javadoc doesn't seem to be available via reflection,
-                    // execute it as an external process
-                    {
-                        Process docuRun = Runtime.getRuntime().exec(docuCall);
-                        
-                        // because we don't know what comes first we have to start
-                        // two threads that consume both the standard and the error
-                        // output of the external process. The output is appended to
-                        // the log file.
-                        EchoThread outEcho = new EchoThread(docuRun.getInputStream(),
-                                                            logStream);
-                        EchoThread errEcho = new EchoThread(docuRun.getErrorStream(),
-                                                            logStream);
-                        outEcho.start();
-                        errEcho.start();
-                        try {
-                            docuRun.waitFor();
-                            outEcho.join();
-                            errEcho.join();
-                            exitValue = docuRun.exitValue();
-                        }
-                        catch (InterruptedException ie) {
-                            logWriter.println("Interrupted while waiting for javadoc process to complete.");
-                        }
-                    }
                 }
-                
-                final int finalExitValue = exitValue;
-                Platform.runLater(new Runnable() {
-                    public void run() {
-                        if (finalExitValue == 0) {
-                            BlueJEvent.raiseEvent(BlueJEvent.DOCU_GENERATED, null);
-                            if (!showFile.exists()) {
-                                Debug.message("showfile does not exist - searching");
-                                showFile = FileUtility.findFile(showFile.getParentFile(),
-                                        showFile.getName());
-                            }
-                            if(openBrowser) {
-                                // logWriter.println("try to open: " + showFile.getPath());
-                                Utility.openWebBrowser(showFile.getPath());
-                            }
-                        }
-                        else {
-                            BlueJEvent.raiseEvent(BlueJEvent.DOCU_ABORTED, null);
-                            DialogManager.showMessageWithTextFX(null,
-                                    "doctool-error",
-                                    logFile.getPath());
-                        }
-                    }
+                process = new ProcessBuilder(docuCall).redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(logFile)).start();
+                process.getOutputStream().close();
+                if (!process.waitFor(timeout,TimeUnit.SECONDS)) throw new IOException("Javadoc exceeded its " + timeout + " second limit");
+                exitValue = process.exitValue();
+                if (exitValue == 0 && !actual.exists()) actual = FileUtility.findFile(actual.getParentFile(),actual.getName());
+                if (exitValue == 0 && actual == null) throw new IOException("Javadoc did not create the expected page");
+            }
+            catch (Throwable problem)
+            {
+                failure = problem;Debug.reportError("Documentation generation failed",problem);
+                if (problem instanceof InterruptedException) Thread.currentThread().interrupt();
+            }
+            finally
+            {
+                if (process != null && process.isAlive())
+                {
+                    try (var children = process.descendants()) { children.forEach(child -> { if (child.isAlive()) child.destroyForcibly(); }); }
+                    catch (RuntimeException cleanup) { Debug.reportError("Cannot terminate documentation subprocesses",cleanup); }
+                    try { process.destroyForcibly(); }
+                    catch (RuntimeException cleanup) { Debug.reportError("Cannot terminate documentation tool",cleanup); }
+                }
+                boolean success = failure == null && exitValue == 0;File page = actual;
+                Platform.runLater(() -> {
+                    pending.remove(key);
+                    BlueJEvent.raiseEvent(success ? BlueJEvent.DOCU_GENERATED : BlueJEvent.DOCU_ABORTED,key);
+                    if (success && openBrowser) Utility.openWebBrowser(page.getPath());
+                    else if (!success) DialogManager.showMessageWithTextFX(null,"doctool-error",logFile.getPath());
                 });
             }
-            catch (IOException exc) {
-                Platform.runLater(() -> DialogManager.showMessageFX(null, "severe-doc-trouble"));
-            }
-            finally {
-                if (logWriter != null) {
-                    logWriter.close();
-                }
-            }
-        }
-    }
-
-    /**
-     * A thread which reads from an InputStream and echoes everything read
-     * to an OutputStream. 
-     */
-    private static class EchoThread extends Thread
-    {
-        private InputStream   readStream;
-        private OutputStream outStream;
-
-        @OnThread(Tag.Any)
-        public EchoThread(InputStream r,OutputStream out)
-        {
-            super("Echo Stream");
-            readStream = r;
-            outStream = out;
-        }
-        
-        @Override
-        @OnThread(value = Tag.Worker, ignoreParent = true)
-        public void run()
-        {
-            try {
-                byte[] buf = new byte[1024];
-                int n;
-                while((n = readStream.read(buf)) != -1) {
-                    outStream.write(buf, 0, n);
-                }
-            }
-            catch(IOException e) {
-                e.printStackTrace();
-            }
+            if (failure instanceof Error fatal) throw fatal;
         }
     }
 
@@ -380,7 +307,6 @@ public class DocuGenerator
         }
         String[] javadocCall = call.toArray(new String[0]);
 
-        removeStylesheet();
         generateDoc(javadocCall, startPage, logFile, projectLogHeader, true);
 
         return "";
@@ -399,12 +325,7 @@ public class DocuGenerator
         //File docDir = getDocTempDir();  use project docDir instead
         if (docDir == null) {
             BlueJEvent.raiseEvent(BlueJEvent.DOCU_ABORTED, null);
-        }
-
-        // test whether the documentation directory is accessible.
-        String docDirStatus = testDocDir();
-        if (! docDirStatus.equals("")) {
-            BlueJEvent.raiseEvent(BlueJEvent.DOCU_ABORTED, null);
+            return;
         }
 
         // build the call string
@@ -421,24 +342,7 @@ public class DocuGenerator
         File htmlFile = new File(getDocuPath(filename));
         File logFile = new File(docDir, "logfile.txt");
 
-        removeStylesheet();
         generateDoc(javadocCall, htmlFile, logFile, classLogHeader, false);
-    }
-
-    /**
-     * Removes the stylesheet (used before generating Javadoc).  Needed because versions
-     * before 4.1.0 would generate a stylesheet.css file that was different, but Javadoc
-     * does not do content comparison so in 4.1.0+ will not by itself regenerate the Javadoc,
-     * even though it may needs to replace the pre-4.1.0 version.  We just delete it every
-     * time to make sure the stylesheet.css is up-to-date.
-     */
-    private void removeStylesheet()
-    {
-        File stylesheet = new File(projectDir, "doc/stylesheet.css");
-        if (stylesheet.exists())
-        {
-            stylesheet.delete();
-        }
     }
 
     private void addGeneralOptions(List<String> call)
