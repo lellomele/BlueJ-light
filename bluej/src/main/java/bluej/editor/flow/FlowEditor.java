@@ -3189,84 +3189,27 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     @Override
     public void setExtendsClass(String className, ClassInfo info)
     {
-        try {
-            save();
-
-            if (info != null) {
-                if (info.getSuperclass() == null) {
-                    Selection s1 = info.getExtendsInsertSelection();
-
-                    setSelection(new SourceLocation(s1.getLine(), s1.getColumn()), new SourceLocation(s1.getEndLine(), s1.getEndColumn()));
-                    insertText(" extends " + className, false);
-                }
-                else {
-                    Selection s1 = info.getSuperReplaceSelection();
-
-                    setSelection(new SourceLocation(s1.getLine(), s1.getColumn()), new SourceLocation(s1.getEndLine(), s1.getEndColumn()));
-                    insertText(className, false);
-                }
-                save();
-            }
-        }
-        catch (IOException ioe) {
-            DialogManager.showMessageWithTextFX(getWindow(), "generic-file-save-error", ioe.getLocalizedMessage());
-        }
+        editDeclaration(current -> replaceDeclaration(current.getSuperReplaceSelection() == null ? current.getExtendsInsertSelection()
+            : current.getSuperReplaceSelection(),current.getSuperReplaceSelection() == null ? " extends " + className : className));
     }
 
     @Override
     public void removeExtendsClass(ClassInfo info)
     {
-        try {
-            save();
-
-            if (info != null) {
-                Selection s1 = info.getExtendsReplaceSelection();
-                s1.combineWith(info.getSuperReplaceSelection());
-
-                if (s1 != null) {
-                    setSelection(new SourceLocation(s1.getLine(), s1.getColumn()), new SourceLocation(s1.getEndLine(), s1.getEndColumn()));
-                    insertText("", false);
-                }
-                save();
-            }
-        }
-        catch (IOException ioe) {
-            DialogManager.showMessageWithTextFX(getWindow(), "generic-file-save-error", ioe.getLocalizedMessage());
-        }
+        editDeclaration(current -> {
+            Selection selection = current.getExtendsReplaceSelection(),superclass = current.getSuperReplaceSelection();
+            if (selection != null && superclass != null) { selection.combineWith(superclass);replaceDeclaration(selection,""); }
+        });
     }
 
     @Override
     public void addImplements(String interfaceName, ClassInfo info)
     {
-        try {
-            save();
-
-            if (info != null) {
-                Selection s1 = info.getImplementsInsertSelection();
-                setSelection(new SourceLocation(s1.getLine(), s1.getColumn()), new SourceLocation(s1.getEndLine(), s1.getEndColumn()));
-
-                if (info.hasInterfaceSelections()) {
-                    // if we already have an implements clause then we need to put a
-                    // comma and the interface name but not before checking that we
-                    // don't already have it
-
-                    List<String> exists = getInterfaceTexts(info.getInterfaceSelections());
-
-                    // XXX make this equality check against full package name
-                    if (!exists.contains(interfaceName))
-                        insertText(", " + interfaceName, false);
-                }
-                else {
-                    // otherwise we need to put the actual "implements" word
-                    // and the interface name
-                    insertText(" implements " + interfaceName, false);
-                }
-                save();
-            }
-        }
-        catch (IOException ioe) {
-            DialogManager.showMessageWithTextFX(getWindow(), "generic-file-save-error", ioe.getLocalizedMessage());
-        }
+        editDeclaration(current -> {
+            if (!current.hasInterfaceSelections()) replaceDeclaration(current.getImplementsInsertSelection()," implements " + interfaceName);
+            else if (!getInterfaceTexts(current.getInterfaceSelections()).contains(interfaceName))
+                replaceDeclaration(current.getImplementsInsertSelection(),", " + interfaceName);
+        });
     }
 
     /**
@@ -3297,77 +3240,47 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     @Override
     public void addExtendsInterface(String interfaceName, ClassInfo info)
     {
-        try {
-            save();
-
-            if (info != null) {
-                Selection s1 = info.getExtendsInsertSelection();
-                setSelection(new SourceLocation(s1.getLine(), s1.getColumn()), new SourceLocation(s1.getEndLine(), s1.getEndColumn()));
-
-                if (info.hasInterfaceSelections()) {
-                    // if we already have an extends clause then we need to put a
-                    // comma and the interface name but not before checking that we
-                    // don't
-                    // already have it
-
-                    List<String> exists = getInterfaceTexts(info.getInterfaceSelections());
-
-                    // XXX make this equality check against full package name
-                    if (!exists.contains(interfaceName))
-                        insertText(", " + interfaceName, false);
-                }
-                else {
-                    // otherwise we need to put the actual "extends" word
-                    // and the interface name
-                    insertText(" extends " + interfaceName, false);
-                }
-                save();
-            }
-        }
-        catch (IOException ioe) {
-            DialogManager.showMessageWithTextFX(getWindow(), "generic-file-save-error", ioe.getLocalizedMessage());
-        }
+        editDeclaration(current -> {
+            if (!current.hasInterfaceSelections()) replaceDeclaration(current.getExtendsInsertSelection()," extends " + interfaceName);
+            else if (!getInterfaceTexts(current.getInterfaceSelections()).contains(interfaceName))
+                replaceDeclaration(current.getExtendsInsertSelection(),", " + interfaceName);
+        });
     }
 
     @Override
     public void removeExtendsOrImplementsInterface(String interfaceName, ClassInfo info)
     {
-        try {
-            save();
-
-            if (info != null) {
-                Selection s1 = null;
-
-                List<Selection> vsels;
-                List<String> vtexts;
-
-                vsels = info.getInterfaceSelections();
-                vtexts = getInterfaceTexts(vsels);
-                int where = vtexts.indexOf(interfaceName);
-
-                // we have a special case if we deleted the first bit of an
-                // "implements" clause, yet there are still clauses left.. we have
-                // to delete the following "," instead of the preceding one.
-                if (where == 1 && vsels.size() > 2)
-                    where = 2;
-
-                if (where > 0) { // should always be true
-                    s1 = vsels.get(where - 1);
-                    s1.combineWith(vsels.get(where));
-                }
-
-                // delete the text from the end backwards so that our
-                if (s1 != null) {
-                    setSelection(new SourceLocation(s1.getLine(), s1.getColumn()), new SourceLocation(s1.getEndLine(), s1.getEndColumn()));
-                    insertText("", false);
-                }
-
-                save();
+        editDeclaration(current -> {
+            List<Selection> selections = current.getInterfaceSelections();
+            if (selections == null) return;
+            int where = getInterfaceTexts(selections).indexOf(interfaceName);
+            if (where == 1 && selections.size() > 2) where = 2;
+            if (where > 0)
+            {
+                Selection selection = selections.get(where - 1);selection.combineWith(selections.get(where));replaceDeclaration(selection,"");
             }
-        }
-        catch (IOException ioe) {
-            DialogManager.showMessageWithTextFX(getWindow(), "generic-file-save-error", ioe.getLocalizedMessage());
-        }
+        });
+    }
+
+    @FunctionalInterface private interface DeclarationEdit { void apply(ClassInfo current); }
+
+    /** Recompute positions from the current buffer and make one immediate, undoable edit before asynchronous persistence. */
+    private void editDeclaration(DeclarationEdit edit)
+    {
+        if (isReadOnly()) return;
+        ClassInfo current = InfoParser.parse(new java.io.StringReader(document.getFullContent()),javaSyntaxView.getEntityResolver(),
+            watcher instanceof ClassTarget target && target.getPackage() != null ? target.getPackage().getQualifiedName() : null);
+        if (current == null || current.hadParseError()) { info.message(Config.getString("light.source.incomplete"));return; }
+        long revision = contentRevision;
+        try { edit.apply(current); }
+        catch (IllegalArgumentException | IndexOutOfBoundsException invalid) { info.message(Config.getString("light.source.incomplete"));return; }
+        if (revision != contentRevision) saveAsync();
+    }
+
+    private void replaceDeclaration(Selection selection, String text)
+    {
+        if (selection == null) throw new IllegalArgumentException("Incomplete class declaration");
+        setSelection(selection.getStartLocation(),selection.getEndLocation());insertText(text,false);
     }
 
     @Override

@@ -2482,7 +2482,8 @@ public final class Package
      */
     public void userAddImplementsClassDependency(ClassTarget from, ClassTarget to)
     {
-        ClassInfo info = from.getSourceInfo().getInfo(from.getJavaSourceFile(), this);
+        from.getEditor();
+        ClassInfo info = from.analyseSource();
         if (info != null) {
             from.getEditor().addImplements(to.getBaseName(), info);
             from.analyseSource();
@@ -2497,7 +2498,8 @@ public final class Package
      */
     public void userAddExtendsInterfaceDependency(ClassTarget from, ClassTarget to)
     {
-        ClassInfo info = from.getSourceInfo().getInfo(from.getJavaSourceFile(), this);
+        from.getEditor();
+        ClassInfo info = from.analyseSource();
         from.getEditor().addExtendsInterface(to.getBaseName(), info);
         from.analyseSource();
     }
@@ -2510,7 +2512,8 @@ public final class Package
      */
     public void userAddExtendsClassDependency(ClassTarget from, ClassTarget to)
     {
-        from.getEditor().setExtendsClass(to.getBaseName(), from.getSourceInfo().getInfo(from.getJavaSourceFile(), this));
+        Editor sourceEditor = from.getEditor();
+        sourceEditor.setExtendsClass(to.getBaseName(),from.analyseSource());
         from.analyseSource();
     }
 
@@ -2527,7 +2530,8 @@ public final class Package
 
         ClassTarget from = (ClassTarget) d.getFrom();
         ClassTarget to = (ClassTarget) d.getTo();
-        ClassInfo info = from.getSourceInfo().getInfo(from.getJavaSourceFile(), this);
+        from.getEditor();
+        ClassInfo info = from.analyseSource();
         if (d instanceof ImplementsDependency) {
             from.getEditor().removeExtendsOrImplementsInterface(to.getBaseName(), info);
         }

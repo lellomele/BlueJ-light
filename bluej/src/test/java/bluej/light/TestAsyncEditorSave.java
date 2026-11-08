@@ -215,4 +215,33 @@ public class TestAsyncEditorSave extends FXTest
         assertEquals(ORIGINAL,Files.readString(path));assertEquals("class Other { int saved; }\n",Files.readString(otherPath));
         fx_(() -> {assertTrue(editor.isModified());assertFalse(otherRef.get().isModified());});
     }
+
+    @Test public void diagramEditsUseCurrentUnsavedPositionsWithoutWaitingForStorage() throws Exception
+    {
+        var stale=bluej.parser.InfoParser.parse(new java.io.StringReader(ORIGINAL),new bluej.parser.entity.ClassLoaderResolver(getClass().getClassLoader()),null);
+        String before="// unsaved prefix\nclass Example { int untouched; }\n";text(before);Gate gate=arm(false);
+        fx_(() -> editor.setExtendsClass("MissingBase",stale));assertTrue(gate.entered.await(5,TimeUnit.SECONDS));
+        fx_(() -> {
+            assertEquals("// unsaved prefix\nclass Example extends MissingBase { int untouched; }\n",editor.getSourcePane().getDocument().getFullContent());
+            editor.setExtendsClass("OtherMissingBase",stale);editor.addImplements("Runnable",stale);editor.addImplements("java.io.Serializable",stale);
+            editor.removeExtendsOrImplementsInterface("Runnable",stale);editor.removeExtendsClass(stale);
+            String text=editor.getSourcePane().getDocument().getFullContent();assertTrue(text.contains("implements java.io.Serializable"));assertFalse(text.contains("extends"));assertTrue(text.contains("int untouched;"));
+            editor.getActions().getActionByName("undo").actionPerformed(false);assertTrue(editor.getSourcePane().getDocument().getFullContent().contains("extends OtherMissingBase"));
+            editor.getActions().getActionByName("redo").actionPerformed(false);assertEquals(text,editor.getSourcePane().getDocument().getFullContent());
+        });
+        assertEquals(1,gate.release.getCount());gate.release.countDown();saved(save());
+        assertEquals(fx(() -> editor.getSourcePane().getDocument().getFullContent()),Files.readString(path));
+    }
+
+    @Test public void interfaceEditsKeepUndoAndIncompleteDeclarationsAreLeftUntouched() throws Exception
+    {
+        text("interface Example {}\n");fx_(() -> {
+            editor.addExtendsInterface("Runnable",null);editor.addExtendsInterface("java.io.Serializable",null);editor.removeExtendsOrImplementsInterface("Runnable",null);
+            assertTrue(editor.getSourcePane().getDocument().getFullContent().contains("extends java.io.Serializable"));
+            editor.getActions().getActionByName("undo").actionPerformed(false);assertTrue(editor.getSourcePane().getDocument().getFullContent().contains("Runnable"));
+            editor.getActions().getActionByName("redo").actionPerformed(false);
+        });saved(save());
+        String incomplete="class Example extends ";text(incomplete);fx_(() -> {editor.setExtendsClass("Base",null);editor.addImplements("Runnable",null);assertEquals(incomplete,editor.getSourcePane().getDocument().getFullContent());});
+        saved(save());assertEquals(incomplete,Files.readString(path));
+    }
 }
