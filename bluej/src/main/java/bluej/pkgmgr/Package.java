@@ -2457,6 +2457,7 @@ public final class Package
 
     public CompletableFuture<Void> sourceFileChangesSettled() { return sourceFiles.settled(); }
     public boolean hasPendingSourceFileChanges() { return sourceFiles.pending(); }
+    public boolean hasActiveCompilations() { return currentlyCompiling || !activeCompilationJobs.isEmpty(); }
 
     /**
      * remove the arrow representing the given dependency

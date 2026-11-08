@@ -923,6 +923,7 @@ light.save.copyClose=Salva copia di recupero e chiudi
 light.save.keepEditing=Continua a modificare
 light.save.stillPending=Il salvataggio sta richiedendo pi\u00f9 tempo del previsto.
 light.source.incomplete=Completa o correggi il sorgente Java prima di modificarne la dichiarazione.
+light.source.operationPending=Un'operazione su questo sorgente \u00e8 ancora in corso. Riprova al termine.
 light.save.closePending=Il salvataggio non \u00e8 ancora terminato e potrebbe concludersi. Puoi continuare a modificare, oppure conservare il testo attuale in una copia di recupero UTF-8 verificata prima di chiudere.
 light.save.closeFailure=Non \u00e8 stato possibile salvare il file originale. Potrebbe essere aperto in un altro programma o l'accesso potrebbe essere negato. Puoi continuare a modificare, oppure chiudere dopo aver salvato una copia UTF-8 verificata nella cartella delle preferenze. Il file originale non viene sovrascritto.
 light.save.recoveryTitle=Recupero sorgente

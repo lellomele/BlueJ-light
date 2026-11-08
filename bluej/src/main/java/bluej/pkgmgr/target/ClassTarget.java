@@ -126,9 +126,6 @@ public class ClassTarget extends DependentTarget
     private static final String STEREOTYPE_CLOSE = "\u00BB"; //">>";
 
 
-    // temporary file name extension to trick windows if changing case only in
-    // class name
-    private static String TEMP_FILE_EXTENSION = "-temp";
     private CompletableFuture<Void> pendingSourceChange;
 
     // the role object represents the changing roles that are class
@@ -1460,7 +1457,8 @@ public class ClassTarget extends DependentTarget
     {
         ClassInfo info = analyseSource();
         if (info != null) {
-            updateTargetFile(info);
+            try { updateTargetFile(info); }
+            catch (IOException failure) { throw new java.io.UncheckedIOException(failure); }
         }
     }
 
@@ -1740,15 +1738,9 @@ public class ClassTarget extends DependentTarget
      * Change file name and package to match that found in the source file.
      * @param info  The information from source analysis
      */
-    private void updateTargetFile(ClassInfo info)
+    private void updateTargetFile(ClassInfo info) throws IOException
     {
         if (analyseClassName(info)) {
-            if (nameEqualsIgnoreCase(info.getName())) {
-                // this means file has same name but different case
-                // to trick Windows OS to do a name change we need to
-                // rename to temp name and then rename to desired name
-                doClassNameChange(info.getName() + TEMP_FILE_EXTENSION);
-            }
             doClassNameChange(info.getName());
         }
         if (analysePackageName(info)) {
@@ -1963,66 +1955,37 @@ public class ClassTarget extends DependentTarget
     /**
      * Notification that the class represented by this class target has changed name.
      */
-    private boolean doClassNameChange(String newName)
+    private void doClassNameChange(String newName) throws IOException
     {
-        //need to check that class does not already exist
-        if (getPackage().getTarget(newName) != null)
+        Package pkg = getPackage();
+        if (pkg.hasActiveCompilations() || pkg.hasPendingSourceFileChanges())
+            throw new IOException(Config.getString("light.source.operationPending"));
+        if (!(editor instanceof FlowEditor flow)) throw new IOException("A Java source editor is required for renaming");
+        var saved = flow.getLastSavedSource();
+        if (saved == null || saved.revision() != flow.getContentRevision()) throw new IOException("No current saved source for renaming");
+        if (!pkg.reserveTargetName(this,newName)) throw new IOException(Config.getString("editor.info.duplication"));
+        String oldName = getIdentifierName();
+        java.nio.file.Path oldSource = getJavaSourceFile().toPath().toAbsolutePath().normalize(),destination = oldSource.resolveSibling(newName + ".java");
+        List<java.nio.file.Path> obsolete = List.of(getClassFile().toPath(),getContextFile().toPath(),getDocumentationFile().toPath());
+        bluej.light.SourceSaveService service = pkg.getProject().getSourceSaveService();
+        try
         {
-            getEditor().writeMessage((Config.getString("editor.info.duplication")));
-            return false;
-        }
-
-        File oldJavaSourceFile  = getJavaSourceFile();
-        File newJavaSourceFile = new File(getPackage().getPath(), newName + "." + SourceType.Java.toString().toLowerCase());
-
-        try {
-            String filename = newJavaSourceFile.getAbsolutePath();
-            getPackage().updateTargetIdentifier(this, getIdentifierName(), newName);
-
-            // Also copy the Java file across, in all cases:
-            FileUtility.copyFile(oldJavaSourceFile, newJavaSourceFile);
-            String javaFilename = newJavaSourceFile.getAbsolutePath();
-            String docFilename = getPackage().getProject().getDocumentationFile(javaFilename);
-            getEditor().changeName(newName, filename, javaFilename, docFilename);
-
-            deleteSourceFiles();
-            getClassFile().delete();
-            // Delete subclass files like Foo$1.class, Foo$Inner.class
-            for (File innerClassFile : getInnerClassFiles())
+            // Compatibility API: wait only for worker I/O, never for an FX acknowledgement.
+            var moved = service.relocate(saved,destination,flow.getLocalHistory()).join();
+            try
             {
-                innerClassFile.delete();
+                IOException warning = service.submit(() -> cleanRenamedClassFiles(oldSource,obsolete)).join();
+                if (warning != null) Debug.reportError("Cannot clean old class metadata",warning);
             }
-            
-            getContextFile().delete();
-            getDocumentationFile().delete();
-
-            // this is extremely dangerous code here.. must track all
-            // variables which are set when ClassTarget is first
-            // constructed and fix them up for new class name
-            String oldName = getIdentifierName();
-            setIdentifierName(newName);
-            updateDisplayName();
-            
-            // Update the BClass object
-            BClass bClass = getBClass();
-            ExtensionBridge.ChangeBClassName(bClass, getQualifiedName());
-
-
-            // Take copy of listeners in case the rename causes new listeners to be added:
-            for (TargetListener stateListener : new ArrayList<>(stateListeners))
-            {
-                stateListener.renamed(newName);
-            }
-
-            // Inform all listeners about the name change
-            ClassEvent event = new ClassEvent(getPackage(), getBClass(), oldName);
-            ExtensionsManager.getInstance().delegateEvent(event);
-
-            return true;
+            catch (java.util.concurrent.CompletionException cleanup) { Debug.reportError("Cannot clean old class metadata",cleanup); }
+            pkg.commitTargetName(this,oldName,newName);
+            flow.acceptSourceRelocation(saved,moved.disk(),newName,pkg.getProject().getDocumentationFile(destination.toString()));
+            updateDisplayName();setState(State.NEEDS_COMPILE);notifyClassRenamed(pkg,oldName,newName);
+            if (moved.historyWarning() != null) Debug.reportError("Source renamed with history warning",moved.historyWarning());
         }
-        catch (IOException ioe) {
-            return false;
-        }
+        catch (java.util.concurrent.CompletionException failure)
+        { throw failure.getCause() instanceof IOException io ? io : new IOException("Cannot rename source",failure.getCause()); }
+        finally { pkg.releaseTargetName(this,newName); }
     }
 
     /**
@@ -2037,26 +2000,6 @@ public class ClassTarget extends DependentTarget
         updateAccessibleName();
     }
     
-    /**
-     * Delete all the source files (edited and generated) for this target.
-     */
-    private void deleteSourceFiles()
-    {
-        getSourceFile().delete();
-    }
-
-    /**
-     * Checks for ClassTarget name equality if case is ignored.
-     * 
-     * 
-     * @param newName
-     * @return true if name is equal ignoring case.
-     */
-    private boolean nameEqualsIgnoreCase(String newName)
-    {
-        return (getBaseName().equalsIgnoreCase(newName));
-    }
-
     /**
      * Change the package of a class target to something else.
      * 

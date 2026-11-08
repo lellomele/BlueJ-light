@@ -1913,13 +1913,18 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
      */
     public void doReload()
     {
+        if (sourceSaver.pending()) throw new java.io.UncheckedIOException(new IOException(Config.getString("light.source.operationPending")));
         removeSearchHighlights();
         try
         {
-            String text = Files.readString(java.nio.file.Path.of(filename), characterSet)
-                .replace("\r\n", "\n").replace("\r", "\n");
+            bluej.light.SourceSaveService.DiskState disk;
+            try { disk = sourceSaveService().inspect(java.nio.file.Path.of(filename),characterSet).join(); }
+            catch (java.util.concurrent.CompletionException failure) { throw new IOException("Cannot reload source",failure.getCause()); }
+            if (!disk.exists()) throw new FileNotFoundException(filename);
+            String text = disk.text();
             String previous = document.getFullContent();
             java.nio.file.Path source = java.nio.file.Path.of(filename);
+            sourceSaver.reset();invalidateDiskInspection();
             invalidateRecoveryWork();
             bluej.light.HistoryTasks.submit(() -> localHistory.snapshot(source, previous, "before reload"));
             document.replaceText(0, document.getLength(), text);
@@ -1927,9 +1932,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             undoManager.forgetHistory();
             historyDiskText = text;
             observedDiskText = text;
-            File file = new File(filename);
-            observedDiskLength = file.length();
-            setLastModified(file.lastModified());
+            observedDiskLength = disk.byteLength();
+            setLastModified(disk.modifiedMillis());
 
             if (sourceIsCode)
             {
@@ -1941,7 +1945,11 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             // But first set state to saved to avoid unnecessary writes to disk.
             saveState.setState(Status.SAVED);
             setChanged(); // contents may have changed - notify watcher
+            savedContentRevision = contentRevision;
+            lastSavedSource = new bluej.light.SourceSaveService.Snapshot(sourceSaver.owner(),contentRevision,source,text,characterSet,text,
+                PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES),false);
             setSaved();  // notify watcher that we are saved
+            if (contentRevision == savedContentRevision && cancelDraft != null) { cancelDraft.run();cancelDraft = null; }
 
             scheduleCompilation(CompileReason.LOADED, CompileType.ERROR_CHECK_ONLY);
         }
@@ -1951,6 +1959,12 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         catch (IOException ex) {
             info.message (Config.getString("editor.info.fileReadError"));
             setChanged();
+        }
+        catch (java.io.UncheckedIOException failure)
+        {
+            saveState.setState(Status.CHANGED);setChanged();
+            info.message(Config.getString("editor.info.errorSaving") + " - " + failure.getLocalizedMessage());
+            throw failure;
         }
         finally {
             if (finder != null && finder.isVisible()) {

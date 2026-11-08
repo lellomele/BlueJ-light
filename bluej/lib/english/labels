@@ -1067,6 +1067,7 @@ light.save.copyClose=Save recovery copy and close
 light.save.keepEditing=Keep editing
 light.save.stillPending=Saving is taking longer than expected.
 light.source.incomplete=Complete or correct the Java source before changing its declaration.
+light.source.operationPending=An operation on this source is still in progress. Try again after it finishes.
 light.save.closePending=The save has not finished yet and may still complete. You can keep editing, or preserve the current text in a verified UTF-8 recovery copy before closing.
 light.save.closeFailure=The original file could not be saved. It may be open in another program or access may be denied. You can keep editing, or close after saving a verified UTF-8 copy in the preferences folder. The original file will not be overwritten.
 light.save.recoveryTitle=Source recovery
