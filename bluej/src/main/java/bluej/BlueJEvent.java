@@ -103,7 +103,9 @@ public class BlueJEvent
         Object[] listenersCopy = listeners.toArray();
         for (int i = listenersCopy.length - 1; i >= 0; i--) {
             BlueJEventListener listener = (BlueJEventListener) listenersCopy[i];
-            listener.blueJEvent(eventId, arg, prj);
+            try { listener.blueJEvent(eventId, arg, prj); }
+            catch (RuntimeException | LinkageError | AssertionError failure)
+            { bluej.utility.Debug.reportError("BlueJ event listener failed for event " + eventId,failure); }
         }
     }
     
