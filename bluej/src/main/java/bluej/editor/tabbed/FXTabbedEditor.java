@@ -559,6 +559,13 @@ public @OnThread(Tag.FX) class FXTabbedEditor
         return Utility.mapList(tabPane.getTabs(), t -> (FXTab)t);
     }
 
+    @OnThread(Tag.FXPlatform)
+    public List<bluej.editor.Editor> getSourceEditors()
+    {
+        return getFXTabs().stream().filter(tab -> tab instanceof FlowFXTab)
+            .map(tab -> (bluej.editor.Editor)((FlowFXTab)tab).getFlowEditor()).toList();
+    }
+
     public void setTitleStatus(String status)
     {
         this.titleStatus.set(status);

@@ -120,8 +120,8 @@ public class BlueJGuiHandler implements GuiHandler
         if (round >= 32) return java.util.concurrent.CompletableFuture.completedFuture(false);
         java.util.Map<PkgMgrFrame, bluej.pkgmgr.Package> packages = new java.util.IdentityHashMap<>();
         for (PkgMgrFrame frame : pkgFrames) packages.put(frame, frame.getPackage());
-        return bluej.editor.EditorCloseBatch.prepare(() -> java.util.Arrays.stream(pkgFrames).filter(frame -> frame.getProject() != null)
-            .flatMap(frame -> frame.getProject().getConstructedEditors().stream()).distinct().toList()).thenCompose(ready -> {
+        return bluej.editor.EditorCloseBatch.prepare(() -> Project.getProjects().stream()
+            .flatMap(project -> project.getConstructedEditors().stream()).distinct().toList()).thenCompose(ready -> {
             java.util.concurrent.CompletableFuture<Boolean> saves = java.util.concurrent.CompletableFuture.completedFuture(ready);
             for (PkgMgrFrame frame : pkgFrames)
                 saves = saves.thenCompose(saved -> saved && frame.getPackage() == packages.get(frame) ? frame.doSaveAsync()

@@ -155,6 +155,7 @@ public class PkgMgrFrame
     private MachineIcon machineIcon;
     /* UI actions */
     private final PkgMgrAction closeProjectAction = new CloseProjectAction(this);
+    private static final Map<Project, java.util.concurrent.CompletableFuture<Boolean>> projectCloseRequests = new IdentityHashMap<>();
     private final PkgMgrAction saveProjectAction = new SaveProjectAction(this);
     private final PkgMgrAction saveProjectAsAction = new SaveProjectAsAction(this);
     private final PkgMgrAction importProjectAction = new ImportProjectAction(this);
@@ -887,13 +888,57 @@ public class PkgMgrFrame
      */
     public static void closeProject(Project project) 
     {
-        PkgMgrFrame[] allFrames = getAllProjectFrames(project);
+        closeProjectAsync(project).whenComplete((closed, failure) -> {
+            if (failure != null) Debug.reportError("Cannot close project",failure);
+        });
+    }
 
-        if (allFrames != null) {
-            for (PkgMgrFrame allFrame : allFrames) {
-                allFrame.doClose(true, true);
-            }
-        }
+    /** All windows stay available if any source decision or metadata save fails. */
+    public static java.util.concurrent.CompletableFuture<Boolean> closeProjectAsync(Project project)
+    {
+        java.util.concurrent.CompletableFuture<Boolean> existing = projectCloseRequests.get(project);
+        return existing == null ? beginProjectClose(project,() -> true) : existing;
+    }
+
+    public static java.util.concurrent.CompletableFuture<Boolean> closeProjectIfUnchangedAsync(Project project, long revision)
+    {
+        if (projectCloseRequests.containsKey(project)) return java.util.concurrent.CompletableFuture.completedFuture(false);
+        return beginProjectClose(project,() -> project.getCompletionSourceRevision() == revision);
+    }
+
+    private static java.util.concurrent.CompletableFuture<Boolean> beginProjectClose(Project project, bluej.utility.javafx.FXPlatformSupplier<Boolean> unchanged)
+    {
+        java.util.concurrent.CompletableFuture<Boolean> result = new java.util.concurrent.CompletableFuture<>();
+        projectCloseRequests.put(project,result);
+        result.whenComplete((closed, failure) -> JavaFXUtil.runNowOrLater(() -> projectCloseRequests.remove(project,result)));
+        prepareProjectClose(project,unchanged,0,result);return result;
+    }
+
+    private static void prepareProjectClose(Project project, bluej.utility.javafx.FXPlatformSupplier<Boolean> unchanged,
+        int round, java.util.concurrent.CompletableFuture<Boolean> result)
+    {
+        if (round >= 32 || !unchanged.get()) { result.complete(false);return; }
+        PkgMgrFrame[] closingFrames = getAllProjectFrames(project);
+        if (closingFrames == null) { result.complete(true);return; }
+        Map<PkgMgrFrame,Package> packages = new IdentityHashMap<>();
+        for (PkgMgrFrame frame : closingFrames) packages.put(frame,frame.getPackage());
+        project.prepareEditorsForCloseAsync().whenComplete((ready, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (failure != null) { result.completeExceptionally(failure);return; }
+            if (!Boolean.TRUE.equals(ready)) { result.complete(false);return; }
+            java.util.concurrent.CompletableFuture<Boolean> saved = java.util.concurrent.CompletableFuture.completedFuture(true);
+            for (PkgMgrFrame frame : closingFrames)
+                saved = saved.thenCompose(previous -> previous && frame.getPackage() == packages.get(frame)
+                    ? frame.doSaveAsync() : java.util.concurrent.CompletableFuture.completedFuture(false));
+            saved.whenComplete((complete, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (error != null) { result.completeExceptionally(error);return; }
+                PkgMgrFrame[] now = getAllProjectFrames(project);
+                if (!Boolean.TRUE.equals(complete) || !unchanged.get() || now == null || !Set.of(closingFrames).equals(Set.of(now))
+                    || Arrays.stream(closingFrames).anyMatch(frame -> frame.getPackage() != packages.get(frame))) { result.complete(false);return; }
+                if (!project.editorsPreparedForClose()) { prepareProjectClose(project,unchanged,round + 1,result);return; }
+                for (PkgMgrFrame frame : closingFrames) frame.finishFrameClose(true);
+                result.complete(Arrays.stream(closingFrames).noneMatch(frame -> frame.getProject() == project));
+            }));
+        }));
     }
 
     /**
@@ -1057,7 +1102,10 @@ public class PkgMgrFrame
         if (isEmptyFrame()) {
             return true;
         }
-        if (!prepareClose() || !getPackage().closeAllEditors()) return false;
+        if (!prepareClose()) return false;
+        PkgMgrFrame[] projectFrames = getAllProjectFrames(getProject());
+        if (projectFrames != null && projectFrames.length == 1 && !getProject().closePreparedEditors()) return false;
+        if (!getPackage().closeAllEditors()) return false;
         Package thePkg = getPackage();
         
         extMgr.packageClosing(thePkg);

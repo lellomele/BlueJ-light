@@ -185,7 +185,7 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
     private Map<Package, CompileRequest> scheduledPkgs = new LinkedHashMap<>();
     /** Targets scheduled for autocompilation */
     @OnThread(Tag.FXPlatform)
-    private Map<ClassTarget, CompileRequest> scheduledTargets = new LinkedHashMap<>();
+    private Map<ClassTarget, CompileRequest> scheduledTargets = new bluej.utility.OrderedIdentityMap<>();
 
     /**
      * The threads currently running in the debugger for this project.  We need
@@ -1412,6 +1412,41 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
         }
     }
 
+    /** Save sources and frame metadata as one nonblocking, revision-aware boundary. */
+    public java.util.concurrent.CompletableFuture<Void> saveAllAsync()
+    {
+        java.util.concurrent.CompletableFuture<Void> result = new java.util.concurrent.CompletableFuture<>();
+        saveProjectPass(0,result);return result;
+    }
+
+    private void saveProjectPass(int round, java.util.concurrent.CompletableFuture<Void> result)
+    {
+        if (result.isDone()) return;
+        if (closing || round >= 32) { result.completeExceptionally(new IOException("Project changed while preparing its save"));return; }
+        saveAllEditorsAsync().whenComplete((ignored, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+            if (failure != null) { result.completeExceptionally(failure);return; }
+            long revision = completionSourceRevision;
+            PkgMgrFrame[] frames = PkgMgrFrame.getAllProjectFrames(this);
+            if (frames == null) { result.completeExceptionally(new IOException("Project windows closed during save"));return; }
+            saveProjectFrames(List.of(frames),0).whenComplete((saved, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (error != null) { result.completeExceptionally(error);return; }
+                if (closing) { result.completeExceptionally(new IOException("Project closed during save"));return; }
+                if (revision != completionSourceRevision || bluej.editor.EditorSaveBatch.needsSave(this::getConstructedEditors))
+                    saveProjectPass(round + 1,result);
+                else result.complete(null);
+            }));
+        }));
+    }
+
+    private java.util.concurrent.CompletableFuture<Void> saveProjectFrames(List<PkgMgrFrame> frames, int index)
+    {
+        if (index == frames.size()) return java.util.concurrent.CompletableFuture.completedFuture(null);
+        PkgMgrFrame frame = frames.get(index);
+        if (frame.getProject() != this) return java.util.concurrent.CompletableFuture.failedFuture(new IOException("Project window changed during save"));
+        return frame.doSaveAsync().thenCompose(saved -> Boolean.TRUE.equals(saved) && frame.getProject() == this
+            ? saveProjectFrames(frames,index + 1) : java.util.concurrent.CompletableFuture.failedFuture(new IOException("Cannot save project window")));
+    }
+
     /**
      * Request all open editor windows for the current project to save their
      * contents (if modified).
@@ -1447,6 +1482,8 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
                     Editor editor = editable.getEditorIfOpen();
                     if (editor != null && seen.add(editor)) result.add(editor);
                 }
+        for (FXTabbedEditor window : List.copyOf(fXTabbedEditors))
+            for (Editor editor : window.getSourceEditors()) if (seen.add(editor)) result.add(editor);
         return result;
     }
 
@@ -1464,12 +1501,25 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
 
     public java.util.concurrent.CompletableFuture<Boolean> prepareEditorsForCloseAsync()
     {
-        return bluej.editor.EditorCloseBatch.prepare(this::getConstructedEditors);
+        return bluej.editor.EditorCloseBatch.prepare(this::getConstructedEditors).thenCompose(ready -> {
+            if (!ready) return java.util.concurrent.CompletableFuture.completedFuture(false);
+            var paths = List.copyOf(packages.values()).stream().map(Package::sourceFileChangesSettled).toArray(java.util.concurrent.CompletableFuture[]::new);
+            return java.util.concurrent.CompletableFuture.allOf(paths).thenApply(ignored -> editorsPreparedForClose());
+        });
     }
 
     public boolean editorsPreparedForClose()
     {
-        return getConstructedEditors().stream().allMatch(Editor::isPreparedForClose);
+        return getConstructedEditors().stream().allMatch(Editor::isPreparedForClose)
+            && packages.values().stream().noneMatch(Package::hasPendingSourceFileChanges);
+    }
+
+    public boolean closePreparedEditors()
+    {
+        List<Editor> editors = getConstructedEditors();
+        if (!editorsPreparedForClose()) return false;
+        for (Editor editor : editors) editor.closePrepared();
+        return editors.stream().noneMatch(Editor::isOpen);
     }
 
     /**
@@ -2190,7 +2240,7 @@ public class Project implements DebuggerListener, DebuggerThreadListener, Inspec
                     Map<Package, CompileRequest> pkgsToCompile = scheduledPkgs;
                     scheduledPkgs = new LinkedHashMap<>();
                     Map<ClassTarget, CompileRequest> targetsToCompile = scheduledTargets;
-                    scheduledTargets = new LinkedHashMap<>();
+                    scheduledTargets = new bluej.utility.OrderedIdentityMap<>();
                     if (closing) return;
                     for (var entry : pkgsToCompile.entrySet())
                         entry.getKey().compileOnceIdle(null, entry.getValue().reason(), entry.getValue().type());

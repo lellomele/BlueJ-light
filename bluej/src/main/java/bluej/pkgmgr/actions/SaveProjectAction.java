@@ -39,6 +39,11 @@ final public class SaveProjectAction extends PkgMgrAction
     public void actionPerformed(PkgMgrFrame pmf)
     {
         pmf.menuCall();
-        pmf.getProject().saveAll();
+        bluej.pkgmgr.Project project = pmf.getProject();
+        project.saveAllAsync().whenComplete((saved, failure) -> bluej.utility.javafx.JavaFXUtil.runNowOrLater(() -> {
+            if (pmf.getProject() != project) return;
+            pmf.setStatus(bluej.Config.getString(failure == null ? "pkgmgr.packageSaved" : "editor.info.errorSaving"));
+            if (failure != null) bluej.utility.Debug.reportError("Cannot save project",failure);
+        }));
     }
 }

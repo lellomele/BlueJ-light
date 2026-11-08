@@ -2456,6 +2456,7 @@ public final class Package
     { return sourceFiles.begin(operation); }
 
     public CompletableFuture<Void> sourceFileChangesSettled() { return sourceFiles.settled(); }
+    public boolean hasPendingSourceFileChanges() { return sourceFiles.pending(); }
 
     /**
      * remove the arrow representing the given dependency
