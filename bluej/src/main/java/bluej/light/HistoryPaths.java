@@ -80,8 +80,8 @@ final class HistoryPaths
     private void publish(Move move) throws IOException
     {
         // A newly created class at the vacated name must have its own draft/history identity.
-        link(move.source(), move.vacatedIdentity());
-        link(move.destination(), move.identity());
+        link(move.source(), move.vacatedIdentity(),move.destination());
+        link(move.destination(), move.identity(),null);
         try { Files.deleteIfExists(journal(move)); }
         catch (IOException unavailable)
         {
@@ -90,10 +90,48 @@ final class HistoryPaths
         }
     }
 
-    private void link(Path source, String identity) throws IOException
+    private void link(Path source, String identity, Path movedTo) throws IOException
     {
         Properties values = new Properties(); values.setProperty("source", key(source)); values.setProperty("identity", identity);
+        if (movedTo != null) values.setProperty("movedTo",key(movedTo));
         write(root.resolve("path-links").resolve(LocalHistory.hash(key(source)) + ".properties"), values);
+    }
+
+    Path effectiveSource(Path source) throws IOException
+    {
+        synchronized (lock)
+        {
+            recoverMoves();
+            Path current = source.toAbsolutePath().normalize(); Set<String> seen = new HashSet<>();
+            for (int count = 0; count < 32; count++)
+            {
+                if (!seen.add(key(current))) throw new IOException("Cyclic history path links");
+                Path link = root.resolve("path-links").resolve(LocalHistory.hash(key(current)) + ".properties");
+                if (!Files.isRegularFile(link)) return current;
+                Properties values = read(link);
+                if (!key(current).equals(values.getProperty("source"))) throw new IOException("Invalid history path link");
+                String redirect = values.getProperty("movedTo"); if (redirect == null) return current;
+                Path next;
+                try { next = Path.of(redirect).toAbsolutePath().normalize(); }
+                catch (RuntimeException invalid) { throw new IOException("Invalid history path redirect",invalid); }
+                if (current.getParent() == null || !current.getParent().equals(next.getParent()) || !next.getFileName().toString().endsWith(".java"))
+                    throw new IOException("History path redirect leaves its package");
+                if (Files.exists(current))
+                {
+                    boolean changedCase = !key(current).equals(key(next)) && Files.exists(next) && Files.isSameFile(current,next)
+                        && current.getFileName().toString().equalsIgnoreCase(next.getFileName().toString()) && exactEntry(next);
+                    if (!changedCase) return current;
+                }
+                current = next;
+            }
+            throw new IOException("Too many history path redirects");
+        }
+    }
+
+    private static boolean exactEntry(Path path) throws IOException
+    {
+        try (var files = Files.list(path.getParent()))
+        { return files.anyMatch(entry -> entry.getFileName().toString().equals(path.getFileName().toString())); }
     }
 
     private void recoverMoves() throws IOException
@@ -136,8 +174,7 @@ final class HistoryPaths
         if (!move.source().getFileName().toString().equalsIgnoreCase(move.destination().getFileName().toString())
             || !Files.isSameFile(move.source(), move.destination())) return false;
         // On Windows both case spellings exist logically; inspect the actual directory entry.
-        try (var files = Files.list(move.destination().getParent()))
-        { return files.anyMatch(path -> path.getFileName().toString().equals(move.destination().getFileName().toString())); }
+        return exactEntry(move.destination());
     }
 
     private static Move decode(Properties values) throws IOException

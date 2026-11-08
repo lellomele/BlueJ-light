@@ -45,4 +45,23 @@ public class TestSessionRecovery
         try { SessionRecovery.read(file); fail("Oversized session accepted"); }
         catch (IOException expected) { }
     }
+
+    @Test public void aSessionRecordedBeforeAnInterruptedRenameResolvesTheActualClass() throws Exception
+    {
+        Path root=folder.getRoot().toPath(),preferences=root.resolve("preferences"),source=root.resolve("Example.java"),destination=root.resolve("Renamed.java");
+        Files.writeString(source,"class Renamed {}\n");LocalHistory history=new LocalHistory(preferences);
+        history.preparePathChange(source,destination);Files.move(source,destination);
+        var session=List.of(new SessionRecovery.Entry(root,List.of("Example")));
+        assertEquals(List.of(new SessionRecovery.Entry(root,List.of("Renamed"))),SessionRecovery.resolveEntries(session,new LocalHistory(preferences)));
+    }
+
+    @Test public void reusedOldNameBelongsToTheNewClassAndInvalidNamesCannotEscapeThePackage() throws Exception
+    {
+        Path root=folder.getRoot().toPath(),preferences=root.resolve("preferences"),source=root.resolve("Example.java"),destination=root.resolve("Renamed.java");
+        Files.writeString(source,"class Renamed {}\n");LocalHistory history=new LocalHistory(preferences);
+        var change=history.preparePathChange(source,destination);Files.move(source,destination);history.commitPathChange(change);
+        Files.writeString(source,"class Example {}\n");
+        var session=List.of(new SessionRecovery.Entry(root,List.of("Example","../outside","Renamed","Renamed")));
+        assertEquals(List.of(new SessionRecovery.Entry(root,List.of("Example","Renamed"))),SessionRecovery.resolveEntries(session,new LocalHistory(preferences)));
+    }
 }

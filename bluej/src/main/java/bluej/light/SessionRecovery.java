@@ -22,6 +22,8 @@ public final class SessionRecovery
     private static final int MAX_CLASSES = 1000;
     @OnThread(Tag.FXPlatform) private static boolean active;
     @OnThread(Tag.FXPlatform) private static FXPlatformRunnable cancelCheckpoint;
+    @OnThread(Tag.FXPlatform) private static long restoreGeneration;
+    @OnThread(Tag.FXPlatform) private static boolean restoringEditors;
 
     public record Entry(Path packageDirectory, List<String> classes)
     {
@@ -100,7 +102,7 @@ public final class SessionRecovery
     @OnThread(Tag.FXPlatform)
     public static void changed()
     {
-        if (!active || cancelCheckpoint != null) return;
+        if (!active || restoringEditors || cancelCheckpoint != null) return;
         cancelCheckpoint = JavaFXUtil.runAfter(javafx.util.Duration.millis(250), () -> {
             cancelCheckpoint = null;
             Map<Path, Entry> entries = new LinkedHashMap<>();
@@ -123,6 +125,53 @@ public final class SessionRecovery
 
     @OnThread(Tag.FXPlatform)
     public static void restoreEditors(List<Entry> entries)
+    {
+        if (entries.isEmpty()) return;
+        long generation = ++restoreGeneration;
+        restoringEditors = true;
+        Path preferences = Config.getUserConfigDir().toPath(); List<Entry> captured = List.copyOf(entries);
+        HistoryTasks.submitAsync(() -> {
+            List<Entry> resolved = resolveEntries(captured,new LocalHistory(preferences));
+            JavaFXUtil.runNowOrLater(() -> {
+                if (generation != restoreGeneration) return;
+                try { restoreResolvedEditors(resolved); }
+                finally { restoringEditors = false;changed(); }
+            });
+        }).whenComplete((ignored, failure) -> {
+            if (failure != null) JavaFXUtil.runNowOrLater(() -> {
+                if (generation != restoreGeneration) return;
+                Debug.reportError("Cannot restore editor session",failure);restoringEditors = false;changed();
+            });
+        });
+    }
+
+    /** Resolve a name journalled before a crash midway through its physical rename. No UI work here. */
+    static List<Entry> resolveEntries(List<Entry> entries, LocalHistory history)
+    {
+        List<Entry> result = new ArrayList<>();
+        for (Entry entry : entries)
+        {
+            Set<String> classes = new LinkedHashSet<>();
+            for (String name : entry.classes())
+            {
+                if (name == null || name.isBlank() || !Character.isJavaIdentifierStart(name.codePointAt(0))
+                    || !name.codePoints().allMatch(Character::isJavaIdentifierPart)) continue;
+                Path source = entry.packageDirectory().resolve(name + ".java");
+                try
+                {
+                    Path actual = history.effectiveSource(source);
+                    String file = actual.getFileName().toString();
+                    classes.add(file.endsWith(".java") ? file.substring(0,file.length() - 5) : name);
+                }
+                catch (IOException | RuntimeException unavailable) { Debug.reportError("Cannot resolve recovered class: " + name,unavailable);classes.add(name); }
+            }
+            result.add(new Entry(entry.packageDirectory(),List.copyOf(classes)));
+        }
+        return List.copyOf(result);
+    }
+
+    @OnThread(Tag.FXPlatform)
+    private static void restoreResolvedEditors(List<Entry> entries)
     {
         for (Entry entry : entries)
             for (PkgMgrFrame frame : PkgMgrFrame.getAllFrames())
@@ -147,6 +196,8 @@ public final class SessionRecovery
     @OnThread(Tag.FXPlatform)
     public static java.util.concurrent.CompletableFuture<Void> finishAsync()
     {
+        restoreGeneration++;
+        restoringEditors = false;
         if (!active) return java.util.concurrent.CompletableFuture.completedFuture(null);
         active = false;
         if (cancelCheckpoint != null) { cancelCheckpoint.run(); cancelCheckpoint = null; }

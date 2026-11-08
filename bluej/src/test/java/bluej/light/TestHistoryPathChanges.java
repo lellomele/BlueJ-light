@@ -34,6 +34,7 @@ public class TestHistoryPathChanges
         Path revision = history.list(source).getFirst().file(); move();
         LocalHistory restarted = new LocalHistory(preferences);
         assertEquals("newer unsaved\n",restarted.recover(destination,"saved\n").orElseThrow().text());
+        assertEquals(destination.toString(),restarted.effectiveSource(source).toString());
         assertEquals(revision,restarted.list(destination).getFirst().file());
         assertTrue(restarted.list(source).isEmpty()); assertTrue(restarted.recover(source,"").isEmpty());
     }
@@ -53,6 +54,7 @@ public class TestHistoryPathChanges
         LocalHistory restarted = new LocalHistory(preferences);
         assertEquals("newer unsaved\n",restarted.recover(destination,"saved\n").orElseThrow().text());
         assertEquals("earlier\n",restarted.read(restarted.list(destination).getFirst()));
+        assertEquals(destination.toString(),restarted.effectiveSource(source).toString());
         assertTrue(restarted.recover(source,"").isEmpty());
     }
     @Test public void intentBeforeAMoveDoesNotPublishHistoryForANonexistentDestination() throws Exception
@@ -90,6 +92,7 @@ public class TestHistoryPathChanges
     {
         destination = source.resolveSibling("EXAMPLE.java"); move();
         assertEquals("newer unsaved\n",new LocalHistory(preferences).recover(destination,"saved\n").orElseThrow().text());
+        assertEquals(destination.toString(),new LocalHistory(preferences).effectiveSource(source).toString());
         try (var files = Files.list(destination.getParent()))
         { assertTrue(files.anyMatch(file -> file.getFileName().toString().equals("EXAMPLE.java"))); }
     }
