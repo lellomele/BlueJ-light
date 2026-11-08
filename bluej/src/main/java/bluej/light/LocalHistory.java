@@ -112,13 +112,50 @@ public final class LocalHistory
 
     public synchronized void draft(Path source, String text, String diskHash) throws IOException
     {
+        draft(source, text, diskHash, "", -1);
+    }
+
+    /** A revision belongs to one loaded editor generation; it is not comparable across owners. */
+    public synchronized void draft(Path source, String text, String diskHash, String owner, long revision) throws IOException
+    {
         if (text.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) return;
         Properties values = new Properties();
         values.setProperty("base", diskHash);
         values.setProperty("text", text);
+        values.setProperty("owner", owner);
+        values.setProperty("revision", Long.toString(revision));
         java.io.StringWriter writer = new java.io.StringWriter();
         values.store(writer, null);
         atomicWrite(folder(source).resolve("draft.data"), writer.toString());
+    }
+
+    /** A late acknowledgement may retire an older draft, but must preserve newer unsaved text. */
+    public synchronized void acknowledgeSave(Path source, String before, String saved, String owner, long revision) throws IOException
+    {
+        if (before != null) snapshot(source, before, "before save");
+        snapshot(source, saved, "saved");
+        Path file = folder(source).resolve("draft.data");
+        if (!Files.isRegularFile(file) || Files.size(file) > MAX_BYTES * 4L) return;
+        Properties values = new Properties();
+        try (var reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) { values.load(reader); }
+        String text = values.getProperty("text", "");
+        boolean sameOwner = !owner.isEmpty() && owner.equals(values.getProperty("owner", ""));
+        long draftRevision;
+        try { draftRevision = Long.parseLong(values.getProperty("revision", "-1")); }
+        catch (NumberFormatException invalid) { draftRevision = -1; }
+        if (text.equals(saved) || (sameOwner && draftRevision >= 0 && draftRevision <= revision))
+        {
+            Files.deleteIfExists(file);
+        }
+        else if (sameOwner && draftRevision > revision)
+        {
+            // The new draft remains unsaved, now relative to our own completed disk version.
+            values.setProperty("base", hash(saved));
+            java.io.StringWriter writer = new java.io.StringWriter();
+            values.store(writer, null);
+            atomicWrite(file, writer.toString());
+        }
+        // Unknown/legacy or other-editor drafts are never deleted merely by a revision comparison.
     }
 
     public synchronized Optional<Draft> recover(Path source, String diskText) throws IOException
