@@ -64,6 +64,14 @@ tasks.withType(JavaCompile) {
 
 test {
     useJUnit()
+    doFirst {
+        def profiles = layout.buildDirectory.dir('test-profiles').get().asFile.toPath()
+        java.nio.file.Files.createDirectories(profiles)
+        def profile = java.nio.file.Files.createTempDirectory(profiles, 'run-').toAbsolutePath().toString()
+        systemProperty 'user.home', profile
+        systemProperty 'bluej.userHome', profile
+        systemProperty 'bluej.unitProfile', profile
+    }
     jvmArgs += 
             // Headless is the default because headed GUI tests are quite a surprise and cause havoc:
             (("true".equals(project.findProperty("headless")) || project.findProperty("headless") == null) ? [

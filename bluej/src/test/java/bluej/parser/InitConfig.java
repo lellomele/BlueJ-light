@@ -24,6 +24,8 @@ package bluej.parser;
 
 import java.io.File;
 import java.util.Properties;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import bluej.Boot;
 import bluej.Config;
@@ -41,7 +43,25 @@ public class InitConfig
         Properties p = new Properties();
         p.put("bluej.debug", "true");
         p.put("bluej.language", "english");
+        Path profile;
+        try
+        {
+            String supplied = System.getProperty("bluej.unitProfile");
+            if (supplied == null)
+            {
+                Path profiles = Path.of("build", "test-profiles").toAbsolutePath();
+                Files.createDirectories(profiles);
+                profile = Files.createTempDirectory(profiles, "run-");
+            }
+            else profile = Path.of(supplied).toAbsolutePath().normalize();
+            Files.createDirectories(profile);
+        }
+        catch (java.io.IOException failure) { throw new ExceptionInInitializerError(failure); }
+        p.put("bluej.userHome", profile.toString());
         Config.initialise(bluejLibDir, p, false);
+        if (!Config.getUserConfigDir().toPath().toAbsolutePath().normalize().startsWith(profile))
+            throw new ExceptionInInitializerError("Unit tests must not use personal BlueJ preferences");
+        System.out.println("BLUEJ_UNIT_PROFILE=" + Config.getUserConfigDir().getAbsolutePath());
     }
     
     public static void init() { }
