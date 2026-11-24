@@ -4,7 +4,7 @@
 
 An independent Java IDE based on BlueJ 5.5.0, with an optimized editor,
 code completion, searchable snippets, automatic class-diagram layout and
-an integrated JDK selector and teaching tools. Current version: **5.7.2-light**.
+an integrated JDK selector and teaching tools. Current version: **5.7.3-light**.
 This is not an official BlueJ release.
 
 ## What Changes In Light

@@ -46,6 +46,7 @@ public class SnippetContextSmoke extends AdvancedSmoke
                 String original = fx(() -> (String)call(document, "getFullContent"));
                 // The unmodified first-open caret is essential: previous smoke checks moved it into a method.
                 browse(javaEditor, false, true);
+                verifyEditorHelpMnemonic((Node)pane);
                 String valid = "/* outside */\nimport java.util.List;\n"
                     + "public class School {\n /* field comment */ int field;\n"
                     + " int answer() { /* method comment */ String text = \"hello\"; if (field > 0) { return 42; } return 0; }\n"
@@ -167,6 +168,33 @@ public class SnippetContextSmoke extends AdvancedSmoke
         verify.start();
         Boot.main(args[1].equals("@portable") ? new String[] { args[0] }
             : new String[] { "-bluej.userHome=" + args[1], args[0] });
+    }
+
+    private static void verifyEditorHelpMnemonic(Node source) throws Exception
+    {
+        fx(() -> {
+            String labelText = label("light.snippets.title");
+            MenuBar bar = (MenuBar)source.getScene().getRoot().lookup(".menu-bar");
+            Menu help = bar.getMenus().stream().filter(menu ->
+                menu.getItems().stream().anyMatch(item -> item.getText() != null
+                    && item.getText().equals(labelText))).findFirst().orElseThrow();
+            String translated = (String)loader.loadClass("bluej.Config")
+                .getMethod("getMenuString", String.class).invoke(null, "menu.help");
+            int mark = translated.indexOf('_');
+            if (mark >= 0 && mark + 1 < translated.length())
+            {
+                String letter = translated.substring(mark + 1, mark + 2).toUpperCase(Locale.ROOT);
+                KeyCode key = KeyCode.getKeyCode(letter);
+                if (key != null)
+                {
+                    source.requestFocus();
+                    Event.fireEvent(source, new KeyEvent(KeyEvent.KEY_PRESSED, "", letter, key, false, false, true, false));
+                    if (help.isShowing()) throw new AssertionError("Typing opened the editor Help menu");
+                    Event.fireEvent(source, new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ESCAPE, false, false, false, false));
+                }
+            }
+            return null;
+        });
     }
 
     private static void browse(Object javaEditor, boolean insertion, boolean menu) throws Exception

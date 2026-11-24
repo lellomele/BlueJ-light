@@ -1119,7 +1119,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 new javafx.scene.input.KeyCodeCombination(javafx.scene.input.KeyCode.LEFT, javafx.scene.input.KeyCombination.ALT_DOWN)),
             JavaFXUtil.makeMenuItem(Config.getString("light.nav.forward"), () -> navigateHistory(true),
                 new javafx.scene.input.KeyCodeCombination(javafx.scene.input.KeyCode.RIGHT, javafx.scene.input.KeyCombination.ALT_DOWN)));
-        Menu help = new Menu(Config.getMenuString("menu.help"));
+        Menu help = new Menu(Config.getString("menu.help")); // Use a plain label so typing cannot activate Help.
         tools.getItems().add(JavaFXUtil.makeMenuItem(Config.getString("light.errors"),
             () -> bluej.light.EditorTools.errors(this), null));
         help.getItems().add(JavaFXUtil.makeMenuItem(Config.getString("light.snippets.title"),
