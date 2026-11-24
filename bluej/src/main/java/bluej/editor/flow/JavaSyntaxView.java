@@ -385,20 +385,16 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
         JavaFXUtil.addChangeListenerPlatform(this.syntaxHighlighting, syn -> {
             recalculateAndApplyAllScopes();
         });
-        // We use class color as a proxy for listening to all colors:
-        JavaFXUtil.addChangeListenerPlatform(scopeColors.scopeClassColorProperty(), str -> {
-            // If printing, don't run later as we're not on the main thread.
-            // Instead, the printing code will trigger the necessary recalculation.
-            //if (!document.isPrinting())
-            {
-                // runLater to make sure all colours have been set:
-                JavaFXUtil.runAfterCurrent(() ->
-                {
-                    resetColors();
+        // CSS can supply the editor palette after the parser has finished its first draw.
+        // Wait for the remaining colours from the same CSS pass before replacing the visible fills.
+        JavaFXUtil.addChangeListenerPlatform(scopeColors.scopeClassColorProperty(), color ->
+            JavaFXUtil.runAfterCurrent(() -> {
+                resetColors();
+                if (!scopeRefreshPending) {
                     recalculateAllScopes();
-                });
-            }
-        });
+                    if (!isPrinting()) applyPendingScopeBackgrounds();
+                }
+            }));
     }
 
     /**

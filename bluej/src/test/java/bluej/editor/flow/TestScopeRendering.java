@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GNU GPLv2 with Classpath Exception; original notices retained. */
 package bluej.editor.flow;
 
 import bluej.editor.base.BackgroundItem;
@@ -10,11 +10,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import javafx.beans.property.ReadOnlyBooleanWrapper;
 import javafx.beans.property.ReadOnlyDoubleProperty;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.scene.Scene;
 import javafx.scene.layout.Pane;
+import javafx.scene.paint.Color;
+import javafx.scene.paint.Paint;
 import javafx.stage.Stage;
 import org.junit.Test;
 import static org.junit.Assert.*;
@@ -50,6 +54,40 @@ public class TestScopeRendering extends FXTest
             view.renderedLines(10, 35);
             assertEquals(List.of("26:35"), view.ranges);
         });
+    }
+
+    @Test public void firstCssPaletteRepaintsAnAlreadyParsedClass() throws Exception
+    {
+        CompletableFuture<Void> firstDraw = new CompletableFuture<>();
+        List<Paint> visibleFills = new ArrayList<>();
+        ScopeColorsBorderPane palette = fx(() -> {
+            ScopeColorsBorderPane colors = new ScopeColorsBorderPane();
+            HoleDocument document = new HoleDocument();
+            document.replaceText(0, 0, "class TestBus {\n    void run() {\n    }\n}\n");
+            TestDisplay display = new TestDisplay(false) {
+                @Override public void applyScopeBackgrounds(Map<Integer, List<BackgroundItem>> scopes)
+                {
+                    visibleFills.clear();
+                    scopes.values().forEach(items -> items.forEach(item ->
+                        item.getBackground().getFills().forEach(fill -> visibleFills.add(fill.getFill()))));
+                }
+                @Override public void repaint() { firstDraw.complete(null); }
+            };
+            new JavaSyntaxView(document, display, colors, null, new ReadOnlyBooleanWrapper(true)).enableParser(true);
+            javafx.application.Platform.requestNextPulse();
+            return colors;
+        });
+        firstDraw.get(5, TimeUnit.SECONDS);
+        fx_(() -> {
+            assertFalse(visibleFills.isEmpty());
+            assertTrue(visibleFills.stream().allMatch(Color.WHITE::equals));
+            ((Pane)scene.getRoot()).getChildren().add(palette);
+            palette.setStyle("-bj-background-color: red; -bj-class-color: red;");
+            palette.applyCss();
+            assertEquals(Color.RED, palette.scopeClassColorProperty().get());
+        });
+        // The CSS listener runs after this pass. No edit, resize or parser flush should be needed.
+        fx_(() -> assertTrue(visibleFills.contains(Color.RED)));
     }
 
     @Test public void screenCacheDropsHiddenLinesAndPrintCacheKeepsThem()
