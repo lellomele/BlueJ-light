@@ -46,6 +46,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
@@ -75,6 +76,7 @@ public class TextLine extends TextFlow
     private final Path findResultShape = new Path();
     private final Path bracketMatchShape = new Path();
     private final Path imeInputShape = new Path();
+    private final EnumMap<HighlightType, List<int[]>> pendingHighlights = new EnumMap<>(HighlightType.class);
     private final Path errorUnderlineShape = new Path();
     // Ranges are column locations relative to start of line, 0 is beginning.
     private final ArrayList<IndexRange> errorLocations = new ArrayList<>();
@@ -244,6 +246,10 @@ public class TextLine extends TextFlow
         
         hideSelection();
         hideErrorUnderline();
+        pendingHighlights.clear();
+        clearHighlight(findResultShape);
+        clearHighlight(bracketMatchShape);
+        clearHighlight(imeInputShape);
         // Since getChildren() has listeners, it's a bit more optimal to construct the list and set it once
         // rather than manipulate getChildren as we go along:
         ArrayList<Node> children = new ArrayList<>(backgroundNodes.size() + 3 + text.size() + 1);
@@ -284,15 +290,32 @@ public class TextLine extends TextFlow
     // To turn off, call with an empty list.
     public void showHighlight(HighlightType highlightType, List<int[]> positions)
     {
+        Path shape = switch (highlightType) {
+            case FIND_RESULT -> findResultShape;
+            case BRACKET_MATCH -> bracketMatchShape;
+            case IME_INPUT -> imeInputShape;
+        };
+        if (positions.isEmpty())
+        {
+            pendingHighlights.remove(highlightType);
+            clearHighlight(shape);
+            return;
+        }
+        if (pendingHighlights.put(highlightType, positions) != null) return;
+        // Pending layout can outlive an edit, a clear, or a second request on the same row.
+        // Read the latest ranges only after the row has its current text geometry.
         runOnceLaidOut(() -> {
-            Path shape = switch (highlightType) {
-                case FIND_RESULT -> this.findResultShape;
-                case BRACKET_MATCH -> this.bracketMatchShape;
-                case IME_INPUT -> this.imeInputShape;
-            };
-            shape.getElements().setAll(positions.stream().flatMap(p -> Arrays.stream(safeRangeShape(p[0], p[1]))).toArray(PathElement[]::new));
+            List<int[]> current = pendingHighlights.remove(highlightType);
+            if (current == null) return;
+            shape.getElements().setAll(current.stream().flatMap(p -> Arrays.stream(safeRangeShape(p[0], p[1]))).toArray(PathElement[]::new));
             shape.setVisible(!shape.getElements().isEmpty());
         });
+    }
+
+    private static void clearHighlight(Path shape)
+    {
+        if (!shape.getElements().isEmpty()) shape.getElements().clear();
+        shape.setVisible(false);
     }
 
     private List<PathElement> makeSquiggle(PathElement[] rectShape)

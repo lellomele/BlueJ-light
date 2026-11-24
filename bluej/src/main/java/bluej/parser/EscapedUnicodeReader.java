@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Raffaele Mele. Modified 2026-11-24. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2012,2013,2015,2022  Michael Kolling and John Rosenberg 
@@ -26,8 +27,8 @@ import threadchecker.OnThread;
 import threadchecker.Tag;
 
 import java.io.IOException;
-import java.io.PushbackReader;
 import java.io.Reader;
+import java.util.Objects;
 
 /**
  * This is a Reader processes the stream from another reader, replacing unicode escape
@@ -43,7 +44,10 @@ import java.io.Reader;
 @OnThread(Tag.Any)
 public final class EscapedUnicodeReader extends Reader
 {
-    private final PushbackReader sourceReader;
+    private Reader sourceReader;
+    // The unread suffix is kept at the end so another push can prepend in place.
+    private char[] pushedBack;
+    private int remaining;
 
     private boolean charIsBuffered;
     private int bufferedChar;
@@ -52,7 +56,7 @@ public final class EscapedUnicodeReader extends Reader
     
     public EscapedUnicodeReader(Reader source)
     {
-        sourceReader = new PushbackReader(source, 65536);
+        sourceReader = Objects.requireNonNull(source);
     }
     
     public void setLineColPos(LineColPos lineColPos)
@@ -93,7 +97,13 @@ public final class EscapedUnicodeReader extends Reader
     @Override
     public void close() throws IOException
     {
-        sourceReader.close();
+        if (sourceReader != null) {
+            sourceReader.close();
+            sourceReader = null;
+            pushedBack = null;
+            remaining = 0;
+            charIsBuffered = false;
+        }
     }
 
     /**
@@ -102,6 +112,8 @@ public final class EscapedUnicodeReader extends Reader
      */
     private int getChar() throws IOException
     {
+        if (sourceReader == null)
+            throw new IOException("Stream closed");
         int rchar;
         if (charIsBuffered) {
             charIsBuffered = false;
@@ -115,7 +127,7 @@ public final class EscapedUnicodeReader extends Reader
         if (rchar == '\\') {
             // This could be the beginning of an escaped unicode sequence,
             // \\uXXXX (with only a single backslash)
-            int nchar = sourceReader.read();
+            int nchar = readRawChar();
 
             if (nchar == 'u') {
                 lineColPos = lineColPos.offsetSameLineBy(1);
@@ -138,10 +150,10 @@ public final class EscapedUnicodeReader extends Reader
     {
         // The Java Language Spec specifies that any number of 'u' characters may appear in sequence
         // as part of a unicode escape.
-        int uc = sourceReader.read();
+        int uc = readRawChar();
         while (uc == 'u') {
             processChar((char)uc);
-            uc = sourceReader.read();
+            uc = readRawChar();
         }
         
         int val = Character.digit((char) uc, 16);
@@ -154,7 +166,7 @@ public final class EscapedUnicodeReader extends Reader
         int i = 0;
         do {
             val *= 0x10;
-            uc = sourceReader.read();
+            uc = readRawChar();
             int digitVal = Character.digit((char) uc, 16);
             if (digitVal == -1) {
                 putBuffer(uc);
@@ -170,11 +182,20 @@ public final class EscapedUnicodeReader extends Reader
 
     private int readSourceChar() throws IOException
     {
-        int rchar = sourceReader.read();
+        int rchar = readRawChar();
         if (rchar != -1) {
             processChar((char) rchar);
         }
         return rchar;
+    }
+
+    private int readRawChar() throws IOException
+    {
+        if (remaining == 0)
+            return sourceReader.read();
+        int index = pushedBack.length - remaining;
+        remaining--;
+        return pushedBack[index];
     }
     
     private void processChar(char ch)
@@ -204,7 +225,19 @@ public final class EscapedUnicodeReader extends Reader
      */
     public void pushBack(String content, LineColPos lineColPos) throws IOException
     {
-        sourceReader.unread(content.toCharArray());
+        if (sourceReader == null)
+            throw new IOException("Stream closed");
+        if (!content.isEmpty()) {
+            int required = Math.addExact(remaining, content.length());
+            if (pushedBack == null || pushedBack.length < required) {
+                char[] larger = new char[required];
+                if (remaining != 0)
+                    System.arraycopy(pushedBack, pushedBack.length - remaining, larger, required - remaining, remaining);
+                pushedBack = larger;
+            }
+            content.getChars(0, content.length(), pushedBack, pushedBack.length - required);
+            remaining = required;
+        }
         this.lineColPos = lineColPos;
     }
 }

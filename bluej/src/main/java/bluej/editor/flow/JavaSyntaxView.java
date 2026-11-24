@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-07. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2011,2014,2015,2016,2017,2018,2019,2020,2021,2022,2024  Michael Kolling and John Rosenberg
@@ -120,6 +120,9 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     private final EntityResolver parentResolver;
     private ParsedCUNode rootNode;
     private NodeTree<ReparseRecord> reparseRecordTree;
+    // The point whose callback is currently reparsing. Other endpoint markers
+    // are future work, even when a parsed section reaches them exactly.
+    private ReparseRecord activeReparsePoint;
     private final ScopeColors scopeColors;
     private final BooleanExpression syntaxHighlighting;
     private final Display display;
@@ -303,6 +306,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
 
         public void linesRemoved(int firstRemovedLineIndex, int removedCount)
         {
+            if (removedCount == 0) return;
             HashMap<Integer, List<BackgroundItem>> newScope = new HashMap<>();
             HashMap<Integer, List<SingleNestedScope>> newSource = new HashMap<>();
             scopeBackgrounds.forEach((l, rs) -> {
@@ -325,6 +329,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
 
         public void linesAdded(int lineIndex, int addedCount)
         {
+            if (addedCount == 0) return;
             HashMap<Integer, List<BackgroundItem>> newScope = new HashMap<>();
             HashMap<Integer, List<SingleNestedScope>> newSource = new HashMap<>();
             scopeBackgrounds.forEach((l, rs) -> {
@@ -2256,30 +2261,39 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
      */
     public void scheduleReparse(int pos, int size)
     {
-        NodeAndPosition<ReparseRecord> existing = reparseRecordTree.findNodeAtOrAfter(pos);
-        if (existing != null) {
-            if (existing.getPosition() > pos && existing.getPosition() <= (pos + size)) {
-                existing.getNode().slideStart(pos - existing.getPosition());
-                return;
-            }
-            else if (existing.getPosition() <= pos) {
-                int nsize = (pos + size) - existing.getPosition();
-                if (nsize > existing.getSize()) {
-                    NodeAndPosition<ReparseRecord> next = existing.nextSibling();
-                    while (next != null && next.getPosition() <= pos + size) {
-                        nsize = Math.max(nsize, next.getEnd() - pos);
-                        NodeAndPosition<ReparseRecord> nnext = next.nextSibling();
-                        next.getNode().remove();
-                        next = nnext;
-                    }
-                    existing.getNode().setSize(nsize);
-                }
-                return;
-            }
+        NodeAndPosition<ReparseRecord> first = reparseRecordTree.findNodeAtOrAfter(pos);
+        if (size <= 0) {
+            // A continuation at the exclusive end must survive parsing the preceding range.
+            if (first != null && first.getPosition() < pos && first.getEnd() == pos)
+                first = first.nextSibling();
+            if (first == null || first.getPosition() > pos)
+                reparseRecordTree.insertNode(new ReparseRecord(), pos, 0);
+            else if (first.getNode() == activeReparsePoint)
+                activeReparsePoint = null; // Explicitly requested again during this pass.
+            return;
         }
 
-        ReparseRecord rr = new ReparseRecord();
-        reparseRecordTree.insertNode(rr, pos, size);
+        int end = pos + size;
+        if (first == null || first.getPosition() > end
+                || (first.getPosition() == end && first.getSize() == 0)) {
+            reparseRecordTree.insertNode(new ReparseRecord(), pos, size);
+            return;
+        }
+        if (first.getPosition() <= pos && first.getEnd() >= end)
+            return;
+
+        if (pos < first.getPosition())
+            first.slideStart(pos - first.getPosition());
+        end = Math.max(end, first.getEnd());
+        NodeAndPosition<ReparseRecord> next = first.nextSibling();
+        while (next != null && (next.getPosition() < end
+                || (next.getPosition() == end && next.getSize() > 0))) {
+            end = Math.max(end, next.getEnd());
+            NodeAndPosition<ReparseRecord> following = next.nextSibling();
+            next.getNode().remove();
+            next = following;
+        }
+        first.setSize(end - first.getPosition());
     }
 
     /**
@@ -2305,7 +2319,6 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
         int[] visible = display.getLineRangeVisible();
         recalculateScopes(visible == null ? 0 : Math.max(0, visible[0]),
             visible == null ? document.getLineCount() - 1 : Math.min(document.getLineCount() - 1, visible[1]));
-        applyPendingScopeBackgrounds();
     }
 
     private void applyPendingScopeBackgrounds()
@@ -2412,7 +2425,14 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
                         return false;
                     }
                     SyntaxEvent mse = new SyntaxEvent(-1, -1, false, false);
-                    pn.reparse(this, ppos, pos, maxParse, mse);
+                    ReparseRecord previousPoint = activeReparsePoint;
+                    activeReparsePoint = nap.getSize() == 0 ? nap.getNode() : null;
+                    try {
+                        pn.reparse(this, ppos, pos, maxParse, mse);
+                    }
+                    finally {
+                        activeReparsePoint = previousPoint;
+                    }
                     // Dump tree (for debugging):
                     //Debug.message("Dumping tree:");
                     //dumpTree(parsedNode.getChildren(0), "");
@@ -2586,7 +2606,9 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
             existing = next;
         }
 
-        while (existing != null && existing.getPosition() < pos + size) {
+        while (existing != null && (existing.getPosition() < pos + size
+                || (existing.getPosition() == pos + size && existing.getSize() == 0
+                    && existing.getNode() == activeReparsePoint))) {
             int rsize = pos + size - existing.getPosition();
             if (rsize < existing.getSize()) {
                 existing.slideStart(rsize);

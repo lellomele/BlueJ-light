@@ -1,5 +1,5 @@
 /* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2010,2013,2014,2015,2017,2018,2019,2020,2021,2022,2024  Michael Kolling and John Rosenberg
@@ -321,12 +321,14 @@ public class ParseUtils
 
         if (surroundingMethod != null && suggests.isPlain())
         {
+            int memberCount = completions.size();
+            Set<String> shadowingNames = new HashSet<>();
             // Find and add the local variables:
             findLocalVariables(findInnerMostNode(ourPos - surroundingMethod.getAbsoluteEditorPosition(), surroundingMethod), surroundingMethod, ourPos - (suggests.getSuggestionToken() == null ? 0 : suggests.getSuggestionToken().getLength())).forEach(var -> {
                 AssistContent completion = LocalCompletion.getCompletion(var.getFieldTypeAsPlainString(), var.getName(), false);
                 if (completion != null)
                 {
-                    scopeField(completions, var.getName());
+                    shadowingNames.add(var.getName());
                     completions.add(completion);
                 }
             });
@@ -337,26 +339,22 @@ public class ParseUtils
                 AssistContent completion = LocalCompletion.getCompletion(surroundingMethod.getParamTypes().get(i).getName(), name, true);
                 if (completion != null)
                 {
-                    scopeField(completions, name);
+                    shadowingNames.add(name);
                     completions.add(completion);
                 }
             }
-        }
-        
-        return completions;
-    }
-
-    private static void scopeField(List<AssistContent> completions, String name)
-    {
-        // Checks for any fields with the given name, and renames them to "this.{field}"
-        for (ListIterator<AssistContent> iterator = completions.listIterator(); iterator.hasNext(); )
-        {
-            AssistContent completion = iterator.next();
-            if (completion.getName().equals(name) && completion.getKind() == AssistContent.CompletionKind.FIELD)
+            if (!shadowingNames.isEmpty())
             {
-                iterator.set(new PrefixCompletionWrapper(completion, "this."));
+                for (int i = 0; i < memberCount; i++)
+                {
+                    AssistContent member = completions.get(i);
+                    if (member.getKind() == AssistContent.CompletionKind.FIELD && shadowingNames.contains(member.getName()))
+                        completions.set(i, new PrefixCompletionWrapper(member, "this."));
+                }
             }
         }
+
+        return completions;
     }
 
     /**

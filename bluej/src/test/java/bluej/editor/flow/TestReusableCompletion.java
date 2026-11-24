@@ -4,10 +4,14 @@ package bluej.editor.flow;
 import bluej.Config;
 import bluej.editor.fixes.SuggestionList;
 import bluej.editor.fixes.SuggestionList.*;
+import bluej.parser.AssistContent;
 import bluej.parser.InitConfig;
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import javafx.beans.binding.StringExpression;
 import javafx.beans.property.SimpleStringProperty;
@@ -137,6 +141,47 @@ public class TestReusableCompletion extends FXTest
             list.reset(List.of(new SuggestionDetails("method", "()", "int", SuggestionShown.COMMON)), null, SuggestionShown.RARE, null, new Listener());
             assertEquals(48.0, (Double)field(list, "rowHeight"), .001);
             assertTrue(((javafx.scene.control.ListView<?>)field(list, "listBox")).getStyle().contains("24.0"));
+        });
+    }
+
+    @Test public void shortPrefixesPreserveDirectAndFirstInternalMatches()
+    {
+        fx_(() -> {
+            SuggestionList list = list(List.of(new SuggestionDetails("draw"), new SuggestionDetails("this.door"),
+                new SuggestionDetails("getDoorDone"), new SuggestionDetails("getDrawer"),
+                new SuggestionDetails("getİx"), new SuggestionDetails("door")), new Listener());
+            Map<?, ?> eligible = (Map<?, ?>)field(list, "eligible");
+            list.calculateEligible("d", true, false);
+            assertEquals(Set.of(0, 1, 5), eligible.keySet());
+            list.calculateEligible("dO", true, false);
+            assertEquals(Set.of(1, 5, 8), eligible.keySet());
+            assertEquals(3, field(eligible.get(8), "suggestionOffset"));
+            list.calculateEligible("dO", false, false);
+            assertEquals(Set.of(1, 5), eligible.keySet());
+            // This single UTF-16 unit expands to two when lowercased with Locale.ROOT:
+            list.calculateEligible("İ", true, false);
+            assertTrue(eligible.isEmpty());
+            list.calculateEligible("İx", true, false);
+            assertEquals(Set.of(10), eligible.keySet());
+        });
+    }
+
+    @Test public void systemStreamFieldsReuseTheirRuntimeDescriptors()
+    {
+        fx_(() -> {
+            List<AssistContent> first = new ArrayList<>();
+            List<AssistContent> next = new ArrayList<>();
+            SuggestionList.getStaticClassesCompletion(first, false, null, null);
+            SuggestionList.getStaticClassesCompletion(next, false, null, null);
+            assertEquals(List.of("System.err", "System.in", "System.out"), first.stream().map(AssistContent::getName).toList());
+            assertEquals(List.of("PrintStream", "InputStream", "PrintStream"), first.stream().map(AssistContent::getType).toList());
+            for (int i = 0; i < first.size(); i++)
+            {
+                assertSame(first.get(i), next.get(i));
+                assertEquals(AssistContent.CompletionKind.FIELD, first.get(i).getKind());
+                assertEquals(AssistContent.Access.PUBLIC, first.get(i).getAccessPermission());
+                assertEquals("java.lang.System", first.get(i).getDeclaringClass());
+            }
         });
     }
 

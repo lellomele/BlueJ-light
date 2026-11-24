@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2010,2014,2015,2016,2017,2019,2020  Michael Kolling and John Rosenberg
@@ -965,6 +966,41 @@ public class CompletionTest
         for (AssistContent assist : assists) {
             assist.getJavadoc();
         }
+    }
+
+    @Test
+    public void localsAndParametersQualifyOnlyTheirShadowedFields()
+    {
+        String source = """
+            class A {
+                int parameter;
+                int local;
+                int other;
+                int value(int parameter) {
+                    int local = 0;
+                    return local;
+                }
+            }
+            """;
+        TestableDocument document = documentForSource(source, "");
+        ParsedCUNode root = document.getParser();
+        resolver.addCompilationUnit("", root);
+        int caret = source.indexOf("return local") + "return lo".length();
+        ExpressionTypeInfo info = root.getExpressionType(caret, document);
+        assertNotNull(info);
+        MethodNode method = (MethodNode)root.getContainingMethodOrClassNode(caret);
+        AssistContent[] completions = ParseUtils.getPossibleCompletions(info, null, null, method, caret);
+        Map<String, AssistContent.CompletionKind> found = new java.util.HashMap<>();
+        for (AssistContent completion : completions)
+        {
+            if (completion.getKind() != AssistContent.CompletionKind.METHOD)
+                assertNull("Duplicate " + completion.getName(), found.put(completion.getName(), completion.getKind()));
+        }
+        assertEquals(AssistContent.CompletionKind.FIELD, found.get("this.local"));
+        assertEquals(AssistContent.CompletionKind.FIELD, found.get("this.parameter"));
+        assertEquals(AssistContent.CompletionKind.FIELD, found.get("other"));
+        assertEquals(AssistContent.CompletionKind.LOCAL_VAR, found.get("local"));
+        assertEquals(AssistContent.CompletionKind.FORMAL_PARAM, found.get("parameter"));
     }
     
     /**

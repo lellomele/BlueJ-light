@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Raffaele Mele. Modified 2026-10-13. GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Raffaele Mele. Modified 2026-11-24. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2009,2010,2011,2012,2014,2016,2022,2024  Michael Kolling and John Rosenberg
@@ -211,7 +211,8 @@ public final class JavaLexer implements TokenStream
     private LocatableToken createWordToken(char nextChar)
     {
         populateTextBuffer(nextChar);
-        return makeToken(getWordType(), textBuffer.toString());
+        String word = textBuffer.toString();
+        return makeToken(keywords.getOrDefault(word, JavaTokenTypes.IDENT), word);
     }
 
     /**
@@ -244,6 +245,9 @@ public final class JavaLexer implements TokenStream
             thisChar=(char)rval;
         } while (Character.isJavaIdentifierPart(thisChar) || thisChar == '-');
 
+        if (minusPositions.isEmpty())
+            return;
+
         // We look for the first minus where the text before that minus matches a known keyword.
         // So e.g. if we consumed "non-sealed-pipe" we'd pick out the second minus as the first
         // one that is after a known keyword ("non-sealed").
@@ -251,10 +255,10 @@ public final class JavaLexer implements TokenStream
         OptionalInt keywordEnd = 
             // We look at all positions where there is a minus, but we also look at the end of 
             // the String (in case it's exactly a hyphenated keyword like "non-sealed" with no further minuses)
-            IntStream.concat(minusPositions.keySet().stream().mapToInt(Integer::intValue).sorted(), IntStream.of(textBuffer.length()))
+            IntStream.concat(minusPositions.keySet().stream().mapToInt(Integer::intValue), IntStream.of(textBuffer.length()))
                 .filter(index -> keywords.containsKey(textBuffer.substring(0, index))).findFirst();
         
-        if (!minusPositions.isEmpty() && keywordEnd.orElse(-1) < textBuffer.length())
+        if (keywordEnd.orElse(-1) < textBuffer.length())
         {
             // We have found a minus but there either is not a keyword (keywordEnd will be empty)
             // or there are further minuses after the content (keywordEnd will be present,
@@ -273,7 +277,7 @@ public final class JavaLexer implements TokenStream
             }
             catch (IOException e)
             {
-                // If this happens, we have a hyphenated identifier longer than 65536 characters (the EscapedUnicodeReader buffer size).  Ignore?
+                rChar = -1; // Same closed-reader handling as readNextChar.
             }
             textBuffer.delete(minusToPushBackFrom, textBuffer.length());
         }
@@ -987,16 +991,6 @@ public final class JavaLexer implements TokenStream
         }
 
         return rChar;
-    }
-
-    private int getWordType()
-    {
-        String text=textBuffer.toString();
-        Integer i = keywords.get(text);
-        if (i == null) {
-            return JavaTokenTypes.IDENT;
-        }
-        return i;
     }
 
     public void setGenerateWhitespaceTokens(boolean generateWhitespaceTokens)

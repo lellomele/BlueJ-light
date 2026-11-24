@@ -1,5 +1,6 @@
 /*
  This file is part of the BlueJ program. 
+ BlueJ light modifications, Copyright (C) 2026 Raffaele Mele. Modified 2026-11-24.
  Copyright (C) 1999-2009,2011,2012,2013,2014,2019  Michael Kolling and John Rosenberg 
  
  This program is free software; you can redistribute it and/or 
@@ -241,8 +242,9 @@ public abstract class IncrementalParsingNode extends JavaParentNode
                 removeChild(nap, listener);
                 // Schedule from the original offset, as we may get stuck in a loop otherwise
                 // (Because the piecemeal parse amount is less than the original node size).
-                document.scheduleReparse(originalOffset,
-                        tokend - originalOffset);
+                // Parsing may have rewound to a token ending before the original
+                // offset. In that case the continuation is a point, not a range.
+                document.scheduleReparse(originalOffset, Math.max(0, tokend - originalOffset));
                 return ALL_OK;
             }
             else {

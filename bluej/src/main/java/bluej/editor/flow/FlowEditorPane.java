@@ -35,6 +35,7 @@ import bluej.editor.base.MarginAndTextLine.MarginDisplay;
 import bluej.editor.base.TextLine.HighlightType;
 import bluej.editor.base.TextLine.StyledSegment;
 import bluej.utility.javafx.JavaFXUtil;
+import bluej.utility.javafx.FXPlatformSupplier;
 import com.sun.javafx.scene.input.ExtendedInputMethodRequests;
 import javafx.geometry.Bounds;
 import javafx.geometry.Point2D;
@@ -108,6 +109,9 @@ public class FlowEditorPane extends BaseEditorPane implements JavaSyntaxView.Dis
     // Thus we can determine the pattern "Typed '{', then pressed enter" from other
     // situations (like: "typed '{', pasted some content" or "typed '{' then went up a line and pressed enter").
     private boolean justAddedOpeningCurlyBracket;
+    private boolean deferTextRender;
+    private boolean textRenderPending;
+    private final EnumSet<HighlightType> activeHighlights = EnumSet.noneOf(HighlightType.class);
 
     // Keep track of InputMethod (IM) character positions within this field,
     // e.g. for entering Chinese with the on-screen IME keyboard.
@@ -405,7 +409,10 @@ public class FlowEditorPane extends BaseEditorPane implements JavaSyntaxView.Dis
 
     public void textChanged()
     {
-        updateRender(false);
+        if (deferTextRender)
+            textRenderPending = true;
+        else
+            updateRender(false);
         targetColumnForVerticalMovement = -1;
         callSelectionListeners();
         // FlowEditor is in charge of recording edits
@@ -414,6 +421,7 @@ public class FlowEditorPane extends BaseEditorPane implements JavaSyntaxView.Dis
     @Override
     protected void updateRender(boolean ensureCaretVisible)
     {
+        textRenderPending = false;
         super.updateRender(ensureCaretVisible);
         lineDisplay.hideAllErrorUnderlines();
 
@@ -547,6 +555,14 @@ public class FlowEditorPane extends BaseEditorPane implements JavaSyntaxView.Dis
     // Each item is of size 2, start pos incl and end pos excl, where position is within the whole document
     void showHighlights(HighlightType highlightType, List<int[]> results)
     {
+        // New virtualised lines start empty. Clear existing shapes just once when a set disappears.
+        if (results.isEmpty())
+        {
+            if (!activeHighlights.remove(highlightType)) return;
+        }
+        else
+            activeHighlights.add(highlightType);
+
         int[] visibleLines = lineDisplay.getLineRangeVisible();
         if (highlightType == HighlightType.FIND_RESULT && !results.isEmpty())
         {
@@ -910,9 +926,30 @@ public class FlowEditorPane extends BaseEditorPane implements JavaSyntaxView.Dis
 
     private void replaceText(int start, int end, String text)
     {
-        document.replaceText(start, end, text);
-        // This makes sure the anchor is reset, too:
-        positionCaret(start + text.length());
+        editAndPositionCaret(() -> {
+            document.replaceText(start, end, text);
+            return start + text.length();
+        });
+    }
+
+    // The final caret update renders the complete edit synchronously. The document and selection
+    // listeners still run for every component edit. Preserve intermediate geometry for AT and IME.
+    void editAndPositionCaret(FXPlatformSupplier<Integer> edit)
+    {
+        boolean previous = deferTextRender;
+        deferTextRender = imStart < 0 && !javafx.application.Platform.isAccessibilityActive();
+        try
+        {
+            int position = edit.get();
+            if (position >= 0)
+                positionCaret(position);
+        }
+        finally
+        {
+            deferTextRender = previous;
+            if (!previous && textRenderPending)
+                updateRender(false);
+        }
     }
 
     public int getSelectionEnd()

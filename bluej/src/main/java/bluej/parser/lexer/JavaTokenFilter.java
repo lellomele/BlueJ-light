@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-10. GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2011,2016,2017  Michael Kolling and John Rosenberg
@@ -22,6 +22,7 @@
  */
 package bluej.parser.lexer;
 
+import java.util.ArrayDeque;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -41,7 +42,8 @@ public final class JavaTokenFilter implements TokenStream
     private LocatableToken lastComment;
     private LocatableToken cachedToken;
     private List<LocatableToken> buffer = new LinkedList<LocatableToken>();
-    private LinkedList<LocatableToken> recent = new LinkedList<>();
+    private static final int HISTORY_SIZE = 30;
+    private final ArrayDeque<LocatableToken> recent = new ArrayDeque<>(HISTORY_SIZE);
     private JavaParser parser;
     
     public JavaTokenFilter(TokenStream source)
@@ -89,9 +91,9 @@ public final class JavaTokenFilter implements TokenStream
         }
         // We keep up to 30 in the recent list; if you push back more than that,
         // we don't keep track:
-        recent.addLast(rval);
-        if (recent.size() > 30)
+        if (recent.size() == HISTORY_SIZE)
             recent.removeFirst();
+        recent.addLast(rval);
         return rval;
     }
     

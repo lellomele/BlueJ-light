@@ -89,6 +89,37 @@ public class TestBasicEditorInteraction extends FXTest
         // The new pos is inherently determined, e.g. a keyboard mover for end-of-line will always move to the current end of line
         int move(int curPos, int curLen, AtomicInteger targetColumn);
     }
+
+    @Test public void typingAndCompoundUndoRedoRenderWithTheFinalCaret()
+    {
+        fx_(() -> {
+            var doc = flowEditorPane.getDocument();
+            AtomicInteger renders = new AtomicInteger();
+            AtomicInteger edits = new AtomicInteger();
+            flowEditorPane.addLineDisplayListener((first, last) -> renders.incrementAndGet());
+            doc.addListener(false, (start, oldText, newText, removed, added) -> edits.incrementAndGet());
+            boolean accessible = javafx.application.Platform.isAccessibilityActive();
+            int start = flowEditorPane.getCaretPosition();
+            flowEditorPane.replaceSelection("a");
+            assertEquals(accessible ? 2 : 1, renders.get());
+            flowEditor.undoManager.compoundEdit(() -> {
+                flowEditorPane.replaceSelection("b");
+                flowEditorPane.replaceSelection("c");
+            });
+            long revision = flowEditor.getContentRevision();
+            renders.set(0);
+            flowEditor.undoManager.undo();
+            assertEquals(accessible ? 3 : 1, renders.get());
+            assertEquals(start + 1, flowEditorPane.getCaretPosition());
+            assertEquals(revision + 2, flowEditor.getContentRevision());
+            renders.set(0);
+            flowEditor.undoManager.redo();
+            assertEquals(accessible ? 3 : 1, renders.get());
+            assertEquals(start + 3, flowEditorPane.getCaretPosition());
+            assertEquals("abc", doc.getContent(start, start + 3).toString());
+            assertEquals(7, edits.get());
+        });
+    }
     
     class NamedKeyboardMover
     {

@@ -113,6 +113,71 @@ public class TestEditorErrorStability extends FXTest
         sleep(200);
         fx_(() -> assertEquals(1, errors.getObservableErrorList().size()));
     }
+
+    @Test public void repeatedEditsKeepFreshDiagnosticsAndSearchResults()
+    {
+        final FindNavigator[] freshSearch = new FindNavigator[1];
+        fx_(() -> {
+            String source = "class Example { public answer() { return 42; } }";
+            code(source);
+            errors.addErrorHighlight(0, 1, DiagnosticMessage.fromEnglish("old diagnostic"), 11);
+            editor.doFind("42", false).highlightAll();
+            var doc = editor.getSourcePane().getDocument();
+            doc.replaceText(0, 0, " ");
+            doc.replaceText(0, 0, " ");
+            errors.addErrorHighlight(2, 3, DiagnosticMessage.fromEnglish("current diagnostic"), 12);
+            freshSearch[0] = editor.doFind("answer", false);
+            freshSearch[0].highlightAll();
+        });
+        fx_(() -> {
+            assertTrue(freshSearch[0].validProperty().get());
+            assertEquals(1, errors.getObservableErrorList().size());
+            assertEquals(12, errors.getObservableErrorList().getFirst().identifier);
+            assertNotNull(errors.getErrorAtPosition(2));
+        });
+    }
+
+    @Test public void delayedHighlightCannotReappearAfterClearOrRowReuse() throws Exception
+    {
+        CompletableFuture<Void> layouts = new CompletableFuture<>();
+        TextLine[] rows = new TextLine[2];
+        fx_(() -> {
+            var font = new SimpleStringProperty("-fx-font-size: 12px;");
+            var old = List.of(new TextLine.StyledSegment(List.of(), "before"));
+            for (int i = 0; i < rows.length; i++)
+            {
+                rows[i] = new TextLine(false);
+                rows[i].setText(old, 0, false, font);
+                // No scene yet, so this request must wait for a layout after attachment.
+                rows[i].showHighlight(TextLine.HighlightType.FIND_RESULT, List.of(new int[] {0, 3}));
+            }
+            rows[0].showHighlight(TextLine.HighlightType.BRACKET_MATCH, List.of(new int[] {2, 3}));
+            rows[1].setText(List.of(new TextLine.StyledSegment(List.of(), "new row")), 0, false, font);
+            Scene scene = editor.getScene();
+            var root = new javafx.scene.layout.VBox(rows);
+            scene.setRoot(root);
+            root.applyCss();
+            root.layout();
+            rows[0].showHighlight(TextLine.HighlightType.FIND_RESULT, List.of());
+            bluej.utility.javafx.JavaFXUtil.runAfterNextLayout(scene, () -> {
+                bluej.utility.javafx.JavaFXUtil.runAfterNextLayout(scene, () -> layouts.complete(null));
+                javafx.application.Platform.requestNextPulse();
+            });
+            javafx.application.Platform.requestNextPulse();
+        });
+        layouts.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        fx_(() -> {
+            for (TextLine row : rows)
+            {
+                var shape = (javafx.scene.shape.Path)row.lookup(".flow-find-result");
+                assertFalse(shape.isVisible());
+                assertTrue(shape.getElements().isEmpty());
+            }
+            var control = (javafx.scene.shape.Path)rows[0].lookup(".flow-bracket-match");
+            assertTrue(control.isVisible());
+            assertFalse(control.getElements().isEmpty());
+        });
+    }
     @Test public void explanationShowsItalianImmediatelyAndDoesNotDisableTheEditor()
     {
         fx_(() -> {

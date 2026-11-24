@@ -124,6 +124,7 @@ public class FlowErrorManager implements ErrorQuery
      */
     public void removeAllErrorHighlights()
     {
+        if (errorInfos.isEmpty()) return;
         invalidateForEdit();
         FlowEditorPane sourcePane = editor.getSourcePane();
         sourcePane.getDocument().removeLineAttributeThroughout(ParagraphAttribute.ERROR);
@@ -142,7 +143,7 @@ public class FlowErrorManager implements ErrorQuery
 
     public void removeInvalidErrorHighlights()
     {
-        errorInfos.removeIf(error -> !error.isValid());
+        if (!errorInfos.removeIf(error -> !error.isValid())) return;
         editor.getSourcePane().getDocument().removeLineAttributeThroughout(ParagraphAttribute.ERROR);
         for (ErrorDetails error : errorInfos)
             editor.getSourcePane().getDocument().addLineAttribute(editor.getSourcePane().getDocument().getLineFromPosition(error.startPos), ParagraphAttribute.ERROR, true);

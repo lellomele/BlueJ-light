@@ -50,6 +50,7 @@ public class HoleDocument implements Document
     
     private final ArrayList<LineInformation> lineInformation = new ArrayList<>();
     private String cachedLongestLine;
+    private int longestLineIndex;
 
     /**
      * We need to know all the positions so we can update them all.  But we don't want
@@ -72,8 +73,8 @@ public class HoleDocument implements Document
     @Override
     public void replaceText(int startCharIncl, int endCharExcl, String text)
     {
-        cachedLongestLine = null;
-        int indexToInsertNewNewlines = getLineFromPosition(startCharIncl) + 1;
+        int changedLine = getLineFromPosition(startCharIncl);
+        int indexToInsertNewNewlines = changedLine + 1;
         int endLine = getLineFromPosition(endCharExcl) + 1;
         int linesRemoved = endLine - indexToInsertNewNewlines;
         lineInformation.subList(indexToInsertNewNewlines, endLine).clear();
@@ -150,6 +151,8 @@ public class HoleDocument implements Document
                 linesAdded += 1;
             }
         }
+
+        updateLongestLineAfterEdit(changedLine, linesRemoved, linesAdded);
 
         // Take a copy in case one of the listeners removes themselves
         // (would lead to a concurrent modification exception if we iterated over the original list):
@@ -425,6 +428,32 @@ public class HoleDocument implements Document
         return new HoleReader(startPos, endPos);
     }
 
+    private void updateLongestLineAfterEdit(int line, int removedLines, int addedLines)
+    {
+        if (cachedLongestLine == null) return;
+        if (removedLines != 0 || addedLines != 0)
+        {
+            cachedLongestLine = null;
+            return;
+        }
+        int length = lineContentLength(line);
+        int previousMax = cachedLongestLine.length();
+        if (line == longestLineIndex && length < previousMax)
+            cachedLongestLine = null;
+        else if (length > previousMax || (length == previousMax && line <= longestLineIndex))
+        {
+            // In a tie getLongestLine uses the first line; its text determines the rendered width.
+            cachedLongestLine = getLines().get(line).toString();
+            longestLineIndex = line;
+        }
+    }
+
+    private int lineContentLength(int line)
+    {
+        int end = line + 1 < lineInformation.size() ? logicalLineStart(line + 1) - 1 : getLength();
+        return end - logicalLineStart(line);
+    }
+
     /**
      * Gets the content of the longest line in the document, as measured by number of chars.
      */
@@ -436,15 +465,14 @@ public class HoleDocument implements Document
         int longestLength = 0;
         for (int line = 0; line < lineInformation.size(); line++)
         {
-            int start = logicalLineStart(line);
-            int end = line + 1 < lineInformation.size() ? logicalLineStart(line + 1) - 1 : getLength();
-            int length = end - start;
+            int length = lineContentLength(line);
             if (length > longestLength)
             {
                 longestLength = length;
                 longestIndex = line;
             }
         }
+        longestLineIndex = longestIndex;
         cachedLongestLine = getLines().get(longestIndex).toString();
         return cachedLongestLine;
     }

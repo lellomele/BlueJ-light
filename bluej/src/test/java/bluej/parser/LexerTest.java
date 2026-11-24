@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Raffaele Mele. Modified 2026-11-24. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2009,2010,2011,2012,2014,2016,2022,2024  Michael Kolling and John Rosenberg
@@ -54,6 +55,55 @@ public class LexerTest extends junit.framework.TestCase
         return JavaParser.getLexer(new StringReader(s));
     }
     
+    public void testLongSubtractionOperandIsReplayedIntact()
+    {
+        String operand = "x".repeat(66000);
+        TokenStream tokens = getLexerFor("a-" + operand);
+        assertEquals("a", tokens.nextToken().getText());
+        assertEquals(JavaTokenTypes.MINUS, tokens.nextToken().getType());
+        LocatableToken identifier = tokens.nextToken();
+        assertEquals(operand, identifier.getText());
+        assertEquals(2, identifier.getPosition());
+        assertEquals(2 + operand.length(), identifier.getEndPosition());
+        assertEquals(JavaTokenTypes.EOF, tokens.nextToken().getType());
+    }
+
+    public void testNestedRawPushbackRetainsUnreadSuffixAndDecodesUnicode() throws Exception
+    {
+        try (EscapedUnicodeReader reader = new EscapedUnicodeReader(new StringReader("Z"))) {
+            LineColPos start = new LineColPos(1, 1, 0);
+            reader.pushBack("abc", start);
+            assertEquals('a', reader.read());
+            reader.pushBack("\\u0041", start);
+            assertEquals('A', reader.read());
+            assertEquals(6, reader.getLineColPos().position());
+            reader.pushBack("!", new LineColPos(1, 7, 6));
+            char[] suffix = new char[4];
+            assertEquals(4, reader.read(suffix, 0, suffix.length));
+            assertEquals("!bcZ", new String(suffix));
+            assertEquals(-1, reader.read());
+        }
+    }
+
+    public void testRecentTokenWindowRetainsThirtyEntriesAcrossLookaheadAndPushback()
+    {
+        JavaTokenFilter tokens = (JavaTokenFilter)getLexerFor("value ".repeat(35));
+        LocatableToken[] seen = new LocatableToken[35];
+        for (int i = 0; i < seen.length; i++) {
+            LocatableToken ahead = tokens.LA(1);
+            seen[i] = tokens.nextToken();
+            assertSame(ahead, seen[i]);
+            assertSame(seen[i], tokens.getMostRecent());
+        }
+        for (int i = seen.length - 1; i >= 5; i--) {
+            assertSame(seen[i], tokens.getMostRecent());
+            tokens.pushBack(seen[i]);
+        }
+        assertNull(tokens.getMostRecent());
+        for (int i = 5; i < seen.length; i++)
+            assertSame(seen[i], tokens.nextToken());
+    }
+
     public void testKeywordParse()
     {
         // Modifiers

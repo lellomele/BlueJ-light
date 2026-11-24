@@ -60,6 +60,23 @@ public class TestLongestLine
         }
     }
 
+    @Test public void keepsUnchangedWinnerAndResolvesTiesInLineOrder()
+    {
+        HoleDocument document = new HoleDocument();
+        document.replaceText(0, 0, "aa\nWWWW\nzz");
+        String winner = document.getLongestLine();
+        document.replaceText(0, 1, "b");
+        assertSame(winner, document.getLongestLine());
+        document.replaceText(document.getLength(), document.getLength(), "xx");
+        assertSame(winner, document.getLongestLine());
+        document.replaceText(0, 2, "iiii");
+        assertEquals("iiii", document.getLongestLine());
+        document.replaceText(0, 1, "w");
+        assertEquals("wiii", document.getLongestLine());
+        document.replaceText(0, 2, "");
+        assertEquals("WWWW", document.getLongestLine());
+    }
+
     private void checkLongest(HoleDocument document, String text)
     {
         String longest = "";

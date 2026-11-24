@@ -40,6 +40,142 @@ public class TestParserCallbacks extends FXTest
         syntax.enableParser(true); syntax.flushReparseQueue();
     }
 
+    @Test public void enclosingAndBridgingRequestsKeepBothTails()
+    {
+        fx_(() -> {
+            initialise(true);
+            syntax.scheduleReparse(20, 10);
+            syntax.scheduleReparse(10, 30);
+            syntax.markSectionParsed(10, 20);
+            assertFalse("The enclosing request still requires [30,40)", syntax.isParsedForCompletion());
+            syntax.markSectionParsed(30, 10);
+            assertTrue(syntax.isParsedForCompletion());
+
+            syntax.scheduleReparse(5, 8);    // [5,13)
+            syntax.scheduleReparse(22, 17);  // [22,39)
+            syntax.scheduleReparse(10, 15);  // [10,25) bridges both
+            syntax.markSectionParsed(5, 29);
+            assertFalse("The original right-hand tail [34,39) is still pending", syntax.isParsedForCompletion());
+            syntax.markSectionParsed(34, 5);
+            assertTrue(syntax.isParsedForCompletion());
+        });
+    }
+
+    @Test public void boundaryContinuationsSurviveInEitherInsertionOrder()
+    {
+        fx_(() -> {
+            initialise(true);
+            for (boolean markerFirst : List.of(true, false)) {
+                if (markerFirst) syntax.scheduleReparse(25, 0);
+                syntax.scheduleReparse(5, 20);
+                if (!markerFirst) syntax.scheduleReparse(25, 0);
+                syntax.scheduleReparse(5, 0);
+                syntax.scheduleReparse(9, 0);
+                syntax.scheduleReparse(25, 0);
+                syntax.markSectionParsed(5, 20);
+                assertFalse("Parsing up to 25 must leave the continuation at 25", syntax.isParsedForCompletion());
+                syntax.markSectionParsed(25, 0);
+                assertTrue(syntax.isParsedForCompletion());
+            }
+
+            syntax.scheduleReparse(32, 0);
+            syntax.scheduleReparse(4, 8);
+            syntax.scheduleReparse(18, 6);
+            syntax.markSectionParsed(4, 20);
+            assertFalse("A disjoint continuation must survive", syntax.isParsedForCompletion());
+            syntax.markSectionParsed(32, 0);
+            assertTrue(syntax.isParsedForCompletion());
+
+            syntax.scheduleReparse(12, 6);
+            syntax.scheduleReparse(12, -8); // A rewound token ends before the requested offset.
+            syntax.markSectionParsed(12, 6);
+            assertTrue(syntax.isParsedForCompletion());
+        });
+    }
+
+    @Test public void rangeUnionAndPartialAcknowledgementsMatchCharacterCoverage()
+    {
+        fx_(() -> {
+            int[][] ranges = {{8, 8}, {26, 6}, {0, 3}, {12, 16}, {3, 5}, {36, 5}, {4, 27}, {5, 1}};
+            int[][] parsed = {{10, 6}, {2, 3}, {30, 7}, {0, 41}};
+            for (boolean reverse : List.of(false, true)) {
+                initialise(true);
+                BitSet expected = new BitSet();
+                for (int i = 0; i < ranges.length; i++) {
+                    int[] range = ranges[reverse ? ranges.length - 1 - i : i];
+                    syntax.scheduleReparse(range[0], range[1]);
+                    expected.set(range[0], range[0] + range[1]);
+                    assertQueuedRanges(expected);
+                }
+                for (int[] range : parsed) {
+                    syntax.markSectionParsed(range[0], range[1]);
+                    expected.clear(range[0], range[0] + range[1]);
+                    assertQueuedRanges(expected);
+                }
+            }
+        });
+    }
+
+    private void assertQueuedRanges(BitSet expected)
+    {
+        try {
+            Field field = JavaSyntaxView.class.getDeclaredField("reparseRecordTree");
+            field.setAccessible(true);
+            NodeTree<?> records = (NodeTree<?>)field.get(syntax);
+            BitSet actual = new BitSet();
+            int previousEnd = 0;
+            for (var it = records.iterator(0); it.hasNext(); ) {
+                var record = it.next();
+                assertTrue(record.getPosition() >= previousEnd);
+                assertTrue("Unexpected point in character coverage", record.getSize() > 0);
+                actual.set(record.getPosition(), record.getEnd());
+                previousEnd = record.getEnd();
+            }
+            assertEquals(expected, actual);
+        }
+        catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+    }
+
+    @Test public void trailingWhitespaceAndCommentsConcludeEndOfFileContinuations()
+    {
+        fx_(() -> {
+            initialise(true);
+            for (String input : List.of("class A {}\n", "class A {} // last", "class A {} // last\n")) {
+                document.replaceText(0, document.getLength(), input);
+                syntax.flushReparseQueue();
+                assertTrue(syntax.isParsedForCompletion());
+                syntax.scheduleReparse(input.length(), 0);
+                syntax.flushReparseQueue();
+                assertTrue(input, syntax.isParsedForCompletion());
+            }
+        });
+    }
+
+    @Test public void renewingActivePointBeforeMarkingItsLeftRangeMakesASecondPass()
+    {
+        fx_(() -> {
+            initialise(true);
+            AtomicInteger passes = new AtomicInteger();
+            ParsedCUNode root = new ParsedCUNode(null) {
+                @Override public void reparse(ReparseableDocument doc, int nodePos, int offset, int maxParse, NodeStructureListener listener) {
+                    if (passes.incrementAndGet() == 1) doc.scheduleReparse(offset, 0);
+                    doc.markSectionParsed(offset - 1, 1);
+                }
+            };
+            root.setSize(document.getLength());
+            try {
+                Field field = JavaSyntaxView.class.getDeclaredField("rootNode");
+                field.setAccessible(true);
+                field.set(syntax, root);
+            }
+            catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+            syntax.scheduleReparse(document.getLength(), 0);
+            syntax.flushReparseQueue();
+            assertEquals(2, passes.get());
+            assertTrue(syntax.isParsedForCompletion());
+        });
+    }
+
     private void stall()
     {
         ParsedCUNode stalled = new ParsedCUNode(null) {

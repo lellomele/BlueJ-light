@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2014,2015,2016,2018,2019,2020,2021,2024 Michael Kölling and John Rosenberg
@@ -103,6 +103,7 @@ public class SuggestionList
 {
     // The next available SuggestionList ID; must be static to be unique across all instances:
     private static final AtomicInteger nextSuggListId = new AtomicInteger(1);
+    private static List<AssistContent> systemStreamCompletions;
     // The SuggestionList ID for this item, used for data recording purposes:
     private int suggestionListId;
 
@@ -965,7 +966,19 @@ public class SuggestionList
                 // then we show it as directly relevant if the user types "foo".
                 eligible.put(i, new EligibleDetail("this.".length(), 0, prefix.length()));
             }
-            else if (allowSimilar)
+            else if (allowSimilar && prefix.length() == 2)
+            {
+                // At two characters only an exact word start is eligible. Keep the first match.
+                for (int offset : choiceWordStarts.get(i))
+                {
+                    if (sugg.startsWith(lowerPrefix, offset))
+                    {
+                        eligible.put(i + choices.size(), new EligibleDetail(offset, 0, prefix.length()));
+                        break;
+                    }
+                }
+            }
+            else if (allowSimilar && prefix.length() >= 3)
             {
                 // Look if this text starts a word in the identifier:
                 EligibleDetail best = null;
@@ -1294,13 +1307,23 @@ public class SuggestionList
                 .forEach(ac -> completionCandidates.add(new PrefixCompletionWrapper(ac, "Greenfoot.")));
         }
 
-        // We also provide completion for the System class - "System.out", "System.err" and "System.in" in order
-        // to facilitate the very common "System.out.println()" for example.
-        JavaReflective systemClassRef = new JavaReflective(pkg.loadClass("java.lang.System"));
-        ExpressionTypeInfo systemClass = new ExpressionTypeInfo(new GenTypeClass(systemClassRef), null, null, true, false);
-        AssistContent[] systemStatic = ParseUtils.getPossibleCompletions(systemClass, javadocResolver, null, null, -1);
-        Arrays.stream(systemStatic)
-            .filter(ac -> (ac.getName().equals("out") || ac.getName().equals("err") || ac.getName().equals("in")))
-            .forEach(ac -> completionCandidates.add(new PrefixCompletionWrapper(ac, "System.")));
+        // These bootstrap-class field descriptors are immutable and independent of project class loaders.
+        if (systemStreamCompletions == null)
+        {
+            var fields = new JavaReflective(System.class).getDeclaredFields();
+            List<AssistContent> streams = new ArrayList<>(3);
+            for (String name : List.of("err", "in", "out"))
+            {
+                var field = fields.get(name);
+                if (field != null)
+                {
+                    FieldCompletion completion = new FieldCompletion(field.getType().toString(true), name,
+                        field.getModifiers(), field.getDeclaringType().getName());
+                    streams.add(new PrefixCompletionWrapper(completion, "System."));
+                }
+            }
+            systemStreamCompletions = List.copyOf(streams);
+        }
+        completionCandidates.addAll(systemStreamCompletions);
     }
 }
