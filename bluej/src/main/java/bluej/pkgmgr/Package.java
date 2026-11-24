@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-13. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2023,2024,2025 Michael Kolling and John Rosenberg
@@ -921,6 +921,7 @@ public final class Package
             // now look for Java source files that may have been
             // added to the directory
             Set<String> interestingSet = findTargets(getPath());
+            boolean usesTableIntact = lastSavedProps.containsKey("package.numDependencies");
 
             // also we migrate targets from propTargets across
             // to our real list of targets in this loop.
@@ -930,6 +931,8 @@ public final class Package
 
                 Target target = propTargets.get(targetName);
                 if (target == null || !(target instanceof ClassTarget)) {
+                    // A newly available class can resolve references in other sources too.
+                    usesTableIntact = false;
                     target = new ClassTarget(this, targetName);
                     synchronized (this)
                     {
@@ -971,8 +974,12 @@ public final class Package
                     }
                     catch (Dependency.DependencyNotFoundException e)
                     {
+                        usesTableIntact = false;
                         Debug.reportError(e);
                     }
+                }
+                else {
+                    usesTableIntact = false;
                 }
             }
             recalcArrows();
@@ -989,6 +996,14 @@ public final class Package
                         ct.setState(State.NEEDS_COMPILE);
                         invalidated.add(ct);
                     }
+                }
+            }
+
+            // Bytecode reflection recovers inheritance, but not uses inside method bodies.
+            // Restore missing source edges before propagating stale dependencies.
+            for (Target target : targetsCopy) {
+                if (target instanceof ClassTarget ct && ct.isCompiled()) {
+                    ct.restoreSourceDependencies(usesTableIntact);
                 }
             }
 

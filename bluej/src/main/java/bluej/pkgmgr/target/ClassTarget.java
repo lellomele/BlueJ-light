@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024,2025  Michael Kolling and John Rosenberg
@@ -99,6 +99,7 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.TypeVariable;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -153,6 +154,8 @@ public class ClassTarget extends DependentTarget
     // automatically becomes invalidated when the source code is
     // edited
     private SourceInfo sourceInfo = new SourceInfo();
+    // Identifies the on-disk source for which the outgoing uses edges were analysed.
+    private String usesSourceStamp;
 
     // caches whether the class is abstract. Only accurate when the
     // classtarget state is normal (ie. the class is compiled).
@@ -791,6 +794,7 @@ public class ClassTarget extends DependentTarget
     public void load(Properties props, String prefix)
     {
         super.load(props, prefix);
+        usesSourceStamp = props.getProperty(prefix + ".usesSourceStamp");
 
         // try to determine if any role was set when we saved
         // the class target. Be careful here as if you add role types
@@ -859,6 +863,8 @@ public class ClassTarget extends DependentTarget
     public void save(Properties props, String prefix)
     {
         super.save(props, prefix);
+        if (usesSourceStamp != null)
+            props.setProperty(prefix + ".usesSourceStamp", usesSourceStamp);
 
         if (getRole().getRoleName() != null) {
             props.put(prefix + ".type", getRole().getRoleName());
@@ -1340,6 +1346,7 @@ public class ClassTarget extends DependentTarget
     @Override
     public void modificationEvent(Editor editor)
     {
+        usesSourceStamp = null;
         getPackage().getProject().completionSourcesChanged();
         invalidate();
                 
@@ -1815,6 +1822,27 @@ public class ClassTarget extends DependentTarget
     }
         
 
+    /** Fill gaps left by old package files, or by sources changed outside BlueJ. */
+    public void restoreSourceDependencies(boolean usesTableIntact)
+    {
+        if (hasSourceCode() && (!usesTableIntact || usesSourceStamp == null
+                || !usesSourceStamp.equals(readUsesSourceStamp()))) {
+            sourceInfo.setSourceModified();
+            analyseSource();
+        }
+    }
+
+    private String readUsesSourceStamp()
+    {
+        try {
+            var attributes = Files.readAttributes(getJavaSourceFile().toPath(), BasicFileAttributes.class);
+            return attributes.size() + "@" + attributes.lastModifiedTime();
+        }
+        catch (IOException ex) {
+            return null;
+        }
+    }
+
     /**
      * Analyse the source code, and save retrieved information.
      * This includes comments and parameter names for methods/constructors,
@@ -1836,16 +1864,27 @@ public class ClassTarget extends DependentTarget
         analysing = true;
         try
         {
-            ClassInfo info = editor instanceof FlowEditor flow
-                ? sourceInfo.getInfoFromText(flow.getSourcePane().getDocument().getFullContent(), getPackage())
-                : sourceInfo.getInfo(getJavaSourceFile(), getPackage());
+            ClassInfo info;
+            String diskStamp = null;
+            if (editor instanceof FlowEditor flow) {
+                info = sourceInfo.getInfoFromText(flow.getSourcePane().getDocument().getFullContent(), getPackage());
+            }
+            else {
+                diskStamp = readUsesSourceStamp();
+                if (diskStamp == null || !diskStamp.equals(usesSourceStamp))
+                    sourceInfo.setSourceModified();
+                info = sourceInfo.getInfo(getJavaSourceFile(), getPackage());
+            }
 
             // The following updates the diagram, not the source text.
+            usesSourceStamp = null;
             if (info != null)
             {
                 determineRole(null);
                 setTypeParameters(info);
                 analyseDependencies(info);
+                if (!info.hadParseError())
+                    usesSourceStamp = diskStamp;
             }
             return info;
         }
@@ -1926,13 +1965,7 @@ public class ClassTarget extends DependentTarget
      */
     private void analyseDependencies(ClassInfo info)
     {
-        // Now that uses dependencies are calculated-only, we remove all of them
-        // and add back those which remain:
-        removeAllOutDependencies();
         removeInheritDependencies();
-
-        String pkgPrefix = getPackage().getQualifiedName();
-        pkgPrefix = (pkgPrefix.length() == 0) ? pkgPrefix : pkgPrefix + ".";
         
         // handle superclass dependency
         if (info.getSuperclass() != null) {
@@ -1946,17 +1979,19 @@ public class ClassTarget extends DependentTarget
             addInterface(name);
         }
 
-        // handle used classes
-        vect = info.getUsed();
-        for (Iterator<String> it = vect.iterator(); it.hasNext();) {
-            String name = it.next();
+        // Keep surviving arrows and their saved routes when the source is reanalysed.
+        Set<DependentTarget> newUses = new LinkedHashSet<>();
+        for (String name : info.getUsed()) {
             DependentTarget used = getPackage().getDependentTarget(name);
             if (used != null)
-            {
-                UsesDependency dependency = new UsesDependency(getPackage(), this, used);
-                getPackage().addDependency(dependency);
-            }
+                newUses.add(used);
         }
+        for (UsesDependency edge : usesDependencies()) {
+            if (!newUses.remove(edge.getTo()))
+                getPackage().removeDependency(edge, true);
+        }
+        for (DependentTarget used : newUses)
+            getPackage().addDependency(new UsesDependency(getPackage(), this, used));
 
         // handle permits classes
         vect = info.getPermits();
