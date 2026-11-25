@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-25. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2014,2015,2016,2018,2019,2020,2021,2024 Michael Kölling and John Rosenberg
@@ -605,7 +605,7 @@ public class SuggestionList
                     window.hide();
                     if (!expectingToLoseFocus)
                         this.listener.suggestionListFocusStolen(getHighlighted());
-                    this.listener.hidden();
+                    this.listener.hidden(this, false);
                 });
             }
         });
@@ -743,7 +743,7 @@ public class SuggestionList
         hiding = true;
         cancelDocumentation();
         window.hide();
-        listener.hidden();
+        listener.hidden(this, true);
     }
 
     private void cancelDocumentation()
@@ -790,8 +790,7 @@ public class SuggestionList
                         if (session != choiceSession) return;
                         cancelDocumentation();
                         hiding = true;
-                        listener.hidden();
-                        listener.suggestionListChoiceClicked(this, choice);
+                        listener.suggestionListAutoSelected(this, choice);
                     });
                     return;
                 }
@@ -1152,6 +1151,14 @@ public class SuggestionList
         @OnThread(Tag.FXPlatform)
         void suggestionListChoiceClicked(SuggestionList suggestionList, int highlighted);
 
+        /** A single exact match was chosen on the next FX turn, without opening the window. */
+        @OnThread(Tag.FXPlatform)
+        default void suggestionListAutoSelected(SuggestionList list, int highlighted)
+        {
+            hidden(list, false);
+            suggestionListChoiceClicked(list, highlighted);
+        }
+
         /**
          * A key typed event was been received by the suggestion list window.  Listeners
          * will usually insert the given key into the source code document.
@@ -1184,6 +1191,10 @@ public class SuggestionList
 
         @OnThread(Tag.FXPlatform)
         default void hidden() { };
+
+        /** The editor may restore focus after explicit dismissal. A click elsewhere keeps its destination. */
+        @OnThread(Tag.FXPlatform)
+        default void hidden(SuggestionList list, boolean restoreFocus) { hidden(); }
 
         public static enum Response
         {

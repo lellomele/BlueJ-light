@@ -114,6 +114,40 @@ public class TestReusableCompletion extends FXTest
         });
     }
 
+    @Test public void singleCandidateIsDeliveredOnlyToItsCurrentSession()
+    {
+        class DeferredListener extends Listener
+        {
+            int autoSelections;
+
+            @Override public void suggestionListAutoSelected(SuggestionList list, int index)
+            {
+                assertEquals(0, index);
+                autoSelections++;
+            }
+        }
+
+        DeferredListener oldRequest = new DeferredListener();
+        DeferredListener currentRequest = new DeferredListener();
+        BoundingBox anchor = new BoundingBox(30, 30, 0, 20);
+        fx_(() -> {
+            SuggestionList list = list(List.of(new SuggestionDetails("alpha")), oldRequest);
+            list.calculateEligible("al", true, false);
+            list.show(reference, anchor, true);
+            list.reset(List.of(new SuggestionDetails("beta")), null, SuggestionShown.RARE, null, currentRequest);
+            list.calculateEligible("be", true, false);
+            list.show(reference, anchor, true);
+            assertFalse(list.isShowing());
+            assertEquals(0, currentRequest.autoSelections);
+        });
+        fx_(() -> {
+            assertEquals(0, oldRequest.autoSelections);
+            assertEquals(1, currentRequest.autoSelections);
+            assertEquals(0, oldRequest.hidden + oldRequest.selected);
+            assertEquals(0, currentRequest.hidden + currentRequest.selected);
+        });
+    }
+
     @Test public void identifierCaseAndRelatedMatchesRemainCorrect()
     {
         fx_(() -> {

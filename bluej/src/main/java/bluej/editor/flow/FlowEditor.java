@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-25. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2019,2020,2021,2022,2023,2024,2025  Michael Kolling and John Rosenberg
@@ -3983,24 +3983,40 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         requestContentAssist(false);
     }
 
+    private record CompletionRequest(long sequence, long revision, int caret, int anchor, Scene scene, Window owner) {}
+
+    private boolean isCompletionOwner(CompletionRequest request)
+    {
+        return flowEditorPane.getScene() == request.scene() && request.scene().getWindow() == request.owner()
+            && request.owner().isShowing() && flowEditorPane.isVisible()
+            && (fxTab.getTabPane() == null || fxTab.isSelected());
+    }
+
+    private boolean isCurrentCompletion(CompletionRequest request)
+    {
+        return request.sequence() == completionRequest && request.revision() == contentRevision
+            && request.caret() == flowEditorPane.getCaretPosition() && request.anchor() == flowEditorPane.getAnchorPosition()
+            && isCompletionOwner(request) && request.owner().isFocused() && request.scene().getFocusOwner() == flowEditorPane;
+    }
+
     private void requestContentAssist(boolean automatic)
     {
-        long request = ++completionRequest;
-        long revision = contentRevision;
-        int position = flowEditorPane.getCaretPosition();
+        long sequence = ++completionRequest;
+        Scene scene = flowEditorPane.getScene();
+        if (scene == null || scene.getWindow() == null) return;
+        CompletionRequest request = new CompletionRequest(sequence, contentRevision, flowEditorPane.getCaretPosition(),
+            flowEditorPane.getAnchorPosition(), scene, scene.getWindow());
         whenCompletionSourcesReady(() -> javaSyntaxView.whenParsedWithStatus(status -> {
             if (status == JavaSyntaxView.ParseStatus.CANCELLED) return;
-            Scene completionScene = flowEditorPane.getScene();
-            if (completionScene == null) return;
-            flowEditorPane.requestLayout();
-            // Faster parsing may finish before the edited line has its new text geometry.
-            JavaFXUtil.runAfterNextLayout(completionScene, () -> {
-            if (request == completionRequest && revision == contentRevision
-                && position == flowEditorPane.getCaretPosition() && flowEditorPane.isVisible()
-                && flowEditorPane.getScene() != null && flowEditorPane.getScene().getWindow() != null
-                && flowEditorPane.getScene().getWindow().isShowing()
-                && (activeCompletion == null || !activeCompletion.isShowing()))
-                showContentAssist(automatic);
+            JavaFXUtil.runAfterCurrent(() -> {
+                if (!isCurrentCompletion(request) || (activeCompletion != null && activeCompletion.isShowing())) return;
+                // Finish the edited line's layout before measuring its caret. Open the popup outside the rendering pulse.
+                flowEditorPane.requestLayout();
+                Parent root = scene.getRoot();
+                root.applyCss();
+                root.layout();
+                if (isCurrentCompletion(request) && (activeCompletion == null || !activeCompletion.isShowing()))
+                    showContentAssist(automatic, request);
             });
         }));
     }
@@ -4039,7 +4055,7 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         editors.get(index).whenParsed(() -> waitForCompletionEditors(editors, index+1, callback));
     }
 
-    private void showContentAssist(boolean automatic)
+    private void showContentAssist(boolean automatic, CompletionRequest request)
     {
         ParsedCUNode parser = javaSyntaxView.getParser();
         if (!javaSyntaxView.isCodePosition(flowEditorPane.getCaretPosition())) return;
@@ -4155,6 +4171,16 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
             SuggestionListListener listener = new SuggestionListListener()
             {
                 @Override
+                public void suggestionListAutoSelected(SuggestionList list, int highlighted)
+                {
+                    if (activeCompletion != list) return;
+                    // The single match never opened a window. Release its caret without taking focus.
+                    hidden(list, false);
+                    if (isCurrentCompletion(request) && !isReadOnly())
+                        suggestionListChoiceClicked(list, highlighted);
+                }
+
+                @Override
                 public @OnThread(Tag.FXPlatform) void suggestionListChoiceClicked(SuggestionList suggestionList, int highlighted)
                 {
                     if (highlighted != -1)
@@ -4228,11 +4254,14 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 }
 
                 @Override
-                public @OnThread(Tag.FXPlatform) void hidden()
+                public @OnThread(Tag.FXPlatform) void hidden(SuggestionList list, boolean restoreFocus)
                 {
-                    flowEditorPane.setFakeCaret(false);
+                    if (activeCompletion != list) return;
                     activeCompletion = null;
-                    flowEditorPane.requestFocus();
+                    flowEditorPane.setFakeCaret(false);
+                    if (restoreFocus && isCompletionOwner(request)
+                        && (request.scene().getFocusOwner() == null || request.scene().getFocusOwner() == flowEditorPane))
+                        flowEditorPane.requestFocus();
                 }
             };
             SuggestionList suggestionList;
