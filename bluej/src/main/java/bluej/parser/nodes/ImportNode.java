@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2011  Michael Kolling and John Rosenberg 
@@ -21,6 +22,8 @@
  */
 package bluej.parser.nodes;
 
+import bluej.parser.lexer.LocatableToken;
+
 /**
  * A parsed node representing an import statement.
  * 
@@ -28,9 +31,17 @@ package bluej.parser.nodes;
  */
 public class ImportNode extends InnerNode
 {
-    public ImportNode(JavaParentNode parent)
+    private final LocatableToken terminator;
+
+    public ImportNode(JavaParentNode parent, LocatableToken terminator)
     {
         super(parent);
+        this.terminator = terminator;
+    }
+
+    LocatableToken getTerminator()
+    {
+        return terminator;
     }
     
     @Override

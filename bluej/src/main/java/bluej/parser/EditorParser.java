@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 2010,2011,2012,2013,2014,2016,2017,2019,2021,2022,2023,2024  Michael Kolling and John Rosenberg 
@@ -982,7 +982,7 @@ public class EditorParser extends JavaParser
         int startpos = lineColToPosition(s.getLine(), s.getColumn());
         int endpos = lineColToPosition(s.getEndLine(), s.getEndColumn());
         
-        ParentParsedNode cn = new ImportNode(pcuNode);
+        ParentParsedNode cn = new ImportNode(pcuNode, token);
         cn.setComplete(true);
         beginNode(startpos);
         pcuNode.insertNode(cn, startpos, endpos - startpos, nodeStructureListener);

@@ -22,7 +22,7 @@ public class TestLightTranslations
         Properties english = labels("english"), italian = labels("italian");
         int checked = 0;
         for (String key : english.stringPropertyNames())
-            if (key.startsWith("light.") || key.startsWith("jdk."))
+            if (key.startsWith("light.") || key.startsWith("jdk.") || key.startsWith("editor.run."))
             { assertNotNull(key, italian.getProperty(key)); assertFalse(key, italian.getProperty(key).isBlank()); checked++; }
         assertTrue(checked > 70);
         assertTrue(italian.getProperty("light.format.stale").contains("\u00e8 cambiato"));
@@ -36,7 +36,7 @@ public class TestLightTranslations
         for (String key : italian.stringPropertyNames())
             if (key.startsWith("light.snippets.description."))
             { assertNotNull(key, catalog.getProperty(key.substring("light.snippets.description.".length()) + ".description")); count++; }
-        assertEquals(17, count);
+        assertEquals(18, count);
     }
     @Test public void everyKnownDiagnosticHasTwoLanguageVersions()
     {

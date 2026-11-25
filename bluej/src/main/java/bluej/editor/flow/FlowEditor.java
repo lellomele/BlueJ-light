@@ -111,7 +111,6 @@ import javafx.collections.ListChangeListener;
 import javafx.geometry.BoundingBox;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
-import javafx.geometry.Orientation;
 import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.geometry.Rectangle2D;
@@ -136,7 +135,7 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
-import javafx.scene.layout.TilePane;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
@@ -263,6 +262,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     { return FXCollections.unmodifiableObservableList(lightDiagnostics); }
     @Override public long getContentRevision() { return contentRevision; }
     @Override public long getSavedRevision() { return savedContentRevision; }
+    /** Last acknowledged disk text, used to check a compiled editor launch without copying the buffer. */
+    public String getObservedDiskText() { return observedDiskText; }
     SourceTypeCompletion.Cached completionTypeSnapshot;
     private long completionSourceRevision = -1;
     private ClassLoader completionSourceLoader;
@@ -425,6 +426,9 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
     private boolean mayHaveBreakpoints;
     private final BooleanProperty compiledProperty = new SimpleBooleanProperty(true);
     private final BooleanProperty viewingHTML = new SimpleBooleanProperty(false); // changing this alters the interface accordingly
+    private final BooleanProperty hasRunnableMain = new SimpleBooleanProperty(false);
+    private final BooleanProperty mainLaunchPending = new SimpleBooleanProperty(false);
+    private long mainCheckedRevision = -1;
     private ErrorDisplay errorDisplay;
     private final BitSet breakpoints = new BitSet();
     private int currentStepLineIndex = -1;
@@ -973,25 +977,63 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
      */
     private Region createToolbar(DoubleExpression buttonHeight)
     {
-        // We use a tile pane because it makes all the buttons the same size as each other.
-        // But we don't actually want any wrapping that TilePane gives us.  The easiest way to
-        // prevent this is to make it vertical, and then restrict it to one row in height.
-        // This means it "wraps" all the buttons horizontally, and won't change it's behaviour
-        // if the window gets too narrow to display all the buttons.
-        TilePane tilePane = new TilePane(Orientation.VERTICAL,
-            createToolbarButton("compile", buttonHeight),
-            createToolbarButton("undo", buttonHeight),
-            createToolbarButton("cut", buttonHeight),
-            createToolbarButton("copy", buttonHeight),
-            createToolbarButton("paste", buttonHeight),
-            createToolbarButton("find", buttonHeight),
-            createToolbarButton("close", buttonHeight)
-        );
-        tilePane.setPrefRows(1);
-        tilePane.setPrefColumns(tilePane.getChildren().size());
-        tilePane.prefWidthProperty().bind(tilePane.maxWidthProperty());
-        tilePane.prefHeightProperty().bind(tilePane.minHeightProperty());
-        return JavaFXUtil.withStyleClass(tilePane, "flow-top-bar-buttons");
+        HBox buttons = new HBox(createToolbarButton("compile", buttonHeight), createRunButton(buttonHeight));
+        for (String key : List.of("undo", "cut", "copy", "paste", "find", "close"))
+            buttons.getChildren().add(createToolbarButton(key, buttonHeight));
+        return JavaFXUtil.withStyleClass(buttons, "flow-top-bar-buttons");
+    }
+
+    private SplitMenuButton createRunButton(DoubleExpression buttonHeight)
+    {
+        MenuItem withArguments = new MenuItem(Config.getString("editor.run.arguments"));
+        withArguments.setId("editor-run-with-arguments");
+        SplitMenuButton run = new SplitMenuButton(withArguments);
+        run.setId("editor-run");
+        run.setText(Config.getString("editor.run.label"));
+        run.setTooltip(new Tooltip(Config.getString("editor.run.tooltip")));
+        run.setGraphic(JavaFXUtil.withStyleClass(new javafx.scene.shape.Polygon(0, 0, 0, 10, 8, 5), "editor-run-icon"));
+        run.prefHeightProperty().bind(buttonHeight);
+        run.disableProperty().bind(hasRunnableMain.not().or(viewingHTML).or(mainLaunchPending));
+        withArguments.disableProperty().bind(run.disableProperty());
+        run.setOnAction(event -> runMain(run, false));
+        withArguments.setOnAction(event -> runMain(run, true));
+        if (sourceIsCode && watcher instanceof ClassTarget) {
+            javaSyntaxView.setParseStatusListener(status -> {
+                if (status == JavaSyntaxView.ParseStatus.READY)
+                    updateRunAvailability();
+                else {
+                    mainCheckedRevision = -1;
+                    hasRunnableMain.set(false);
+                }
+            });
+        }
+        return run;
+    }
+
+    private void updateRunAvailability()
+    {
+        if (mainCheckedRevision == contentRevision || !(watcher instanceof ClassTarget)) return;
+        ParsedCUNode parser = peekCompletionParser();
+        if (parser == null) return;
+        hasRunnableMain.set(parser.hasMainMethod(completionFileBaseName()));
+        mainCheckedRevision = contentRevision;
+    }
+
+    private void runMain(SplitMenuButton button, boolean withArguments)
+    {
+        if (button.isDisabled() || !button.isVisible()) return;
+        mainLaunchPending.set(true);
+        try {
+            watcher.runMain(this, withArguments).whenComplete((unused, failure) -> JavaFXUtil.runNowOrLater(() -> {
+                mainLaunchPending.set(false);
+                if (failure != null) writeMessage(Config.getString("editor.run.failed"));
+            }));
+        }
+        catch (RuntimeException failure) {
+            mainLaunchPending.set(false);
+            writeMessage(Config.getString("editor.run.failed"));
+            Debug.reportError("Could not launch the main method", failure);
+        }
     }
 
     /**
@@ -1474,7 +1516,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
         return true;
     }
 
-    private void checkForChangeOnDiskAsync()
+    /** Inspect the file off the FX thread and reconcile external edits with the current buffer. */
+    public void checkForChangeOnDiskAsync()
     {
         if (filename == null || showingChangedOnDiskDialog || sourceSaver.pending() || pendingDiskInspection != null) return;
         CompletableFuture<Void> result = new CompletableFuture<>(); pendingDiskInspection = result;
@@ -2783,6 +2826,8 @@ public class FlowEditor extends ScopeColorsBorderPane implements TextEditor, Flo
                 PrefMgr.getFlag(PrefMgr.CHECK_DISKFILECHANGES), false);
         this.docFilename = docFilename;
         windowTitle = title;
+        mainCheckedRevision = -1;
+        updateRunAvailability();
         setWindowTitle();
         observedDiskLength = filename == null ? 0 : -1;
         bluej.light.SessionRecovery.changed();

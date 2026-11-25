@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Raffaele Mele. Modified 2026-10-13. GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2011,2012,2014,2016,2017,2019,2021,2022,2023,2024  Michael Kolling and John Rosenberg
@@ -88,6 +88,13 @@ public abstract class JavaParentNode extends ParentParsedNode
     protected JavaParentNode parentNode;
     
     protected Map<String,ParsedNode> classNodes = new HashMap<>();
+
+    /** A declaration affecting type lookup changed in this scope. */
+    protected void typeScopeChanged()
+    {
+        if (parentNode != null)
+            parentNode.typeScopeChanged();
+    }
     protected Map<String,Set<VariableDeclaration>> variables = new HashMap<>();
     
     // This flag is specifically used for handling the indentation of switches statements:
@@ -118,8 +125,11 @@ public abstract class JavaParentNode extends ParentParsedNode
         if (childName != null) {
             if (childType == NODETYPE_TYPEDEF) {
                 classNodes.put(childName, child);
+                typeScopeChanged();
             }
         }
+        if (child instanceof ImportNode)
+            typeScopeChanged();
     }
     
     /**
@@ -156,6 +166,7 @@ public abstract class JavaParentNode extends ParentParsedNode
                 classNodes.remove(oldName);
             }
             classNodes.put(child.getName(), child);
+            typeScopeChanged();
         }
         if (child.getNodeType() == NODETYPE_FIELD) {
             Set<VariableDeclaration> varset = variables.get(oldName);
@@ -179,10 +190,13 @@ public abstract class JavaParentNode extends ParentParsedNode
             NodeStructureListener listener)
     {
         super.childRemoved(child, listener);
+        if (child.getNode() instanceof ImportNode)
+            typeScopeChanged();
         String childName = child.getNode().getName();
         if (childName != null) {
             if (classNodes.get(childName) == child.getNode()) {
                 classNodes.remove(childName);
+                typeScopeChanged();
             }
             Set<VariableDeclaration> varset = variables.get(childName);
             if (varset != null) {

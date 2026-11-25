@@ -170,6 +170,13 @@ editor.title=BlueJ light: Editor
 
 #button lables for toolbar commands
 editor.compileLabel = Compila
+editor.run.label=Esegui
+editor.run.arguments=Esegui con argomenti\u2026
+editor.run.tooltip=Avvia main con un elenco di argomenti vuoto
+light.snippets.description.tostr=Metodo toString() con espressione di ritorno personalizzabile
+editor.run.noMain=Questa classe non dichiara un metodo public static void main(String[]).
+editor.run.changed=Il sorgente \u00e8 cambiato prima dell'avvio. Premi di nuovo Esegui per usare le ultime modifiche.
+editor.run.failed=Impossibile salvare, compilare o avviare la classe. Controlla i messaggi dell'editor.
 editor.undoLabel = Annulla
 editor.cutLabel = Taglia
 editor.copyLabel = Copia

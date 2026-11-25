@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-13. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024,2025  Michael Kolling and John Rosenberg
@@ -2044,6 +2044,25 @@ public class PkgMgrFrame
      */
     protected void callStaticMethodOrConstructor(final CallableView cv)
     {
+        if (checkDebuggerState())
+        {
+            this.reRun.set(null);
+            staticInvoker(cv).invokeInteractive(reRun -> {
+                this.reRun.set(new RerunDetails(cv.getClassName(), reRun));
+            });
+        }
+    }
+
+    /** Invoke an editor launch through the same debugger and result watcher as the class menu. */
+    public void invokeEditorMain(MethodView method, boolean withArguments, FXPlatformSupplier<Boolean> current,
+                                CompletableFuture<Void> finished)
+    {
+        reRun.set(null);
+        staticInvoker(method).invokeEditorMain(withArguments, current, finished);
+    }
+
+    private Invoker staticInvoker(final CallableView cv)
+    {
         ResultWatcher watcher = null;
 
         if (cv instanceof ConstructorView) {
@@ -2136,13 +2155,7 @@ public class PkgMgrFrame
             };
         }
 
-        // create an Invoker to handle the actual invocation
-        if (checkDebuggerState()) {
-            this.reRun.set(null);
-            new Invoker(this, cv, watcher).invokeInteractive(reRun -> {
-                this.reRun.set(new RerunDetails(cv.getClassName(), reRun));
-            });
-        }
+        return new Invoker(this, cv, watcher);
     }
 
     void setReRun(ClassTarget classTarget, FXPlatformRunnable run)

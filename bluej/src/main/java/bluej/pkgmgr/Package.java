@@ -1898,20 +1898,103 @@ public final class Package
     /** Saving can discover new dependencies: the supplier is reevaluated after each write pass. */
     private List<Editor> compilationEditors(ClassTarget requested)
     {
-        List<Editor> editors = new ArrayList<>();
+        return compilationTargets(requested).stream().map(ClassTarget::getEditorIfOpen).filter(Objects::nonNull).toList();
+    }
+
+    private List<ClassTarget> compilationTargets(ClassTarget requested)
+    {
+        List<ClassTarget> dependencyOrder = new ArrayList<>();
         Set<ClassTarget> seen = Collections.newSetFromMap(new IdentityHashMap<>());
         Deque<ClassTarget> queue = new ArrayDeque<>(requested == null ? getClassTargets() : List.of(requested));
         while (!queue.isEmpty())
         {
             ClassTarget target = queue.removeFirst();
             if (!seen.add(target)) continue;
-            Editor sourceEditor = target.getEditorIfOpen();
-            if (sourceEditor != null) editors.add(sourceEditor);
+            dependencyOrder.add(target);
             for (DependentTarget dependency : target.dependencies())
                 if (dependency instanceof ClassTarget next) queue.addLast(next);
             if (target.getAssociation() instanceof ClassTarget associated) queue.addLast(associated);
         }
-        return editors;
+        return dependencyOrder;
+    }
+
+    private enum RunFileStatus { CURRENT, NEEDS_COMPILE, EXTERNAL_EDIT }
+
+    private record RunInput(ClassTarget target, File source, File bytecode, Editor openEditor, long revision, String diskText)
+    {
+        @OnThread(Tag.Any)
+        RunFileStatus inspect(java.nio.charset.Charset charset) throws IOException
+        {
+            if (source != null)
+            {
+                if (!source.isFile()) throw new IOException("Missing compilation input: " + source);
+                if (diskText != null)
+                {
+                    String text = java.nio.file.Files.readString(source.toPath(), charset).replace("\r\n", "\n").replace('\r', '\n');
+                    if (!text.equals(diskText)) return RunFileStatus.EXTERNAL_EDIT;
+                }
+            }
+            return bytecode.isFile() && (source == null || java.nio.file.Files.getLastModifiedTime(bytecode.toPath())
+                .compareTo(java.nio.file.Files.getLastModifiedTime(source.toPath())) >= 0)
+                ? RunFileStatus.CURRENT : RunFileStatus.NEEDS_COMPILE;
+        }
+    }
+
+    /** Save this dependency graph, then check whether its existing bytecode can be reused. */
+    public CompletableFuture<Boolean> currentClassesForRun(ClassTarget target)
+    {
+        CompletableFuture<Boolean> result = new CompletableFuture<>();
+        saveCompilationInputs(() -> compilationEditors(target), CompileType.EXPLICIT_USER_COMPILE)
+            .whenComplete((value, failure) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                if (failure != null) { result.completeExceptionally(failure); return; }
+                if (project.isClosing() || target.getPackage() != this || getTarget(target.getIdentifierName()) != target)
+                { result.cancel(false); return; }
+                List<ClassTarget> graph = compilationTargets(target);
+                List<RunInput> inputs = new ArrayList<>();
+                for (ClassTarget item : graph)
+                {
+                    Editor openEditor = item.getEditorIfOpen();
+                    if (openEditor != null && (openEditor.isModified() || openEditor.hasPendingSave())) { result.cancel(false); return; }
+                    inputs.add(new RunInput(item, item.getSourceFile(), item.getClassFile(), openEditor, editorRevision(item),
+                        openEditor instanceof FlowEditor flow ? flow.getObservedDiskText() : null));
+                }
+                java.nio.charset.Charset charset = project.getProjectCharset();
+                project.getSourceSaveService().submit(() -> {
+                    List<RunFileStatus> states = new ArrayList<>();
+                    for (RunInput input : inputs) states.add(input.inspect(charset));
+                    return states;
+                }).whenComplete((states, error) -> bluej.utility.javafx.FXFuture.run(result, () -> {
+                    if (error != null) { result.completeExceptionally(error); return; }
+                    Set<ClassTarget> live = Sets.newIdentityHashSet();
+                    live.addAll(compilationTargets(target));
+                    if (project.isClosing() || target.getPackage() != this || getTarget(target.getIdentifierName()) != target
+                        || live.size() != graph.size() || !live.containsAll(graph))
+                    { result.cancel(false); return; }
+                    boolean reusable = !hasPendingSourceFileChanges() && !hasActiveCompilations();
+                    for (int i = 0; i < inputs.size(); i++)
+                    {
+                        RunInput input = inputs.get(i);
+                        ClassTarget item = input.target();
+                        Editor openEditor = input.openEditor();
+                        if (item.getPackage() == null || item.getPackage().getTarget(item.getIdentifierName()) != item
+                            || !Objects.equals(input.source(), item.getSourceFile()) || !input.bytecode().equals(item.getClassFile())
+                            || item.getEditorIfOpen() != openEditor || editorRevision(item) != input.revision()
+                            || (openEditor != null && (openEditor.isModified() || openEditor.hasPendingSave())))
+                        { result.cancel(false); return; }
+                        if (states.get(i) == RunFileStatus.EXTERNAL_EDIT)
+                        {
+                            if (openEditor instanceof FlowEditor flow) flow.checkForChangeOnDiskAsync();
+                            result.cancel(false);
+                            return;
+                        }
+                        if (states.get(i) == RunFileStatus.NEEDS_COMPILE && item.isCompiled() && item.hasSourceCode())
+                            item.invalidate();
+                        reusable &= states.get(i) == RunFileStatus.CURRENT && item.isCompiled() && !item.isQueued();
+                    }
+                    result.complete(reusable);
+                }));
+            }));
+        return result;
     }
 
     private static long editorVersion(Editor sourceEditor)

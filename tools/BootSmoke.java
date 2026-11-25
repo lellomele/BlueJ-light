@@ -295,11 +295,19 @@ public class BootSmoke {
         DialogPane browser = waitForBrowser();
         fx(() -> {
             ListView<?> list = (ListView<?>)browser.lookup("#snippet-list");
-            if (list.getItems().size() != 17) throw new AssertionError("Built-in snippet list is incomplete: " + list.getItems().size());
+            if (list.getItems().size() != 18) throw new AssertionError("Built-in snippet list is incomplete: " + list.getItems().size());
             TextField query = (TextField)browser.lookup("#snippet-search");
+            query.setText("tostr");
+            if (list.getItems().size() != 1 || !"tostr".equals(call(list.getItems().getFirst(), "getName")))
+                throw new AssertionError("Missing tostr in the built-in snippet list");
             query.setText("for");
-            if (list.getItems().size() != 2) throw new AssertionError("Snippet filtering failed");
+            java.util.Set<String> matches = new java.util.HashSet<>();
+            for (Object item : list.getItems()) matches.add((String)call(item, "getName"));
+            if (!matches.containsAll(java.util.Set.of("fori", "foreach")) || matches.size() == 18)
+                throw new AssertionError("Snippet filtering failed: " + matches);
             query.setText("fori");
+            if (list.getItems().size() != 1 || !"fori".equals(call(list.getItems().getFirst(), "getName")))
+                throw new AssertionError("Exact snippet search failed");
             query.setText("");
             return null;
         });
@@ -372,7 +380,7 @@ public class BootSmoke {
         }
         DialogPane fromPopup = waitForBrowser();
         fx(() -> {
-            if (((ListView<?>)fromPopup.lookup("#snippet-list")).getItems().size() != 17)
+            if (((ListView<?>)fromPopup.lookup("#snippet-list")).getItems().size() != 18)
                 throw new AssertionError("Palette shortcut from completion failed");
             ((Button)fromPopup.lookupButton(ButtonType.CLOSE)).fire();
             document.getClass().getMethod("replaceText", int.class, int.class, String.class).invoke(document,

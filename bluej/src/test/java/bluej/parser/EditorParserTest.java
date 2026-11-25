@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2013,2014,2019,2022  Michael Kolling and John Rosenberg 
@@ -74,6 +75,100 @@ public class EditorParserTest
         document.enableParser(true);
         document.insertString(0, sourceCode);
         return document.getParser();
+    }
+
+    @Test
+    public void recognisesClassicMainSignatures()
+    {
+        for (String declaration : List.of(
+            "public static void main(String[] args) {}",
+            "static public void main(final java.lang.String... arguments) throws Exception {}",
+            "@Deprecated public static <T> void main(String arguments[]) {}")) {
+            assertTrue(declaration, cuForSource("package demo; class App { " + declaration + " }", "demo").hasMainMethod("App"));
+        }
+        assertTrue(cuForSource("interface App { static void main(String... args) {} }", "").hasMainMethod("App"));
+    }
+
+    @Test
+    public void requiresMainOnTheTargetType()
+    {
+        String main = "public static void main(String[] args) {}";
+        ParsedCUNode unit = cuForSource("class Other { " + main + " } class App extends Other { "
+            + "static class Nested { " + main + " } String text = \"" + main + "\"; /* " + main + " */ }", "");
+        assertFalse(unit.hasMainMethod("App"));
+        assertFalse(unit.hasMainMethod("Nested"));
+        assertFalse(unit.hasMainMethod("Missing"));
+        assertTrue(unit.hasMainMethod("Other"));
+    }
+
+    @Test
+    public void requiresPublicStaticVoidAndExactlyOneStringArray()
+    {
+        for (String declaration : List.of(
+            "private static void main(String[] args) {}",
+            "static void main(String[] args) {}",
+            "public void main(String[] args) {}",
+            "public static int main(String[] args) { return 1; }",
+            "public static void main() {}",
+            "public static void main(String arg) {}",
+            "public static void main(String[][] args) {}",
+            "public static void main(String[] args, int n) {}",
+            "public static void main(Object[] args) {}",
+            "public static void main(Missing[] args) {}",
+            "public static <String> void main(String[] args) {}")) {
+            assertFalse(declaration, cuForSource("class App { " + declaration + " }", "").hasMainMethod("App"));
+        }
+        assertFalse(cuForSource("interface App { private static void main(String[] args) {} }", "").hasMainMethod("App"));
+    }
+
+    @Test
+    public void resolvesTheArrayComponentInItsDeclaringScope()
+    {
+        String simple = "public static void main(String[] args) {}";
+        String qualified = "public static void main(java.lang.String[] args) {}";
+        assertFalse(cuForSource("class String {} class App { " + simple + " }", "").hasMainMethod("App"));
+        assertFalse(cuForSource("class App { " + simple + " static class String {} }", "").hasMainMethod("App"));
+        assertTrue(cuForSource("class App { " + qualified + " static class String {} }", "").hasMainMethod("App"));
+    }
+
+    @Test
+    public void observesIncrementalChangesInTheSignatureAndTypeScope()
+    {
+        String source = "class App {\npublic static void main(String[] args) {}\n}\n";
+        TestableDocument document = new TestableDocument(new PackageResolver(resolver, ""));
+        document.enableParser(true);
+        document.insertString(0, source);
+        assertTrue(document.getParser().hasMainMethod("App"));
+
+        int memberPosition = source.lastIndexOf('}');
+        String member = "static class String {}\n";
+        document.insertString(memberPosition, member);
+        assertFalse(document.getParser().hasMainMethod("App"));
+        document.remove(memberPosition, member.length());
+        assertTrue(document.getParser().hasMainMethod("App"));
+
+        int namePosition = source.indexOf("main");
+        document.insertString(namePosition, "re");
+        assertFalse(document.getParser().hasMainMethod("App"));
+        document.remove(namePosition, 2);
+        assertTrue(document.getParser().hasMainMethod("App"));
+    }
+
+    @Test
+    public void removesOnlyTheDeletedImportDuringIncrementalParsing()
+    {
+        resolver.addCompilationUnit("shadow", cuForSource("package shadow; public class String {}", "shadow"));
+        TestableDocument document = new TestableDocument(new PackageResolver(resolver, ""));
+        document.enableParser(true);
+        String declaration = "import shadow.String;\n";
+        document.insertString(0, "class App { public static void main(String[] args) {} }");
+        assertTrue(document.getParser().hasMainMethod("App"));
+        document.insertString(0, declaration + declaration);
+        assertFalse(document.getParser().hasMainMethod("App"));
+        document.remove(declaration.length(), declaration.length());
+        assertFalse(document.getParser().hasMainMethod("App"));
+        document.remove(0, declaration.length());
+        assertTrue(document.getParser().hasMainMethod("App"));
     }
 
     @Test

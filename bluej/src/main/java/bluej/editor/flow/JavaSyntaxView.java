@@ -94,6 +94,7 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
     public interface ParseCallback { void complete(ParseStatus status); }
 
     private final List<ParseCallback> parsedCallbacks = new ArrayList<>();
+    private ParseCallback parseStatusListener;
     private boolean parseRequestsActive = true;
     private FXPlatformRunnable cancelResizeScopes;
     
@@ -497,6 +498,14 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
         if (parseRequestsActive == active) return;
         parseRequestsActive = active;
         if (!active) notifyParsed(ParseStatus.CANCELLED);
+        else if (parseStatusListener != null && !hasPendingReparse())
+            deliverParsedCallback(parseStatusListener, rootNode == null ? ParseStatus.SUSPENDED : ParseStatus.READY);
+    }
+
+    /** Observe settled revisions in this view without forcing a parse or redraw. */
+    void setParseStatusListener(ParseCallback listener)
+    {
+        parseStatusListener = listener;
     }
 
     private boolean hasPendingReparse()
@@ -516,6 +525,8 @@ public class JavaSyntaxView implements ReparseableDocument, LineDisplayListener
 
     private void notifyParsed(ParseStatus status)
     {
+        if (parseStatusListener != null && (parseRequestsActive || status == ParseStatus.CANCELLED))
+            deliverParsedCallback(parseStatusListener, status);
         if (parsedCallbacks.isEmpty()) return;
         List<ParseCallback> callbacks = new ArrayList<>(parsedCallbacks);
         parsedCallbacks.clear();

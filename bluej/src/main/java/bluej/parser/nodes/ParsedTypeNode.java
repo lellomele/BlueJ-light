@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2011,2013,2014,2019,2022  Michael Kolling and John Rosenberg 
@@ -121,6 +122,7 @@ public class ParsedTypeNode extends IncrementalParsingNode
     public void setTypeParams(List<TparEntity> typeParams)
     {
         this.typeParams = typeParams;
+        typeScopeChanged();
     }
     
     /**

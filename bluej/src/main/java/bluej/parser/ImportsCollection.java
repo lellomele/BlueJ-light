@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2013,2014,2017  Michael Kolling and John Rosenberg 
@@ -49,13 +50,20 @@ public class ImportsCollection
     public static class LocatableImport
     {
         private final JavaEntity javaEntity;
+        private final LocatableToken terminator;
         // Start and end may be -1 if non-applicable
         private final int start; // Position of start of import statement (inclusive)
         private final int end; // Position of end of import statement (exclusive)
 
         public LocatableImport(JavaEntity javaEntity, int start, int end)
         {
+            this(javaEntity, start, end, null);
+        }
+
+        private LocatableImport(JavaEntity javaEntity, int start, int end, LocatableToken terminator)
+        {
             this.javaEntity = javaEntity;
+            this.terminator = terminator;
             this.start = start;
             this.end = end;
         }
@@ -72,7 +80,7 @@ public class ImportsCollection
     }
     
     /** non-wildcard non-static type imports. the entities should resolve to types. */
-    private Map<String, LocatableImport> normalImports;
+    private Map<String, List<LocatableImport>> normalImports;
     /** non-static wildcard imports. The entities should resolve to PackageOrClass */
     private List<LocatableImport> wildcardImports;
     /** static wildcard imports. The entities should resolve to types. */
@@ -106,7 +114,7 @@ public class ImportsCollection
      */
     public void addNormalImport(String name, JavaEntity importEntity, LocatableToken firstToken, LocatableToken lastToken)
     {
-        normalImports.put(name, getLocatableImport(importEntity, firstToken, lastToken));
+        normalImports.computeIfAbsent(name, key -> new ArrayList<>()).add(getLocatableImport(importEntity, firstToken, lastToken));
     }
 
     private static LocatableImport getLocatableImport(JavaEntity importEntity, LocatableToken firstToken, LocatableToken lastToken)
@@ -117,7 +125,23 @@ public class ImportsCollection
             start = firstToken.getPosition();
             end = lastToken.getEndPosition();
         }
-        return new LocatableImport(importEntity, start, end);
+        return new LocatableImport(importEntity, start, end, lastToken);
+    }
+
+    /** Remove exactly the declaration whose syntax node was removed by the incremental parser. */
+    public void removeImport(LocatableToken terminator)
+    {
+        if (terminator == null)
+            return;
+        java.util.function.Predicate<LocatableImport> matches = entry -> entry.terminator == terminator;
+        wildcardImports.removeIf(matches);
+        staticWildcardImports.removeIf(matches);
+        for (Map<String, List<LocatableImport>> imports : List.of(normalImports, staticImports)) {
+            imports.values().removeIf(entries -> {
+                entries.removeIf(matches);
+                return entries.isEmpty();
+            });
+        }
     }
 
     /**
@@ -164,15 +188,14 @@ public class ImportsCollection
      */
     public LocatableImport getImportInfo(String fullTypeName)
     {
-        for (Map.Entry<String, LocatableImport> entry : normalImports.entrySet())
+        for (Map.Entry<String, List<LocatableImport>> entry : normalImports.entrySet())
         {
             // Entry key will be short name, like Color, not fully qualified name
             if (fullTypeName.endsWith(entry.getKey()))
             {
-                if (entry.getValue().javaEntity.getName().equals(fullTypeName))
-                {
-                    return entry.getValue();
-                }
+                for (LocatableImport location : entry.getValue())
+                    if (location.javaEntity.getName().equals(fullTypeName))
+                        return location;
             }
         }
         return null;
@@ -189,9 +212,9 @@ public class ImportsCollection
     public TypeEntity getTypeImport(String name)
     {
         // See if there is a normal import for the given name
-        LocatableImport r = normalImports.get(name);
+        List<LocatableImport> r = normalImports.get(name);
         if (r != null)
-            return r.javaEntity.resolveAsType();
+            return r.getLast().javaEntity.resolveAsType();
         
         // There might be a suitable static import
         List<LocatableImport> l = staticImports.get(name);
@@ -312,10 +335,10 @@ public class ImportsCollection
         String rr = "";
         
         // First process the normal (non-wildcard non-static) imports
-        for (LocatableImport locatableImport : normalImports.values())
+        for (List<LocatableImport> entries : normalImports.values())
         {
             // String importName = ()
-            JavaEntity importEntity = locatableImport.javaEntity;
+            JavaEntity importEntity = entries.getLast().javaEntity;
 
             // build the statement string
             rr += "import ";

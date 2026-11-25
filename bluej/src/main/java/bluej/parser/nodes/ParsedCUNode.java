@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2010,2019  Michael Kolling and John Rosenberg 
@@ -21,8 +22,11 @@
  */
 package bluej.parser.nodes;
 
+import bluej.debugger.gentype.GenTypeClass;
+import bluej.debugger.gentype.JavaType;
 import bluej.debugger.gentype.Reflective;
 import bluej.parser.ImportsCollection;
+import bluej.parser.JavaParser;
 import bluej.parser.entity.EntityResolver;
 import bluej.parser.entity.JavaEntity;
 import bluej.parser.entity.PackageOrClass;
@@ -30,7 +34,9 @@ import bluej.parser.entity.TypeEntity;
 import bluej.parser.nodes.NodeTree.NodeAndPosition;
 import bluej.utility.JavaNames;
 
+import java.lang.reflect.Modifier;
 import java.util.List;
+import java.util.Set;
 
 
 /**
@@ -42,6 +48,21 @@ public class ParsedCUNode extends IncrementalParsingNode
 {
     private final EntityResolver parentResolver;
     private final ImportsCollection imports = new ImportsCollection();
+    private long typeScopeRevision;
+
+    @Override
+    protected void typeScopeChanged()
+    {
+        typeScopeRevision++;
+    }
+
+    @Override
+    protected void childRemoved(NodeAndPosition<ParsedNode> child, NodeStructureListener listener)
+    {
+        if (child.getNode() instanceof ImportNode declaration)
+            imports.removeImport(declaration.getTerminator());
+        super.childRemoved(child, listener);
+    }
 
     private int size = 0;
     
@@ -57,6 +78,41 @@ public class ParsedCUNode extends IncrementalParsingNode
     public ImportsCollection getImports()
     {
         return imports;
+    }
+
+    /**
+     * Checks the existing parse tree for a classic Java entry point declared by
+     * the named top-level type. The caller supplies the simple name of its target.
+     */
+    public boolean hasMainMethod(String simpleClassName)
+    {
+        if (!(getTypeNode(simpleClassName) instanceof ParsedTypeNode type) || type.getInner() == null)
+            return false;
+
+        Set<MethodNode> candidates = type.getInner().getMethods().get("main");
+        if (candidates == null)
+            return false;
+
+        for (MethodNode method : candidates) {
+            int modifiers = method.getModifiers();
+            boolean isPublic = Modifier.isPublic(modifiers)
+                || (type.getTypeKind() == JavaParser.TYPEDEF_INTERFACE && !Modifier.isPrivate(modifiers));
+            if (!isPublic || !Modifier.isStatic(modifiers) || !method.isComplete() || method.getParamTypes().size() != 1)
+                continue;
+
+            // The parser represents void with a primitive type, and varargs as arrays.
+            JavaEntity result = method.getReturnType();
+            if (result == null || result.getType() == null || !result.getType().isVoid())
+                continue;
+
+            method.refreshParameterScope(typeScopeRevision);
+            TypeEntity parameter = method.getParamTypes().get(0).resolveAsType();
+            JavaType component = parameter == null ? null : parameter.getType().getArrayComponent();
+            GenTypeClass componentClass = component == null ? null : component.asClass();
+            if (componentClass != null && "java.lang.String".equals(componentClass.classloaderName()))
+                return true;
+        }
+        return false;
     }
     
     public EntityResolver getParentResolver()

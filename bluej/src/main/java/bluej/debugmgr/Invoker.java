@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2010,2011,2012,2014,2015,2016,2018,2019,2020,2021,2023,2025  Michael Kolling and John Rosenberg
@@ -55,11 +55,13 @@ import bluej.utility.DialogManager;
 import bluej.utility.JavaNames;
 import bluej.utility.Utility;
 import bluej.utility.javafx.FXPlatformConsumer;
+import bluej.utility.javafx.FXPlatformSupplier;
 import bluej.views.CallableView;
 import bluej.views.ConstructorView;
 import bluej.views.MethodView;
 import javafx.application.Platform;
 import javafx.stage.Stage;
+import java.util.concurrent.CompletableFuture;
 import threadchecker.OnThread;
 import threadchecker.Tag;
 
@@ -140,6 +142,37 @@ public class Invoker
     
     /** Whether we've already seen an error from the compiler */
     private boolean gotError;
+    // An editor launch owns its arguments dialog and invocation until the debugger returns.
+    private CompletableFuture<Void> editorMainFinished;
+    private FXPlatformSupplier<Boolean> editorMainCurrent;
+
+    public void invokeEditorMain(boolean withArguments, FXPlatformSupplier<Boolean> current, CompletableFuture<Void> finished)
+    {
+        editorMainFinished = finished;
+        editorMainCurrent = current;
+        if (withArguments)
+        {
+            invokeInteractive(null);
+            final CallDialog arguments = dialog;
+            bluej.utility.javafx.JavaFXUtil.addChangeListenerPlatform(arguments.showingProperty(), showing -> {
+                // On successful submission closeCallDialog detaches the dialog before hiding it.
+                if (!showing && dialog == arguments)
+                {
+                    dialog = null;
+                    pkg.removeListener(this);
+                    finished.complete(null);
+                }
+            });
+            finished.whenComplete((ignored, failure) -> {
+                if (dialog == arguments) arguments.close();
+            });
+        }
+        else
+        {
+            errorListener = (command, error) -> DialogManager.showTextFX(parent, error);
+            invokeDirect(new String[] {"new java.lang.String[0]"});
+        }
+    }
 
     /**
      * Construct an invoker, specifying most attributes manually.
@@ -381,6 +414,11 @@ public class Invoker
     @OnThread(Tag.FXPlatform)
     public void callDialogOK()
     {
+        if (editorMainFinished != null && !editorMainCurrent.get())
+        {
+            editorMainFinished.complete(null);
+            return;
+        }
         dialog.setOKEnabled(false);
         String[] actualTypeParams = dialog.getTypeParams();
         String newInstanceName = dialog.getNewInstanceName();
@@ -1117,6 +1155,14 @@ public class Invoker
     @OnThread(Tag.FXPlatform)
     public synchronized void endCompile(CompileInputFile[] sources, boolean successful, CompileType type, int compilationSequence)
     {
+        // The editor may have changed or closed while arguments were entered or the shell compiled.
+        if (editorMainFinished != null && !editorMainCurrent.get())
+        {
+            watcher.putError("", ir);
+            finishCall(false);
+            editorMainFinished.complete(null);
+            return;
+        }
         if (dialog != null)
         {
             dialog.setWaitCursor(false);
@@ -1146,13 +1192,19 @@ public class Invoker
      */
     private void finishCall(boolean successful)
     {
-        deleteShellFiles();
-
-        if (!successful && dialog != null)
+        try
         {
-            // Re-enable call dialog: use can try again with
-            // different parameters.
-            dialog.setOKEnabled(true);
+            deleteShellFiles();
+
+            if (!successful && dialog != null)
+            {
+                // Re-enable call dialog: user can try again with different parameters.
+                dialog.setOKEnabled(true);
+            }
+        }
+        finally
+        {
+            if (editorMainFinished != null && dialog == null) editorMainFinished.complete(null);
         }
     }
 
@@ -1160,14 +1212,12 @@ public class Invoker
     private void closeCallDialog()
     {
         if (dialog != null) {
-            dialog.setWaitCursor(false);
-            dialog.close();
-            dialog.saveCallHistory();
+            CallDialog submitted = dialog;
             dialog = null;
-        }
-        if (pkg != null)
-        {
-            pkg.addListener(this);
+            submitted.setWaitCursor(false);
+            submitted.close();
+            submitted.saveCallHistory();
+            if (pkg != null) pkg.removeListener(this);
         }
     }
 
@@ -1224,6 +1274,13 @@ public class Invoker
                 }
                 catch (Throwable e) {
                     e.printStackTrace(System.err);
+                    Platform.runLater(() -> {
+                        if (editorMainFinished != null)
+                        {
+                            watcher.putError(e.toString(), ir);
+                            finishCall(false);
+                        }
+                    });
                 }
             }
         }.start();
@@ -1314,6 +1371,7 @@ public class Invoker
     @Override
     public void graphClosed()
     {
+        if (editorMainFinished != null) editorMainFinished.complete(null);
         closeCallDialog();
     }
     

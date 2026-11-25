@@ -1,4 +1,4 @@
-/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-08. GNU GPLv2 with Classpath Exception; original notices retained. */
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GNU GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2012,2013,2014,2016,2017,2018,2020,2021,2022,2023  Michael Kolling and John Rosenberg
@@ -24,6 +24,7 @@ package bluej.editor;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import bluej.collect.DiagnosticWithShown;
 import bluej.compiler.CompileReason;
@@ -96,6 +97,12 @@ public interface EditorWatcher
      * @param type      The type of compilation, used to decide whether to keep or discard the generated .class files.
      */
     public void scheduleCompilation(boolean immediate, CompileReason reason, CompileType type);
+
+    /** Run the editor's main method, optionally opening the standard arguments dialog. */
+    default CompletableFuture<Void> runMain(Editor sourceEditor, boolean withArguments)
+    {
+        return CompletableFuture.completedFuture(null);
+    }
 
     /**
      * Records an edit to Java code.

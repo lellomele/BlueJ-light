@@ -1,3 +1,4 @@
+/* BlueJ light modifications, Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-24. GPLv2 with Classpath Exception; original notices retained. */
 /*
  This file is part of the BlueJ program. 
  Copyright (C) 1999-2009,2011,2019,2020,2022,2024  Michael Kolling and John Rosenberg
@@ -55,6 +56,20 @@ public class MethodNode extends JavaParentNode
     private List<TparEntity> typeParams = null;
     private boolean isVarArgs = false;
     private int modifiers = 0;
+    private long parameterScopeRevision = -1;
+
+    /**
+     * Refresh type lookup along this declaration's enclosing scopes after a type
+     * or import changes. Editing a method body can reuse the cached resolutions.
+     */
+    void refreshParameterScope(long revision)
+    {
+        if (parameterScopeRevision != revision) {
+            for (JavaParentNode scope = this; scope != null; scope = scope.parentNode)
+                scope.pocEntityCache.clear();
+            parameterScopeRevision = revision;
+        }
+    }
     
     /**
      * Construct a MethodNode representing a constructor or method.

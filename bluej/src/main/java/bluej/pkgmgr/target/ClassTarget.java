@@ -29,6 +29,7 @@ import bluej.compiler.CompileInputFile;
 import bluej.compiler.CompileReason;
 import bluej.compiler.CompileType;
 import bluej.compiler.Diagnostic;
+import bluej.compiler.FXCompileObserver;
 import bluej.debugger.*;
 import bluej.debugger.gentype.Reflective;
 import bluej.debugmgr.objectbench.InvokeListener;
@@ -68,6 +69,7 @@ import bluej.utility.*;
 import bluej.utility.javafx.*;
 import bluej.views.ConstructorView;
 import bluej.views.MethodView;
+import bluej.views.View;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
@@ -137,6 +139,7 @@ public class ClassTarget extends DependentTarget
     private FlowEditor removalEditor;
     private boolean reopenAfterRemovalFailure;
     private CompletableFuture<Integer> pendingPackageQuestion;
+    private CompletableFuture<Void> pendingMain;
 
     // the role object represents the changing roles that are class
     // target can have ie changing from applet to an interface etc
@@ -1492,7 +1495,11 @@ public class ClassTarget extends DependentTarget
     }
 
     @Override public void closeEvent(Editor sourceEditor)
-    { if (sourceEditor == editor && pendingPackageQuestion != null) pendingPackageQuestion.cancel(false); }
+    {
+        if (sourceEditor != editor) return;
+        if (pendingPackageQuestion != null) pendingPackageQuestion.cancel(false);
+        if (pendingMain != null) pendingMain.complete(null);
+    }
 
     private CompletableFuture<Void> renameClassAsync(FlowEditor flow, bluej.light.SourceSaveService.Snapshot saved, String newName)
     {
@@ -1673,6 +1680,90 @@ public class ClassTarget extends DependentTarget
         {
             getPackage().getProject().scheduleCompilation(immediate, reason, type, this);
         }
+    }
+
+    @Override
+    public CompletableFuture<Void> runMain(Editor sourceEditor, boolean withArguments)
+    {
+        if (pendingMain != null) return pendingMain;
+        Package pkg = getPackage();
+        PkgMgrFrame frame = pkg == null ? null : PkgMgrFrame.findFrame(pkg);
+        if (frame == null || sourceEditor != editor || !sourceEditor.isOpen() || !hasSourceCode()
+            || pkg.getProject().isClosing() || !checkDebuggerState())
+            return CompletableFuture.completedFuture(null);
+
+        long revision = sourceEditor.getContentRevision();
+        CompletableFuture<Void> finished = new CompletableFuture<>();
+        pendingMain = finished;
+        finished.whenComplete((ignored, failure) -> {
+            if (pendingMain == finished) pendingMain = null;
+        });
+        FXPlatformSupplier<Boolean> current = () -> {
+            if (finished.isDone() || getPackage() != pkg || frame.getPackage() != pkg || pkg.getProject().isClosing()
+                || pkg.getTarget(getIdentifierName()) != this || sourceEditor != editor || !sourceEditor.isOpen())
+                return false;
+            if (sourceEditor.getContentRevision() != revision || sourceEditor.getSavedRevision() != revision
+                || sourceEditor.isModified() || sourceEditor.hasPendingSave() || !isCompiled())
+            {
+                sourceEditor.writeMessage(Config.getString("editor.run.changed"));
+                return false;
+            }
+            return pkg.isDebuggerIdle();
+        };
+        FXCompileObserver observer = new FXCompileObserver() {
+            // A package compilation may retry a subset of its sources and notify us again.
+            private boolean receivedResult;
+
+            @Override public void startCompile(CompileInputFile[] sources, CompileReason reason, CompileType type, int sequence) { }
+            @Override public boolean compilerMessage(Diagnostic diagnostic, CompileType type) { return false; }
+            @Override public void endCompile(CompileInputFile[] sources, boolean success, CompileType type, int sequence)
+            {
+                if (receivedResult || finished.isDone()) return;
+                receivedResult = true;
+                try
+                {
+                    if (success && type.keepClasses() && current.get())
+                    {
+                        Class<?> cls = pkg.loadClass(getQualifiedName());
+                        if (cls != null && Package.checkClassMatchesFile(cls, getClassFile()))
+                        {
+                            for (MethodView method : View.getView(cls).getDeclaredMethods())
+                            {
+                                if (method != null && method.isMain())
+                                {
+                                    frame.invokeEditorMain(method, withArguments, current, finished);
+                                    return;
+                                }
+                            }
+                            sourceEditor.writeMessage(Config.getString("editor.run.noMain"));
+                        }
+                        else sourceEditor.writeMessage(Config.getString("editor.run.failed"));
+                    }
+                    else if (!success && sourceEditor == editor && sourceEditor.isOpen() && !hasKnownError())
+                        sourceEditor.writeMessage(Config.getString("editor.run.failed"));
+                }
+                catch (RuntimeException | LinkageError failure)
+                {
+                    sourceEditor.writeMessage(Config.getString("editor.run.failed"));
+                    Debug.reportError("Cannot launch main", failure);
+                }
+                finished.complete(null);
+            }
+        };
+        pkg.currentClassesForRun(this).whenComplete((reusable, failure) -> FXFuture.run(finished, () -> {
+            if (failure != null || sourceEditor.getContentRevision() != revision || getPackage() != pkg
+                || sourceEditor != editor || !sourceEditor.isOpen() || pkg.getProject().isClosing())
+            {
+                if (sourceEditor == editor && sourceEditor.isOpen())
+                    sourceEditor.writeMessage(Config.getString(failure != null && !(failure instanceof java.util.concurrent.CancellationException)
+                        ? "editor.run.failed" : "editor.run.changed"));
+                finished.complete(null);
+                return;
+            }
+            if (reusable) observer.endCompile(new CompileInputFile[0], true, CompileType.EXPLICIT_USER_COMPILE, -1);
+            else pkg.compile(this, false, observer, CompileReason.INVOKE, CompileType.EXPLICIT_USER_COMPILE);
+        }));
+        return finished;
     }
 
     /**
