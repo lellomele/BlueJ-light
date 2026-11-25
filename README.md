@@ -4,7 +4,7 @@
 
 An independent Java IDE based on BlueJ 5.5.0, with an optimized editor,
 code completion, searchable snippets, automatic class-diagram layout and
-an integrated JDK selector and teaching tools. Current version: **5.7.3-light**.
+an integrated JDK selector and teaching tools. Current version: **5.7.4-light**.
 This is not an official BlueJ release.
 
 ## What Changes In Light
@@ -14,8 +14,8 @@ Compared with BlueJ 5.5.0, light focuses on local Java editing and compilation.
 | Area | Improvement |
 | --- | --- |
 | Editor | Incremental text updates, cached line widths and scope decorations grouped during opening/editing reduce unnecessary work. Only visible rows are decorated; search highlights remain visible after scrolling. |
-| Completion | Keeps BlueJ's native Java engine; prioritizes local variables and parameters, reuses the suggestion window and caches signature text without caching resolved members. Stale requests are discarded and documentation loads on demand. |
-| Snippets | 17 configurable templates, searchable previews, context filters and linked fields navigated with `Tab`. A help catalogue lists the available templates. |
+| Completion | `Ctrl+Space` suggests class members, local names, Java keywords and project types, including uncompiled classes. Suggestions open at the caret. If you type, move the caret or switch tabs while a request is pending, the editor discards the old completion. |
+| Snippets | 18 built-in snippets, searchable previews, context filters and linked fields navigated with `Tab`. A help catalogue lists the available snippets. |
 | Class diagram | ELK-based layout repositions classes and routes visible connections to reduce overlaps and crossings, with undo/redo. |
 | Java runtime | Select any compatible installed JDK 21 x64 in Preferences, including a return to the bundled JDK; apply the choice at restart. |
 | Portable use | Preferences, snippets and JDK selection stay in the application's `data` folder. |
@@ -47,7 +47,9 @@ Open a BlueJ project and double-click a class to edit it.
 | Action | Location or shortcut |
 | --- | --- |
 | Code completion | `Ctrl+Space` |
+| Run the class's `main(String[] args)` | Click **Run** beside **Compile** to pass an empty array, or open its arrow and choose **Run with arguments…**. Run is disabled for classes without a valid `main`. |
 | Search snippets | Tools > Browse Java Snippets; `Ctrl+Shift+Space` |
+| Insert `toString()` | Type `tostr` between class members, press `Ctrl+Space` and select the snippet. Replace the selected `""` with the Java expression you want to display. |
 | Format Java code | Edit > Format Java Code; `Ctrl+Shift+I` |
 | Snippet catalogue | Help > Java Snippets |
 | Snippet fields | `Tab` / `Shift+Tab`; `Esc` to finish |

@@ -4,7 +4,7 @@
 
 Ambiente Java indipendente basato su BlueJ 5.5.0, con editor ottimizzato,
 completamento automatico, snippet ricercabili, riordino del diagramma delle
-classi, selettore JDK integrato e strumenti didattici. Versione attuale: **5.7.3-light**.
+classi, selettore JDK integrato e strumenti didattici. Versione attuale: **5.7.4-light**.
 Non è una release ufficiale di BlueJ.
 
 ## Cosa Cambia In Light
@@ -14,8 +14,8 @@ Rispetto a BlueJ 5.5.0, light privilegia editing e compilazione Java su progetti
 | Area | Miglioramento |
 | --- | --- |
 | Editor | Aggiornamenti incrementali del testo, cache delle larghezze e riquadri aggiornati in gruppo durante apertura ed editing riducono il lavoro superfluo. Sono decorate solo le righe visibili; la ricerca rimane evidenziata dopo lo scroll. |
-| Completamento | Mantiene il motore Java nativo BlueJ; dà priorità a variabili locali e parametri, riutilizza la finestra dei suggerimenti e conserva le firme testuali senza memorizzare i membri risolti. Scarta richieste obsolete e carica la documentazione quando serve. |
-| Snippet | 17 modelli configurabili, ricerca con anteprima, filtri per contesto e campi collegati navigabili con `Tab`. Un catalogo di aiuto elenca i modelli disponibili. |
+| Completamento | `Ctrl+Spazio` propone membri della classe, nomi locali, parole chiave Java e tipi del progetto, anche prima della compilazione. I suggerimenti si aprono al cursore. Se nel frattempo scrivi, sposti il cursore o cambi scheda, l’editor scarta la richiesta superata. |
+| Snippet | 18 snippet integrati, ricerca con anteprima, filtri per contesto e campi collegati navigabili con `Tab`. Un catalogo di aiuto elenca gli snippet disponibili. |
 | Diagramma delle classi | Il riordino basato su ELK riposiziona le classi e instrada i collegamenti visibili per ridurre sovrapposizioni e incroci, con annullamento e ripristino. |
 | Ambiente Java | Scelta di un JDK 21 x64 compatibile dalle preferenze, anche tornando a quello incluso; la modifica si applica al riavvio. |
 | Uso portable | Preferenze, snippet e scelta del JDK restano nella cartella `data` dell'applicazione. |
@@ -48,7 +48,9 @@ Aprire un progetto BlueJ e fare doppio clic su una classe per modificarla.
 | Operazione | Comando o scorciatoia |
 | --- | --- |
 | Completamento automatico | `Ctrl+Spazio` |
+| Avvio di `main(String[] args)` | Premi **Esegui** accanto a **Compila** per passare un array vuoto, oppure apri la freccia e scegli **Esegui con argomenti…**. Il pulsante è disabilitato nelle classi senza un `main` valido. |
 | Ricerca snippet | Strumenti > Sfoglia snippet Java; `Ctrl+Shift+Spazio` |
+| Inserimento di `toString()` | Scrivi `tostr` tra i membri della classe, premi `Ctrl+Spazio` e seleziona lo snippet. Sostituisci le virgolette selezionate (`""`) con l’espressione Java da visualizzare. |
 | Formattazione Java | Modifica > Formatta codice Java; `Ctrl+Shift+I` |
 | Catalogo snippet | Aiuto > Snippet Java |
 | Campi degli snippet | `Tab` / `Shift+Tab`; `Esc` per terminare |
