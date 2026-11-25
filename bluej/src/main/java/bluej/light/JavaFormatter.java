@@ -1,4 +1,4 @@
-/* Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-10-11. GPLv2 with Classpath Exception. */
+/* Copyright (C) 2026 Prof. Ing. Raffaele Mele. Modified 2026-11-25. GPLv2 with Classpath Exception. */
 package bluej.light;
 
 import bluej.parser.lexer.JavaLexer;
@@ -58,7 +58,7 @@ public final class JavaFormatter
             // Keep the editor's original final-newline convention.
             if (!source.endsWith("\n") && formatted.endsWith("\n")) formatted = formatted.substring(0, formatted.length() - 1);
             if (source.endsWith("\n") && !formatted.endsWith("\n")) formatted += "\n";
-            return verified(source, formatted, caret);
+            return verified(source, before, formatted, caret);
         }
         finally
         {
@@ -69,27 +69,98 @@ public final class JavaFormatter
 
     public static Result verified(String source, String formatted, int caret) throws IOException
     {
-        List<LocatableToken> before = tokens(source), after = tokens(formatted);
-        if (before.size() != after.size()) throw new IOException("Formatting changed Java tokens");
-        int mapped = Math.min(caret, formatted.length()); boolean positioned = false;
+        return verified(source, tokens(source), formatted, caret);
+    }
+
+    private static Result verified(String source, List<LocatableToken> before, String formatted, int caret) throws IOException
+    {
+        List<LocatableToken> after = tokens(formatted);
+        StringBuilder checked = new StringBuilder(formatted.length());
+        int previousEnd = 0;
+        int mapped = -1;
+        boolean rebuiltComment = false;
         for (int i = 0; i < before.size(); i++)
         {
+            if (i >= after.size()) throw changedToken(before.get(i));
             LocatableToken a = before.get(i), b = after.get(i);
-            if (a.getType() != b.getType() || !Objects.equals(text(a), text(b))) throw new IOException("Formatting changed Java tokens");
-            if (!positioned && caret < a.getEndPosition())
-            {
-                mapped = b.getPosition() + Math.max(0, Math.min(caret - a.getPosition(), b.getLength())); positioned = true;
+            if (a.getType() != b.getType()) throw changedToken(a);
+            checked.append(formatted, previousEnd, b.getPosition());
+            int start = checked.length();
+            if (a.getLength() == b.getLength() && source.regionMatches(a.getPosition(), formatted, b.getPosition(), a.getLength())
+                && Objects.equals(a.getText(), b.getText()))
+                checked.append(source, a.getPosition(), a.getEndPosition());
+            else if (a.getType() == JavaTokenTypes.ML_COMMENT || a.getType() == JavaTokenTypes.SL_COMMENT) {
+                appendComment(checked, a, source.substring(a.getPosition(), a.getEndPosition()),
+                    formatted.substring(b.getPosition(), b.getEndPosition()));
+                rebuiltComment = true;
             }
+            else
+                throw changedToken(a);
+            if (mapped < 0 && caret < a.getEndPosition())
+                mapped = start + Math.clamp(caret - a.getPosition(), 0, checked.length() - start);
+            previousEnd = b.getEndPosition();
         }
-        if (caret >= source.length()) mapped = formatted.length();
-        return new Result(formatted, mapped);
+        if (after.size() > before.size())
+            throw new IOException("Formatting introduced a Java token at output line " + after.get(before.size()).getLine());
+        checked.append(formatted, previousEnd, formatted.length());
+        if (mapped < 0) mapped = caret >= source.length() ? checked.length() : Math.min(caret, checked.length());
+        String result = checked.toString();
+        if (rebuiltComment) verifyRebuiltTokens(before, result);
+        return new Result(result, mapped);
     }
-    private static String text(LocatableToken token)
+
+    // Verify what will actually reach the editor, after restoring the comment margins.
+    private static void verifyRebuiltTokens(List<LocatableToken> before, String result) throws IOException
     {
-        String value = token.getText();
-        if (token.getType() == JavaTokenTypes.ML_COMMENT)
-            return value.lines().map(String::stripLeading).collect(java.util.stream.Collectors.joining("\n"));
-        return value;
+        List<LocatableToken> after = tokens(result);
+        if (before.size() != after.size()) throw new IOException("Comment restoration changed the Java token count");
+        for (int i = 0; i < before.size(); i++) {
+            LocatableToken a = before.get(i), b = after.get(i);
+            if (a.getType() != b.getType()) throw changedToken(a);
+            if (Objects.equals(a.getText(), b.getText())) continue;
+            if (a.getType() != JavaTokenTypes.ML_COMMENT
+                || !a.getText().lines().map(String::stripLeading).toList().equals(b.getText().lines().map(String::stripLeading).toList()))
+                throw changedToken(a);
+        }
+    }
+
+    private static IOException changedToken(LocatableToken token)
+    {
+        return new IOException("Formatting changed Java tokens at source line " + token.getLine() + ", column " + token.getColumn());
+    }
+
+    // AStyle trims comment lines, even inside Javadoc. Keep the original right
+    // margin (including Markdown hard breaks), allowing only block-comment reindentation.
+    private static void appendComment(StringBuilder checked, LocatableToken token, String original, String formatted) throws IOException
+    {
+        String[] oldLines = original.split("\n", -1);
+        String[] newLines = formatted.split("\n", -1);
+        if (oldLines.length != newLines.length) throw changedToken(token);
+        for (int i = 0; i < oldLines.length; i++) {
+            String oldLine = oldLines[i], newLine = newLines[i];
+            int oldEnd = paddingStart(oldLine), newEnd = paddingStart(newLine);
+            int oldStart = 0, newStart = 0;
+            if (token.getType() == JavaTokenTypes.ML_COMMENT) {
+                while (oldStart < oldEnd && horizontalSpace(oldLine.charAt(oldStart))) oldStart++;
+                while (newStart < newEnd && horizontalSpace(newLine.charAt(newStart))) newStart++;
+            }
+            if (oldEnd - oldStart != newEnd - newStart || !oldLine.regionMatches(oldStart, newLine, newStart, oldEnd - oldStart))
+                throw changedToken(token);
+            if (i > 0) checked.append('\n');
+            checked.append(newLine, 0, newEnd).append(oldLine, oldEnd, oldLine.length());
+        }
+    }
+
+    private static int paddingStart(String line)
+    {
+        int end = line.endsWith("\r") ? line.length() - 1 : line.length();
+        while (end > 0 && horizontalSpace(line.charAt(end - 1))) end--;
+        return end;
+    }
+
+    private static boolean horizontalSpace(char ch)
+    {
+        return ch == ' ' || ch == '\t';
     }
     // The lexer has no UI calls: a fresh lexer/reader is confined to this worker.
     // Its only shared data is the keyword table, populated during class initialization.
@@ -98,11 +169,27 @@ public final class JavaFormatter
     {
         JavaLexer lexer = new JavaLexer(new StringReader(text), true, true);
         List<LocatableToken> result = new ArrayList<>(); LocatableToken token;
+        int end = 0;
         while ((token = lexer.nextToken()).getType() != JavaTokenTypes.EOF)
         {
-            if (token.getPosition() < 0 || token.getEndPosition() > text.length()) throw new IOException("Invalid Java token range");
+            if (token.getPosition() < end || token.getEndPosition() <= token.getPosition() || token.getEndPosition() > text.length())
+                throw new IOException("Invalid Java token range at line " + token.getLine());
+            checkGap(text, end, token.getPosition());
             result.add(token);
+            end = token.getEndPosition();
         }
+        checkGap(text, end, text.length());
         return result;
+    }
+
+    // Only literal Java whitespace may be copied from outside the verified tokens.
+    // In particular, decline formatting if an escape makes the lexer's offsets unreliable.
+    private static void checkGap(String text, int start, int end) throws IOException
+    {
+        for (int i = start; i < end; i++) {
+            char c = text.charAt(i);
+            if (!horizontalSpace(c) && c != '\r' && c != '\n' && c != '\f')
+                throw new IOException("Unverified text between Java tokens at offset " + i);
+        }
     }
 }

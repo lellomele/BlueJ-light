@@ -48,4 +48,44 @@ public class TestJavaFormatter
         assertThrows(java.io.IOException.class, () -> JavaFormatter.verified("class X { String s=\" a \"; }", "class X { String s=\"a\"; }", 0));
         assertThrows(java.io.IOException.class, () -> JavaFormatter.verified("class X {} // keep", "class X {} // changed", 0));
     }
+
+    @Test public void formatsAroundJavadocWithoutLosingLinePadding() throws Exception
+    {
+        String doc = "/**\n * \n * @author (il tuo nome) \n * hard break  \n */";
+        String source = doc + "\nclass Demo{int f(){return 1;}}";
+        var result = JavaFormatter.format(formatter(), source, source.indexOf("return"));
+        assertTrue(result.text().startsWith(doc + "\n"));
+        assertTrue(result.text().contains("    int f()\n    {\n        return 1;"));
+        assertEquals(result.text().indexOf("return"), result.caret());
+        assertEquals(result.text(), JavaFormatter.format(formatter(), result.text(), 0).text());
+    }
+
+    @Test public void preservesCommentPaddingBeforeCodeAndAtEndOfFile() throws Exception
+    {
+        String source = "class A { // keep \t \n /* details\t \n  * value  \n  */ int x; } // end  ";
+        String formatted = "class A\n{\n    // keep\n    /* details\n     * value\n     */ int x;\n} // end";
+        String expected = "class A\n{\n    // keep \t \n    /* details\t \n     * value  \n     */ int x;\n} // end  ";
+        var result = JavaFormatter.verified(source, formatted, source.indexOf("int x"));
+        assertEquals(expected, result.text());
+        assertEquals(expected.indexOf("int x"), result.caret());
+    }
+
+    @Test public void rejectsSubstantiveChangesEvenBesidePaddedComments()
+    {
+        String source = "/** first  word  \n * second\n */ class A { int n=1+2; }";
+        String trimmed = source.replace("word  \n", "word\n");
+        for (String unsafe : new String[] {trimmed.replace("first  word", "first word"),
+                trimmed.replace("second", "changed"), trimmed.replace(" * second\n", ""),
+                trimmed.replace("1+2", "1-2"), trimmed.replace("+2", "")}) {
+            assertThrows(java.io.IOException.class, () -> JavaFormatter.verified(source, unsafe, 0));
+        }
+        String escaped = "\\" + "u0041";
+        assertThrows(java.io.IOException.class, () -> JavaFormatter.verified("class " + escaped + " {}", "class A {}", 0));
+    }
+
+    @Test public void rejectsChangesAfterAnEscapedNameInASubtraction()
+    {
+        String source = "class A {int x=foo-\\" + "u0061; int z=3;}";
+        assertThrows(java.io.IOException.class, () -> JavaFormatter.verified(source, source.replace("z=3", "z=4"), 0));
+    }
 }
